@@ -1,0 +1,84 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: body-routing-with-failover
+  description: |
+    Body-based model routing for chat completions behind a single /chat route.
+
+    - An EnterpriseAgentgatewayPolicy (PreRouting) extracts the `model` field from the request body and sets it as the X-Gateway-Model-Name header
+    - HTTPRoute rules match on that header to route to the correct backend
+    - Vertex AI and local Ollama each have their own AgentgatewayBackend
+    - No fallback models configured — unrecognized model names receive a 404
+  references:
+    - https://docs.solo.io/agentgateway/latest/reference/api/solo/#enterpriseagentgatewaypolicyspec
+spec:
+  diagram: |
+    sequenceDiagram
+      participant Client
+      participant AGW as agentgateway
+      participant VA as Vertex AI
+      participant OL as Ollama
+      Client->>AGW: POST body model=google/gemini-2.5-flash
+      AGW->>VA: route by model name (regex match)
+      VA-->>AGW: upstream error (5xx/timeout)
+      AGW->>OL: failover to Ollama
+      OL-->>Client: response
+      Client->>AGW: POST body model=llama3
+      AGW->>OL: route by model name
+      OL-->>Client: response
+
+  features:
+    - name: providers
+      config:
+        pathPrefix: /chat
+        bodyRouting: true
+        providers:
+          - name: vertex-ai
+            providerName: vertex-ai
+            model: google/gemini-2.5-flash
+            policies:
+              auth:
+                secretRef:
+                  name: vertex-ai-secret
+          - name: local-ollama
+            providerName: openai-compatible
+            model: llama3
+            #host: host.minikube.internal
+            host: 192.168.162.8
+            port: 11434
+            path:
+              full: /v1/chat/completions
+
+  tests:
+    - name: test-vertex-gemini-flash
+      description: Call with google/gemini-2.5-flash → exact match → Vertex AI
+      steps:
+        - action: send-request
+          endpoint: /chat
+          model: google/gemini-2.5-flash
+          prompt: 'What is Kubernetes?'
+        - action: verify
+          expect:
+            status: success
+
+    - name: test-local-via-model
+      description: Call single endpoint with local model in body → routed to Ollama backend
+      steps:
+        - action: send-request
+          endpoint: /chat
+          model: llama3
+          prompt: 'Say hello in one word.'
+        - action: verify
+          expect:
+            status: success
+
+    - name: test-unknown-model-rejected
+      description: Unknown model has no matching route rule → gateway returns 404
+      steps:
+        - action: send-request
+          endpoint: /chat
+          model: unknown-model-not-configured
+          prompt: 'Hello'
+        - action: verify
+          expect:
+            statusCode: 404

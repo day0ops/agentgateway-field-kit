@@ -1,0 +1,21 @@
+# Default Gateway referenced by HTTPRoutes when no "gateway" feature overrides it.
+# Applied by: base install / base install-local (installProxy). Use case dry-run includes this when gateway is not overridden.
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: agentgateway
+  namespace: agentgateway-system
+  labels:
+    app: agentgateway
+spec:
+  gatewayClassName: enterprise-agentgateway
+  allowedListeners:
+    namespaces:
+      from: All
+  listeners:
+    - name: http
+      port: 8080
+      protocol: HTTP
+      allowedRoutes:
+        namespaces:
+          from: All

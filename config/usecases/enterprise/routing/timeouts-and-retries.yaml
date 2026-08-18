@@ -1,0 +1,87 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: timeouts-and-retries
+  description: |
+    Configure request timeouts and retry policies on a route.
+
+    - EnterpriseAgentgatewayPolicy (spec.traffic.timeouts) bounds how long a single attempt may take; without a retry policy, one failed attempt is a failed request
+    - EnterpriseAgentgatewayPolicy (spec.traffic.retry) retries on 503s instead, so a transient backend outage doesn't fail the request on the first attempt
+    - Scaling the shared mock backend to zero replicas simulates an outage for both routes
+    - Both routes share the same mock-provider backend (llm-d-inference-sim)
+  docs: https://docs.solo.io/agentgateway/latest/traffic-management/timeouts-and-retries/
+
+spec:
+  diagram: |
+    sequenceDiagram
+      participant Client
+      participant AGW as agentgateway
+      participant Mock as Mock OpenAI Server
+      Note over Mock: scaled to 0 replicas
+      Client->>AGW: request to /timeout-demo (timeout only, no retry)
+      AGW-->>Client: error on first failed attempt
+      Client->>AGW: request to /retry-demo (retry: 5 attempts)
+      AGW->>Mock: attempt 1..5, all fail
+      AGW-->>Client: error after retries exhausted
+
+  features:
+    - name: mock-provider
+      config:
+        name: mock-openai
+        model: mock-gpt-4o
+        routeName: timeout-demo
+        pathPrefix: /timeout-demo
+
+    - name: mock-provider
+      config:
+        name: mock-openai
+        model: mock-gpt-4o
+        routeName: retry-demo
+        pathPrefix: /retry-demo
+
+    - name: traffic-policy
+      config:
+        targetRef:
+          name: timeout-demo
+        timeouts:
+          request: 500ms
+
+    - name: traffic-policy
+      config:
+        targetRef:
+          name: retry-demo
+        timeouts:
+          request: 500ms
+        retry:
+          attempts: 5
+          backoff: 200ms
+          codes: [503]
+
+  tests:
+    - name: test-timeout-and-retry-policies-against-down-backend
+      description: |
+        With the mock backend at zero replicas, the no-retry route fails on the first attempt while the retry route exhausts its attempts before erroring
+      setup:
+        - action: scale-deployment
+          name: mock-openai
+          replicas: 0
+        - action: wait
+          duration: 3000
+      teardown:
+        - action: scale-deployment
+          name: mock-openai
+          replicas: 1
+      steps:
+        - action: send-request
+          endpoint: /timeout-demo
+          prompt: 'Hello, how are you?'
+        - action: verify
+          expect:
+            status: error
+        - action: send-request
+          endpoint: /retry-demo
+          prompt: 'Hello, how are you?'
+          timeout: 20000
+        - action: verify
+          expect:
+            status: error

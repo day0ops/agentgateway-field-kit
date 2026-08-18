@@ -1,0 +1,52 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: ollama-provider
+  description: |
+    Route requests to a local Ollama (Llama 3) instance via the openai-compatible provider.
+
+    - Provider type: openai-compatible targeting host.minikube.internal:11434
+    - Translates OpenAI-format requests to the Ollama /v1/chat/completions endpoint
+    - Exposed at /ollama behind a single AgentgatewayBackend
+  docs: https://kgateway.dev/docs/latest/agentgateway/llm/providers/
+
+spec:
+  diagram: |
+    flowchart LR
+      Client --> AGW[agentgateway]
+      AGW --> Ollama[Ollama llama3]
+
+  features:
+    - name: providers
+      config:
+        providers:
+          - name: ollama
+            providerName: openai-compatible
+            pathPrefix: /ollama
+            model: llama3
+            host: host.minikube.internal
+            port: 11434
+            path:
+              full: /v1/chat/completions
+
+  tests:
+    - name: test-ollama-greeting
+      description: Test Ollama Llama 3 with a greeting
+      steps:
+        - action: send-request
+          endpoint: /ollama
+          prompt: 'Hello, how are you?'
+        - action: verify
+          expect:
+            status: success
+
+    - name: test-ollama-provider
+      description: Test simple Ollama Llama 3 LLM call
+      steps:
+        - action: send-request
+          endpoint: /ollama
+          prompt: 'What is 2+2?'
+        - action: verify
+          expect:
+            status: success
+            contains: '4'

@@ -1,0 +1,102 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: openapi-to-mcp
+  description: |
+    Turns a plain REST API's OpenAPI schema into callable MCP tools, with no changes needed on the REST API itself.
+  docs: https://docs.solo.io/agentgateway/2026.7.1/mcp/openapi/
+
+spec:
+  diagram: |
+    sequenceDiagram
+      participant Agent
+      participant AGW as agentgateway (protocol: OpenAPI)
+      participant API as petstore3.swagger.io (REST)
+      Agent->>AGW: MCP tools/list
+      AGW-->>Agent: getPetById, findPetsByStatus (from OpenAPI schema)
+      Agent->>AGW: MCP tools/call getPetById(petId=1)
+      AGW->>API: GET /api/v3/pet/1 (TLS)
+      API-->>AGW: JSON response
+      AGW-->>Agent: tool result
+  steps:
+    - title: Expose the Petstore REST API as MCP tools
+      description: |
+        Create an EnterpriseAgentgatewayBackend with a static target pointing at the public Petstore v3 REST API, converting two of its operations into MCP tools via an OpenAPI schema ConfigMap. Connects over TLS.
+      features:
+        - name: mcp-enterprise
+          config:
+            backendName: petstore-openapi-backend
+            routeName: mcp-petstore
+            pathPrefix: /mcp-petstore
+            tls:
+              sni: petstore3.swagger.io
+            targets:
+              - name: petstore
+                host: petstore3.swagger.io
+                port: 443
+                openAPI:
+                  schemaConfigMapName: petstore-openapi-schema
+                  schema:
+                    openapi: 3.0.0
+                    info:
+                      title: Swagger Petstore
+                      version: 1.0.0
+                    servers:
+                      - url: /
+                    paths:
+                      /api/v3/pet/{petId}:
+                        get:
+                          operationId: getPetById
+                          summary: Find pet by ID
+                          parameters:
+                            - name: petId
+                              in: path
+                              required: true
+                              schema:
+                                type: integer
+                          responses:
+                            '200':
+                              description: successful operation
+                      /api/v3/pet/findByStatus:
+                        get:
+                          operationId: findPetsByStatus
+                          summary: Finds pets by status
+                          parameters:
+                            - name: status
+                              in: query
+                              required: true
+                              schema:
+                                type: string
+                                enum: [available, pending, sold]
+                          responses:
+                            '200':
+                              description: successful operation
+
+  tests:
+    - name: test-openapi-tools-list
+      description: The Petstore OpenAPI operations are discoverable as MCP tools
+      steps:
+        - action: send-mcp-request
+          endpoint: /mcp-petstore
+          method: tools/list
+        - action: verify
+          expect:
+            status: success
+            contains: getPetById
+
+    - name: test-get-pet-by-id
+      description: |
+        Call getPetById, translated into GET /api/v3/pet/1. Path/query parameters are nested under path/query keys in the generated inputSchema, not passed as flat arguments.
+      steps:
+        - action: send-mcp-request
+          endpoint: /mcp-petstore
+          method: tools/call
+          params:
+            name: getPetById
+            arguments:
+              path:
+                petId: 1
+        - action: verify
+          expect:
+            status: success
+            contains: Pet1

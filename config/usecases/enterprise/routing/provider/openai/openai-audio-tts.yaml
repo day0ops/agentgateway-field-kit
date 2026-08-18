@@ -1,0 +1,65 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: openai-audio-tts
+  description: |
+    OpenAI provider configured for text-to-speech via passthrough route.
+
+    - `/v1/audio/speech` mapped as passthrough — forwarded as-is to OpenAI
+    - Single AgentgatewayBackend and HTTPRoute at `/openai`
+  docs: https://platform.openai.com/docs/api-reference/audio/createSpeech
+
+spec:
+  diagram: |
+    flowchart LR
+      Client -->|text input| AGW[agentgateway]
+      AGW -->|passthrough| OpenAI[OpenAI TTS]
+      OpenAI -->|audio| AGW
+      AGW -->|audio| Client
+
+  features:
+    - name: providers
+      config:
+        providers:
+          - name: openai
+            providerName: openai
+            pathPrefix: /openai
+            pathRewrite: /
+            model: gpt-4o-mini
+            policies:
+              ai:
+                routes:
+                  '/v1/audio/speech': 'Passthrough'
+
+  tests:
+    - name: test-tts-basic
+      description: Generate speech from text using TTS with alloy voice
+      steps:
+        - action: send-tts-request
+          endpoint: /openai/v1/audio/speech
+          playAudio: true
+          body:
+            model: tts-1
+            input: 'The sun rises in the east and sets in the west. This simple fact has been observed by humans for thousands of years.'
+            voice: alloy
+        - action: verify
+          expect:
+            status: 200
+            content-type: audio/mpeg
+            body: non-empty
+
+    - name: test-tts-different-voice
+      description: Generate speech with nova voice
+      steps:
+        - action: send-tts-request
+          endpoint: /openai/v1/audio/speech
+          playAudio: true
+          body:
+            model: tts-1
+            input: 'What is kubernetes ?'
+            voice: nova
+        - action: verify
+          expect:
+            status: 200
+            content-type: audio/mpeg
+            body: non-empty

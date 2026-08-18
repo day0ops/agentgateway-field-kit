@@ -1,0 +1,33 @@
+apiVersion: ratelimit.solo.io/v1alpha1
+kind: RateLimitConfig
+metadata:
+  name: quota-management-token-ratelimit
+  namespace: agentgateway-system
+  labels:
+    app.kubernetes.io/managed-by: agentgateway-demo
+    agentgateway.dev/feature: quota-ratelimit
+spec:
+  raw:
+    descriptors:
+      - key: team_id
+        descriptors:
+          - key: model
+            rateLimit:
+              requestsPerUnit: 10000000
+              unit: MINUTE
+    rateLimits:
+      - actions:
+          - requestHeaders:
+              headerName: x-gw-team-id
+              descriptorKey: team_id
+          - requestHeaders:
+              headerName: x-gw-llm-model
+              descriptorKey: model
+        limit:
+          dynamicMetadata:
+            metadataKey:
+              key: extproc
+              path:
+                - key: token_rate_limit
+        type: TOKEN
+    domain: quota-management

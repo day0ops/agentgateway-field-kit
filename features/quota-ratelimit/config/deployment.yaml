@@ -1,0 +1,79 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: quota-ratelimit-extproc
+  namespace: agentgateway-system
+  labels:
+    app: quota-ratelimit-extproc
+    app.kubernetes.io/managed-by: agentgateway-demo
+    agentgateway.dev/feature: quota-ratelimit
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: quota-ratelimit-extproc
+  template:
+    metadata:
+      labels:
+        app: quota-ratelimit-extproc
+      annotations:
+        prometheus.io/scrape: 'true'
+        prometheus.io/port: '9090'
+        prometheus.io/path: '/metrics'
+    spec:
+      containers:
+        - name: extproc
+          image: quota-ratelimit-extproc:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 4444
+              name: grpc
+              protocol: TCP
+            - containerPort: 9090
+              name: metrics
+              protocol: TCP
+          env:
+            - name: GRPC_PORT
+              value: '4444'
+            - name: METRICS_PORT
+              value: '9090'
+            - name: DATABASE_URL
+              value: 'postgres://budget:budget@quota-management-postgres:5432/budget_management?sslmode=disable'
+            - name: LOG_LEVEL
+              value: 'debug'
+            - name: LOG_FORMAT
+              value: 'json'
+            - name: DB_MAX_CONNECTIONS
+              value: '10'
+          resources:
+            requests:
+              memory: '64Mi'
+              cpu: '50m'
+            limits:
+              memory: '256Mi'
+              cpu: '500m'
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: quota-ratelimit-extproc
+  namespace: agentgateway-system
+  labels:
+    app: quota-ratelimit-extproc
+    app.kubernetes.io/managed-by: agentgateway-demo
+    agentgateway.dev/feature: quota-ratelimit
+spec:
+  type: ClusterIP
+  ports:
+    - port: 4444
+      targetPort: 4444
+      protocol: TCP
+      name: grpc
+      appProtocol: kubernetes.io/h2c
+    - port: 9090
+      targetPort: 9090
+      protocol: TCP
+      name: metrics
+  selector:
+    app: quota-ratelimit-extproc

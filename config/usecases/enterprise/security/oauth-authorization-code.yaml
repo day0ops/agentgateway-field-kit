@@ -1,0 +1,106 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: oauth-authorization-code
+  description: |
+    Full OAuth 2.0 authorization code flow with Keycloak for browser-facing routes.
+
+    - Unauthenticated requests are redirected (302) to Keycloak for login
+    - After consent the gateway exchanges the auth code for tokens and issues a session cookie
+    - Subsequent requests present the cookie to access the protected LLM route
+  docs: https://docs.solo.io/agentgateway/latest/security/extauth/oauth/authorization-code/
+
+spec:
+  diagram: |
+    sequenceDiagram
+      participant Client
+      participant AGW as agentgateway
+      participant KC as Keycloak
+      participant LLM as OpenAI
+      Client->>AGW: GET /openai (no session)
+      AGW-->>Client: 302 redirect to Keycloak
+      Client->>KC: login with credentials
+      KC-->>Client: auth code callback
+      Client->>AGW: GET /callback?code=
+      AGW->>KC: exchange code for tokens
+      KC-->>AGW: access + id tokens
+      AGW-->>Client: session cookie
+      Client->>AGW: GET /openai + Cookie
+      AGW->>LLM: forward request
+      LLM-->>Client: LLM response
+  steps:
+    - title: Deploy OpenAI provider
+      description: |
+        Deploy the OpenAI LLM provider with a route at /openai so there is a backend to protect with authorization code OAuth.
+      features:
+        - name: providers
+          config:
+            providers:
+              - name: openai
+                providerName: openai
+                pathPrefix: /openai
+                model: gpt-3.5-turbo
+
+    - title: Apply OAuth authorization code policy
+      description: |
+        Create an AuthConfig with OIDC authorization code settings and an EnterpriseAgentgatewayPolicy that enforces external auth on the Gateway. Unauthenticated requests receive a 302 redirect to Keycloak.
+      features:
+        - name: oauth-authorization-code
+          config:
+            authConfigName: oauth-authorization-code
+            policyName: oauth-authorization-code
+            keycloak:
+              realm: agw-dev
+            issuerUrl: '{{env.keycloak.scheme}}://{{env.domains.keycloak}}/realms/agw-dev/'
+            clientId: agw-client
+            clientSecret: agw-client-secret
+            # The session cookie ext-auth-service issues is marked Secure, so the whole
+            # flow needs the Gateway's public HTTPS listener (real cert, port 443) - the
+            # plain :8080 address gets a 302 back with the cookie set, but every client
+            # (browser or curl) silently drops a Secure cookie received over HTTP.
+            appUrl: 'https://{{env.domains.agentgateway}}'
+            callbackPath: /openai
+            scopes:
+              - email
+            session:
+              cookieName: keycloak-session
+              redisHost: ext-cache-enterprise-agentgateway:6379
+            headers:
+              idTokenHeader: jwt
+
+  tests:
+    - name: test-unauthenticated-redirects-to-keycloak
+      description: Verify unauthenticated requests receive a 302 redirect to Keycloak
+      steps:
+        - action: send-request
+          endpoint: /openai
+          prompt: 'What is 2+2?'
+          followRedirects: false
+        - action: verify
+          expect:
+            status: 302
+
+    - name: test-authenticated-request-with-session
+      description: |
+        Validates that a request with a valid session cookie is authorized through the OAuth authorization code flow.
+      steps:
+        - action: get-session-cookie
+          endpoint: /openai/v1/chat/completions
+          cookieName: keycloak-session
+          scheme: https
+          # get-session-cookie has no scheme-aware port default (unlike send-request),
+          # so https needs an explicit port here - the public HTTPS listener is 443.
+          port: 443
+          resolve:
+            hostname: '{{env.domains.agentgateway}}'
+        - action: send-request
+          endpoint: /openai/v1/chat/completions
+          auth: session
+          scheme: https
+          resolve:
+            hostname: '{{env.domains.agentgateway}}'
+          prompt: 'What is 2+2?'
+        - action: verify
+          expect:
+            status: success
+            contains: '4'

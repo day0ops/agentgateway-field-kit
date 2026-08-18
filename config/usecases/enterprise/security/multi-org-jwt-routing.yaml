@@ -1,0 +1,147 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: multi-org-jwt-routing
+  description: |
+    Validates JWTs from 4 Keycloak org realms at a single gateway endpoint using static multi-provider JWKS. Extracts org_id and team_id claims into request headers (x-gw-org-id, x-gw-team-id). Echo backend verifies header injection. Tests prove: per-realm JWKS validation, header extraction, and hard rejection of invalid/missing JWTs.
+spec:
+  diagram: |
+    sequenceDiagram
+      participant C as Client
+      participant GW as agentgateway
+      participant KC as Keycloak (org realm)
+      participant E as Echo Backend
+
+      C->>KC: client_credentials grant (realm/client)
+      KC-->>C: JWT (iss=realm, org_id, team_id)
+      C->>GW: GET /org-routing/echo (Bearer JWT)
+      GW->>KC: Fetch JWKS (matching iss realm)
+      KC-->>GW: Public key
+      GW->>GW: Validate JWT, inject x-gw-org-id / x-gw-team-id
+      GW->>E: Proxied request with injected headers
+      E-->>GW: JSON { headers: { x-gw-org-id, x-gw-team-id, ... } }
+      GW-->>C: 200 OK with header JSON
+
+  steps:
+    - title: Deploy multi-org JWT auth policy and echo backend
+      features:
+        - name: multi-org-jwt-auth
+          config:
+            keycloakHost: '{{env.domains.keycloak}}'
+            orgRealms:
+              - realm: org-acme
+                orgId: acme
+              - realm: org-globex
+                orgId: globex
+              - realm: org-initech
+                orgId: initech
+              - realm: org-umbrella
+                orgId: umbrella
+
+  tests:
+    - name: acme-jwt-validates-against-acme-jwks
+      description: |
+        Token from org-acme realm validates against org-acme JWKS. x-gw-org-id=acme and x-gw-team-id=team-eng injected from JWT claims.
+      steps:
+        - action: get-token
+          keycloak:
+            hostname: '{{env.domains.keycloak}}'
+            scheme: '{{env.keycloak.scheme}}'
+            realm: org-acme
+            clientId: acme-team-eng
+            clientSecret: acme-team-eng-secret
+            grantType: client_credentials
+        - action: send-request
+          endpoint: /org-routing/echo
+          method: GET
+          auth: bearer
+        - action: verify
+          expect:
+            status: 200
+            contains: x-gw-org-id
+
+    - name: globex-jwt-validates-against-globex-jwks
+      description: |
+        Token from org-globex realm validates against org-globex JWKS. x-gw-org-id=globex and x-gw-team-id=team-sales injected.
+      steps:
+        - action: get-token
+          keycloak:
+            hostname: '{{env.domains.keycloak}}'
+            scheme: '{{env.keycloak.scheme}}'
+            realm: org-globex
+            clientId: globex-team-sales
+            clientSecret: globex-team-sales-secret
+            grantType: client_credentials
+        - action: send-request
+          endpoint: /org-routing/echo
+          method: GET
+          auth: bearer
+        - action: verify
+          expect:
+            status: 200
+            contains: x-gw-org-id
+
+    - name: initech-jwt-validates-against-initech-jwks
+      description: |
+        Token from org-initech realm validates against org-initech JWKS. x-gw-org-id=initech and x-gw-team-id=team-dev injected.
+      steps:
+        - action: get-token
+          keycloak:
+            hostname: '{{env.domains.keycloak}}'
+            scheme: '{{env.keycloak.scheme}}'
+            realm: org-initech
+            clientId: initech-team-dev
+            clientSecret: initech-team-dev-secret
+            grantType: client_credentials
+        - action: send-request
+          endpoint: /org-routing/echo
+          method: GET
+          auth: bearer
+        - action: verify
+          expect:
+            status: 200
+            contains: x-gw-org-id
+
+    - name: acme-jwt-not-misidentified-as-globex
+      description: |
+        Token from org-acme cannot be misidentified as belonging to org-globex. Even though the globex provider is also configured, the iss claim (org-acme) routes validation to the org-acme JWKS. Header confirms x-gw-org-id=acme, not globex.
+      steps:
+        - action: get-token
+          keycloak:
+            hostname: '{{env.domains.keycloak}}'
+            scheme: '{{env.keycloak.scheme}}'
+            realm: org-acme
+            clientId: acme-team-eng
+            clientSecret: acme-team-eng-secret
+            grantType: client_credentials
+        - action: send-request
+          endpoint: /org-routing/echo
+          method: GET
+          auth: bearer
+        - action: verify
+          expect:
+            status: 200
+            contains: acme
+            notContains: globex
+
+    - name: invalid-jwt-rejected
+      description: Tampered JWT signature is rejected with 401.
+      steps:
+        - action: send-request
+          endpoint: /org-routing/echo
+          method: GET
+          headers:
+            Authorization: Bearer eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ0YW1wZXJlZCJ9.invalidsig
+        - action: verify
+          expect:
+            status: 401
+
+    - name: no-jwt-rejected
+      description: Request with no Authorization header is rejected with 401.
+      steps:
+        - action: send-request
+          endpoint: /org-routing/echo
+          method: GET
+        - action: verify
+          expect:
+            status: 401

@@ -1,0 +1,125 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: function-calling
+  description: |
+    Demonstrate the LLM tool-use (function calling) flow end-to-end, on the open-source agentgateway.dev chart.
+
+    - Client sends a prompt with tool definitions attached
+    - LLM responds with a tool_call (function name + arguments)
+    - Client executes the tool and submits the result back for a final completion
+    - Scenarios: single-tool (weather lookup), multi-tool (knowledge-base + email)
+  docs: https://agentgateway.dev/docs/
+
+spec:
+  edition: opensource
+  diagram: |
+    sequenceDiagram
+      participant Client
+      participant AGW as agentgateway
+      participant LLM as OpenAI
+      participant Tool as External Tool
+      Client->>AGW: prompt + tool definitions
+      AGW->>LLM: forward request
+      LLM-->>AGW: tool_call (function + args)
+      AGW-->>Client: tool_call request
+      Client->>Tool: execute tool
+      Tool-->>Client: tool result
+      Client->>AGW: tool result message
+      AGW->>LLM: forward with result
+      LLM-->>Client: final answer
+
+  features:
+    - name: providers
+      config:
+        providers:
+          - name: openai
+            providerName: openai
+            pathPrefix: /openai
+            model: gpt-3.5-turbo
+
+    - name: function-calling
+      config:
+        enabled: true
+        validateRequests: true
+
+  tests:
+    - name: test-function-calling-weather
+      description: Test function calling with weather tool
+      steps:
+        - action: send-request
+          endpoint: /openai
+          prompt: 'How is the current weather in Columbus?'
+          body:
+            model: gpt-3.5-turbo
+            messages:
+              - role: user
+                content: 'How is the current weather in Columbus?'
+            tools:
+              - type: function
+                function:
+                  name: get_weather
+                  description: Get the current weather for a location
+                  parameters:
+                    type: object
+                    properties:
+                      location:
+                        type: string
+                        description: The city and state, e.g. San Francisco, CA
+                      format:
+                        type: string
+                        enum: [celsius, fahrenheit]
+                        description: Temperature unit
+                    required: [location, format]
+            stream: false
+        - action: verify
+          expect:
+            status: success
+            # Note: The response will contain tool_calls if LLM decides to use the function
+            # In a real scenario, you would execute the function and send the result back
+
+    - name: test-function-calling-multiple-tools
+      description: Test function calling with multiple tools
+      steps:
+        - action: send-request
+          endpoint: /openai
+          prompt: 'Search for information about AI and send me an email summary'
+          body:
+            model: gpt-3.5-turbo
+            messages:
+              - role: user
+                content: 'Search for information about AI and send me an email summary'
+            tools:
+              - type: function
+                function:
+                  name: search_database
+                  description: Search the knowledge base for information
+                  parameters:
+                    type: object
+                    properties:
+                      query:
+                        type: string
+                        description: Search query
+                    required: [query]
+              - type: function
+                function:
+                  name: send_email
+                  description: Send an email notification
+                  parameters:
+                    type: object
+                    properties:
+                      to:
+                        type: string
+                        description: Recipient email address
+                      subject:
+                        type: string
+                        description: Email subject
+                      body:
+                        type: string
+                        description: Email body content
+                    required: [to, subject, body]
+            parallel_tool_calls: false
+            stream: false
+        - action: verify
+          expect:
+            status: success

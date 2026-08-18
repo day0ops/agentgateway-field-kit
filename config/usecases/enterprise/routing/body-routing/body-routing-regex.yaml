@@ -1,0 +1,101 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: body-routing-regex
+  description: |
+    Body-based model routing for chat completions behind a single /chat route.
+
+    - An EnterpriseAgentgatewayPolicy (PreRouting) extracts the `model` field from the request body and sets it as the X-Gateway-Model-Name header
+    - HTTPRoute rules use regex matching on that header to select the correct backend
+    - Vertex AI and local Ollama each have their own AgentgatewayBackend
+    - Each provider specifies a fallbackModel for automatic failover
+    - Requests without a model field round-robin across all backends
+  references:
+    - https://docs.solo.io/agentgateway/latest/reference/api/solo/#enterpriseagentgatewaypolicyspec
+spec:
+  diagram: |
+    flowchart LR
+      Client -->|model in body| AGW[agentgateway]
+      AGW -->|google/gemini-.*| VertexAI[Vertex AI]
+      AGW -->|local model| Ollama[Ollama]
+      AGW -->|no model| RR[Round-Robin all]
+
+  features:
+    - name: providers
+      config:
+        pathPrefix: /chat
+        bodyRouting: true
+        providers:
+          - name: vertex-ai
+            providerName: vertex-ai
+            model: google/gemini-.*
+            modelMatch: RegularExpression
+            fallbackModel: google/gemini-2.5-flash
+            policies:
+              auth:
+                secretRef:
+                  name: vertex-ai-secret
+          - name: local-ollama
+            providerName: openai-compatible
+            model: llama3
+            fallbackModel: llama3
+            #host: host.minikube.internal
+            host: 192.168.162.8
+            port: 11434
+            path:
+              full: /v1/chat/completions
+
+  tests:
+    - name: test-vertex-gemini-flash
+      description: Call with google/gemini-2.5-flash → matches regex google/gemini-.* → Vertex AI
+      steps:
+        - action: send-request
+          endpoint: /chat
+          model: google/gemini-2.5-flash
+          prompt: 'What is Kubernetes?'
+        - action: verify
+          expect:
+            status: success
+
+    - name: test-vertex-gemini-flash-lite
+      description: Call with google/gemini-2.5-flash-lite → matches regex google/gemini-.* → Vertex AI
+      steps:
+        - action: send-request
+          endpoint: /chat
+          model: google/gemini-2.5-flash-lite
+          prompt: 'What is Kubernetes?'
+        - action: verify
+          expect:
+            status: success
+
+    - name: test-local-via-model
+      description: Call single endpoint with local model in body → routed to Ollama backend
+      steps:
+        - action: send-request
+          endpoint: /chat
+          model: llama3
+          prompt: 'Say hello in one word.'
+        - action: verify
+          expect:
+            status: success
+
+    - name: test-no-model-round-robin
+      description: Call without model in body → round-robins across all backends
+      steps:
+        - action: send-request
+          endpoint: /chat
+          prompt: 'Hello'
+        - action: verify
+          expect:
+            status: success
+
+    - name: test-unknown-model-rejected
+      description: Unknown model has no matching route rule → gateway returns 404
+      steps:
+        - action: send-request
+          endpoint: /chat
+          model: unknown-model-not-configured
+          prompt: 'Hello'
+        - action: verify
+          expect:
+            statusCode: 404

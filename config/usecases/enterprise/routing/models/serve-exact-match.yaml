@@ -1,0 +1,67 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: serve-exact-match
+  description: |
+    Serve a single OpenAI model as an exact-match AgentgatewayModel resource, replacing the AgentgatewayBackend+HTTPRoute pattern used by every other routing use case with one CRD attached directly to a Gateway listener.
+
+    - Requires the experimental AgentgatewayModel CRD/API enabled (`agentgatewayModels.enabled=true` Helm value on the control plane chart, `installAgentgatewayModelCRD=true` on the CRD chart)
+    - Built-in OpenAI-compatible `/v1/chat/completions` path - no HTTPRoute needed
+    - Built-in `/v1/models` discovery includes the model
+  docs: https://docs.solo.io/agentgateway/latest/llm/models/serve/
+
+spec:
+  diagram: |
+    flowchart LR
+      Client -->|POST /v1/chat/completions| MG[models-gateway]
+      MG --> Model[AgentgatewayModel gpt-4o-mini]
+      Model --> OpenAI[OpenAI]
+
+  features:
+    - name: gateway
+      config:
+        name: models-gateway
+        listeners:
+          - name: http
+            port: 8080
+            protocol: HTTP
+            allowedRoutes:
+              namespaces:
+                from: All
+              kinds:
+                - group: gateway.networking.k8s.io
+                  kind: HTTPRoute
+                - group: agentgateway.dev
+                  kind: AgentgatewayModel
+
+    - name: agentgateway-model
+      description: Exact-match AgentgatewayModel for gpt-4o-mini
+      config:
+        sectionName: http
+        models:
+          - name: gpt-4o-mini
+            provider: openai
+            visibility: Public
+
+  tests:
+    - name: test-serve-exact-match-chat-completions
+      description: Client requests the exact model name and gets a real OpenAI response
+      steps:
+        - action: send-request
+          endpoint: /v1/chat/completions
+          model: gpt-4o-mini
+          prompt: 'What is 2+2?'
+        - action: verify
+          expect:
+            status: success
+
+    - name: test-serve-exact-match-model-discovery
+      description: Model appears in the built-in /v1/models discovery endpoint
+      steps:
+        - action: send-request
+          endpoint: /v1/models
+          method: GET
+        - action: verify
+          expect:
+            status: success
+            contains: gpt-4o-mini

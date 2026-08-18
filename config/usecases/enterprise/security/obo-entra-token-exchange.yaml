@@ -1,0 +1,120 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: obo-entra-token-exchange
+  description: |
+    External IdP exchange: the agentgateway data plane exchanges a caller's Entra token for a Microsoft Graph-scoped access token via an On-Behalf-Of (OBO) call to Entra's own token endpoint - proxy-native, via `backend.auth.oauthTokenExchange` with `grantType: JwtBearer`, the same mechanism oauth-token-exchange uses for Keycloak Impersonation. No controller/Postgres/STS component is involved.
+
+    - The caller authenticates against Entra (delegated flow) and gets a token audienced for this app (aud: api://<clientId>) - not a Graph token
+    - traffic.jwtAuthentication validates that token at the gateway edge (issuer + audience) before any call to Entra's token endpoint
+    - backend.auth.oauthTokenExchange (grantType: JwtBearer) sends the caller's token as the RFC 7523 `assertion`, plus the Entra-specific `requested_token_use=on_behalf_of` additionalParam and the `https://graph.microsoft.com/.default` scope, to mint a Graph-scoped token
+    - The resulting token reaches mcp-graph-me-tool (github.com/day0ops/mcp-graph-me-tool), which calls Microsoft Graph's /me endpoint on the caller's behalf
+    - PREREQUISITE - not automated by this usecase: the Entra app registration used by mcp-eager-auth-entra ({{env.entra.tenantId}}/{{env.entra.clientId}}) needs a client secret added (export ENTRA_ISSUER_CLIENT_SECRET=<secret>), the User.Read delegated permission granted under Microsoft Graph, and admin consent completed - separate from its existing public/PKCE use in mcp-eager-auth-entra
+  docs: https://docs.solo.io/agentgateway/latest/security/backend-authn-oauth/
+
+spec:
+  diagram: |
+    sequenceDiagram
+      participant Client
+      participant Entra
+      participant AGW as agentgateway proxy
+      participant Graph as graph-me-tool (MCP)
+      Client->>Entra: authenticate (delegated, scope api://clientId/.default)
+      Entra-->>Client: user JWT (aud=clientId)
+      Client->>AGW: POST /mcp tools/call graph_me + Bearer JWT
+      AGW->>Entra: validate via JWKS (traffic.jwtAuthentication)
+      AGW->>Entra: JWT bearer exchange (assertion=user JWT, requested_token_use=on_behalf_of)
+      Entra-->>AGW: Graph-scoped access token (User.Read)
+      AGW->>Graph: forward with the exchanged Authorization header
+      Graph->>Entra: GET https://graph.microsoft.com/v1.0/me
+      Entra-->>Graph: profile
+      Graph-->>AGW: tool result
+      AGW-->>Client: tool result
+
+  features:
+    - name: mcp-server
+      config:
+        serverName: graph-me-tool
+        image: '{{env.images.mcp-graph-me-tool}}'
+        serverPort: 8080
+        servicePort: 80
+        protocol: StreamableHTTP
+        mcpPath: /mcp
+        backendName: graph-me-backend
+        routeName: mcp
+
+    - name: oauth-token-exchange
+      config:
+        targetRefs:
+          - group: gateway.networking.k8s.io
+            kind: HTTPRoute
+            name: mcp
+        jwtAuthentication:
+          issuer: 'https://login.microsoftonline.com/{{env.entra.tenantId}}/v2.0'
+          audiences:
+            - '{{env.entra.clientId}}'
+          jwks:
+            host: login.microsoftonline.com
+            path: '{{env.entra.tenantId}}/discovery/v2.0/keys'
+        tokenEndpoint:
+          host: login.microsoftonline.com
+          path: '/{{env.entra.tenantId}}/oauth2/v2.0/token'
+        grantType: JwtBearer
+        scopes:
+          - https://graph.microsoft.com/.default
+        additionalParams:
+          requested_token_use: '"on_behalf_of"'
+        clientAuth:
+          clientId: '{{env.entra.clientId}}'
+          method: ClientSecretPost
+          clientSecretEnvVar: ENTRA_ISSUER_CLIENT_SECRET
+
+  tests:
+    - name: test-unauthenticated-request-rejected
+      description: An MCP request without a token is rejected at the gateway edge, before any call to Entra's token endpoint
+      steps:
+        - action: send-mcp-request
+          endpoint: /mcp
+          method: tools/list
+        - action: verify
+          expect:
+            statusCode: 401
+
+    - name: test-tokenExchange-config-applied
+      description: |
+        Sanity-check the rendered EnterpriseAgentgatewayPolicy without depending on a real Entra login - confirms grantType, scope, and the on_behalf_of param landed exactly as configured.
+      steps:
+        - action: verify-resource
+          kind: EnterpriseAgentgatewayPolicy
+          name: oauth-token-exchange-mcp
+          expect:
+            - jsonpath: '{.spec.backend.auth.oauthTokenExchange.grantType}'
+              value: JwtBearer
+            - jsonpath: '{.spec.backend.auth.oauthTokenExchange.scopes[0]}'
+              value: https://graph.microsoft.com/.default
+            - jsonpath: '{.spec.backend.auth.oauthTokenExchange.additionalParams.requested_token_use}'
+              value: '"on_behalf_of"'
+            - jsonpath: '{.spec.traffic.jwtAuthentication.providers[0].issuer}'
+              value: 'https://login.microsoftonline.com/{{env.entra.tenantId}}/v2.0'
+
+    - name: test-graph-me-tool-via-real-entra-login
+      description: |
+        Opens a real browser for an interactive Entra login scoped to this app (api://<clientId>/.default, aud=clientId - not a Graph token), then calls the graph_me tool. The proxy exchanges the token at Entra's own token endpoint for a Graph-scoped token before the request reaches the backend. Not part of `--no-prompt` CI runs - requires a human to complete the login and a correctly-configured confidential app registration (client secret, User.Read delegated permission, admin consent) - live-verify manually.
+      steps:
+        - action: get-token
+          entra:
+            clientId: '{{env.entra.clientId}}'
+            discoveryUrl: 'https://login.microsoftonline.com/{{env.entra.tenantId}}/v2.0/.well-known/openid-configuration'
+            # Entra rejects the api://<clientId> URI form when a middle-tier app requests a
+            # token for itself (AADSTS90009) - self-referencing scopes need the GUID form.
+            scope: '{{env.entra.clientId}}/.default'
+        - action: send-mcp-request
+          endpoint: /mcp
+          method: tools/call
+          auth: bearer
+          params:
+            name: graph_me
+            arguments: {}
+        - action: verify
+          expect:
+            status: success

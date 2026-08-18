@@ -1,0 +1,35 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: vllm-provider
+  description: |
+    Route requests to a vLLM-compatible backend. vLLM serves the OpenAI chat-completions API natively, so this needs zero vLLM-specific gateway code - it reuses the exact same ai.provider.openai path any OpenAI-compatible server uses (see the openai-compatible provider type, e.g. routing/provider/ollama).
+
+    - Demo-portable: uses the vLLM community's llm-d-inference-sim (via the mock-provider feature) instead of a real vLLM server, so this runs without a GPU or model download
+    - To point at a real vLLM deployment instead: replace the mock-provider feature below with a Deployment running `vllm serve <model>` and a providers feature entry of providerName: openai-compatible pointed at that Service's host/port (see routing/provider/ollama/ollama-provider.yaml for the exact shape)
+  docs: https://docs.solo.io/agentgateway/latest/llm/providers/vllm/
+
+spec:
+  diagram: |
+    flowchart LR
+      Client --> AGW[agentgateway]
+      AGW --> VLLM[llm-d-inference-sim, standing in for vLLM]
+
+  features:
+    - name: mock-provider
+      config:
+        name: vllm-sim
+        model: vllm-llama-3-8b
+        pathPrefix: /vllm
+
+  tests:
+    - name: vllm-provider-greeting
+      description: A chat-completions request reaches the vLLM-compatible backend and succeeds
+      steps:
+        - action: send-request
+          endpoint: /vllm
+          model: vllm-llama-3-8b
+          prompt: 'Hello, how are you?'
+        - action: verify
+          expect:
+            status: success

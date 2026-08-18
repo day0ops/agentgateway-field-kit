@@ -1,0 +1,17 @@
+apiVersion: agentgateway.demo/v1
+kind: Profile
+metadata:
+  name: agentgateway-with-openfga
+  description: |
+    OpenFGA (ReBAC) authorization server for fine-grained model access control demos
+spec:
+  environment: local
+
+  helmValues: {}
+
+  addons:
+    - name: openfga
+      description: OpenFGA ReBAC authorization server
+      namespace: openfga
+      config:
+        image: '{{env.images.openfga-engine}}'

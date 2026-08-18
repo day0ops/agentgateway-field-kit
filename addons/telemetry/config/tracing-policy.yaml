@@ -1,0 +1,87 @@
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayPolicy
+metadata:
+  name: tracing-policy
+  namespace: agentgateway-system
+  labels:
+    app.kubernetes.io/managed-by: agentgateway-demo
+    agentgateway.dev/feature: telemetry
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: agentgateway
+  frontend:
+    tracing:
+      backendRef:
+        name: fan-out-collector
+        namespace: telemetry
+        port: 4317
+      protocol: GRPC
+      clientSampling: 'true'
+      randomSampling: 'true'
+      resources:
+        - name: deployment.environment.name
+          expression: 'demo'
+        - name: service.version
+          expression: 'agentgateway-demo'
+      attributes:
+        add:
+          - name: host
+            expression: 'request.host'
+          - name: path
+            expression: 'request.path'
+          - name: http.method
+            expression: 'request.method'
+          - name: http.scheme
+            expression: 'request.scheme'
+          - name: http.status_code
+            expression: 'default(string(response.code), "0")'
+          - name: request
+            expression: 'default(request.headers["x-header-tag"], "")'
+          - name: source.address
+            expression: 'source.address'
+          - name: backend.name
+            expression: 'default(backend.name, "")'
+          - name: backend.type
+            expression: 'default(backend.type, "")'
+          - name: llm.request_model
+            expression: 'default(llm.requestModel, "")'
+          - name: llm.response_model
+            expression: 'default(llm.responseModel, "")'
+          - name: llm.input_tokens
+            expression: 'default(string(llm.inputTokens), "0")'
+          - name: llm.output_tokens
+            expression: 'default(string(llm.outputTokens), "0")'
+          - name: mcp.tool.name
+            expression: 'default(mcp.tool.name, "")'
+          - name: mcp.tool.target
+            expression: 'default(mcp.tool.target, "")'
+          - name: llm.prompt
+            expression: 'default(string(llm.prompt), "")'
+          - name: llm.completion
+            expression: 'default(string(llm.completion), "")'
+          - name: request.body
+            expression: 'default(json(request.body), "")'
+          - name: response.body
+            expression: 'default(json(response.body), "")'
+          - name: llm.cost.total
+            expression: 'default(string(llm.cost.total), "0")'
+          - name: llm.cost.input
+            expression: 'default(string(llm.cost.input), "0")'
+          - name: llm.cost.output
+            expression: 'default(string(llm.cost.output), "0")'
+          - name: group
+            expression: 'default(coalesce(jwt.group, apiKey.group), "")'
+          - name: user
+            expression: 'default(coalesce(apiKey.user, apiKey.name, apiKey.owner, jwt.sub, jwt.email, source.identity.namespace + "/" + source.identity.serviceAccount, source.subjectCn), "")'
+          - name: virtual_key
+            expression: 'default(apiKey.id, "")'
+          - name: jwt.org_id
+            expression: 'default(jwt.org_id, "")'
+          - name: jwt.team_id
+            expression: 'default(jwt.team_id, "")'
+          - name: x-gw-org-id
+            expression: 'default(request.headers["x-gw-org-id"], "")'
+          - name: x-gw-team-id
+            expression: 'default(request.headers["x-gw-team-id"], "")'

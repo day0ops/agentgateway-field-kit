@@ -1,0 +1,196 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: quota-management
+  namespace: agentgateway-system
+  labels:
+    app.kubernetes.io/managed-by: agentgateway-demo
+    agentgateway.dev/feature: quota-budget
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: quota-budget-extproc
+  namespace: agentgateway-system
+  labels:
+    app: quota-budget-extproc
+    app.kubernetes.io/managed-by: agentgateway-demo
+    agentgateway.dev/feature: quota-budget
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: quota-budget-extproc
+  template:
+    metadata:
+      labels:
+        app: quota-budget-extproc
+      annotations:
+        prometheus.io/scrape: 'true'
+        prometheus.io/port: '9090'
+        prometheus.io/path: '/metrics'
+    spec:
+      serviceAccountName: quota-management
+      containers:
+        - name: extproc
+          image: quota-budget-extproc:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 4444
+              name: grpc
+              protocol: TCP
+            - containerPort: 9090
+              name: metrics
+              protocol: TCP
+          env:
+            - name: GRPC_PORT
+              value: '4444'
+            - name: METRICS_PORT
+              value: '9090'
+            - name: DATABASE_URL
+              value: 'postgres://budget:budget@quota-management-postgres:5432/budget_management?sslmode=disable'
+            - name: LOG_LEVEL
+              value: 'debug'
+            - name: LOG_FORMAT
+              value: 'json'
+            - name: DB_MAX_CONNECTIONS
+              value: '10'
+            - name: MODEL_COST_CACHE_TTL
+              value: '60s'
+            - name: BUDGET_CACHE_TTL
+              value: '10s'
+            - name: RESERVATION_TTL
+              value: '5m'
+            - name: DEFAULT_ESTIMATION_MULTIPLIER
+              value: '1.0'
+            - name: DEFAULT_ESTIMATED_INPUT_TOKENS
+              value: '100'
+            - name: DEFAULT_ESTIMATED_OUTPUT_TOKENS
+              value: '100'
+            - name: MODEL_HEADER
+              value: x-gateway-model-name
+          resources:
+            requests:
+              memory: '64Mi'
+              cpu: '50m'
+            limits:
+              memory: '256Mi'
+              cpu: '500m'
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: quota-budget-extproc
+  namespace: agentgateway-system
+  labels:
+    app: quota-budget-extproc
+    app.kubernetes.io/managed-by: agentgateway-demo
+    agentgateway.dev/feature: quota-budget
+spec:
+  type: ClusterIP
+  ports:
+    - port: 4444
+      targetPort: 4444
+      protocol: TCP
+      name: grpc
+      appProtocol: kubernetes.io/h2c
+    - port: 9090
+      targetPort: 9090
+      protocol: TCP
+      name: metrics
+  selector:
+    app: quota-budget-extproc
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: quota-management-ui
+  namespace: agentgateway-system
+  labels:
+    app: quota-management-ui
+    app.kubernetes.io/managed-by: agentgateway-demo
+    agentgateway.dev/feature: quota-budget
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: quota-management-ui
+  template:
+    metadata:
+      labels:
+        app: quota-management-ui
+      annotations:
+        prometheus.io/scrape: 'true'
+        prometheus.io/port: '9091'
+        prometheus.io/path: '/metrics'
+    spec:
+      serviceAccountName: quota-management
+      containers:
+        - name: ui
+          image: quota-management-ui:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+              name: http
+              protocol: TCP
+            - containerPort: 9091
+              name: metrics
+              protocol: TCP
+          env:
+            - name: HTTP_PORT
+              value: '8080'
+            - name: METRICS_PORT
+              value: '9091'
+            - name: DATABASE_URL
+              value: 'postgres://budget:budget@quota-management-postgres:5432/budget_management?sslmode=disable'
+            - name: LOG_LEVEL
+              value: 'info'
+            - name: LOG_FORMAT
+              value: 'json'
+            - name: DB_MAX_CONNECTIONS
+              value: '10'
+            - name: AUDIT_RETENTION_DAYS
+              value: '90'
+          resources:
+            requests:
+              memory: '64Mi'
+              cpu: '50m'
+            limits:
+              memory: '256Mi'
+              cpu: '500m'
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 30
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: quota-management-ui
+  namespace: agentgateway-system
+  labels:
+    app: quota-management-ui
+    app.kubernetes.io/managed-by: agentgateway-demo
+    agentgateway.dev/feature: quota-budget
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: 8080
+      protocol: TCP
+      name: http
+    - port: 9091
+      targetPort: 9091
+      protocol: TCP
+      name: metrics
+  selector:
+    app: quota-management-ui

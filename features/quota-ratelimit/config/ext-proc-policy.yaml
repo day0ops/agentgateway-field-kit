@@ -1,0 +1,22 @@
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayPolicy
+metadata:
+  name: quota-ratelimit-extproc-policy
+  namespace: agentgateway-system
+  labels:
+    app.kubernetes.io/managed-by: agentgateway-demo
+    agentgateway.dev/feature: quota-ratelimit
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: agentgateway
+  traffic:
+    phase: PreRouting
+    extProc:
+      backendRef:
+        group: ''
+        kind: Service
+        name: quota-ratelimit-extproc
+        namespace: agentgateway-system
+        port: 4444

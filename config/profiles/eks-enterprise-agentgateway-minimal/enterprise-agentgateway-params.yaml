@@ -1,0 +1,8 @@
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayParameters
+metadata:
+  name: enterprise-agentgateway-params
+  namespace: agentgateway-system
+spec:
+  logging:
+    format: json

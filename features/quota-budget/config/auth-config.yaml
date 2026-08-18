@@ -1,0 +1,40 @@
+apiVersion: extauth.solo.io/v1
+kind: AuthConfig
+metadata:
+  name: quota-management-auth
+  namespace: agentgateway-system
+  labels:
+    app.kubernetes.io/managed-by: agentgateway-demo
+    agentgateway.dev/feature: quota-budget
+spec:
+  configs:
+    - oauth2:
+        oidcAuthorizationCode:
+          appUrl: https://10.0.1.203:8443
+          callbackPath: /ui/callback
+          logoutPath: /logout
+          clientId: quota-management
+          clientSecretRef:
+            name: quota-management-oauth
+            namespace: agentgateway-system
+          issuerUrl: https://keycloak.keycloak.svc.cluster.local/realms/agw-dev/
+          scopes:
+            - openid
+            - email
+            - profile
+            - offline_access
+          session:
+            failOnFetchFailure: true
+            redis:
+              cookieName: budget-session
+              options:
+                host: ext-cache-enterprise-agentgateway:6379
+            refresh:
+              validFor: 24h
+          headers:
+            idTokenHeader: jwt
+    - opaAuth:
+        modules:
+          - name: quota-management-access-policy
+            namespace: agentgateway-system
+        query: data.quota.allow == true

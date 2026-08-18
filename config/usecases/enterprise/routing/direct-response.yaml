@@ -1,0 +1,37 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: direct-response
+  description: |
+    Serve a fixed response directly from the gateway, without calling any backend.
+
+    - HTTPRoute matches a path prefix with no backendRefs
+    - EnterpriseAgentgatewayPolicy (spec.traffic.directResponse) targets that route
+    - Useful for health checks and other fixed responses that shouldn't hit a real backend
+  docs: https://docs.solo.io/agentgateway/latest/traffic-management/direct-response/
+
+spec:
+  diagram: |
+    flowchart LR
+      Client -->|GET /health| AGW[agentgateway]
+      AGW -->|200 Status: Healthy| Client
+
+  features:
+    - name: direct-response
+      config:
+        routeName: health-check
+        pathPrefix: /health
+        status: 200
+        body: 'Status: Healthy'
+
+  tests:
+    - name: test-direct-response-health-check
+      description: Health check path returns a fixed response with no backend call
+      steps:
+        - action: send-request
+          endpoint: /health
+          method: GET
+        - action: verify
+          expect:
+            status: success
+            contains: 'Status: Healthy'

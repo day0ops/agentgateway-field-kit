@@ -1,0 +1,56 @@
+# OpenTelemetry Collector configuration for fan-out to multiple backends
+# Receives traces from agentgateway and forwards to both:
+# - solo-enterprise-telemetry-collector (ClickHouse/Solo UI)
+# - tempo-distributor (Grafana Tempo)
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+exporters:
+  # Forward to Solo UI's telemetry collector (ClickHouse)
+  otlp/solo-ui:
+    endpoint: solo-enterprise-telemetry-collector.agentgateway-system:4317
+    tls:
+      insecure: true
+
+  # Forward to Grafana Tempo
+  otlp/tempo:
+    endpoint: tempo-distributor.telemetry:4317
+    tls:
+      insecure: true
+
+  # Forward to Opik (addons/opik) for online evaluation of live traces.
+  # Opik's OTLP ingestion is HTTP-only - it explicitly errors on a gRPC exporter -
+  # so this is otlphttp, not otlp like the two exporters above. There is no
+  # dedicated ingestion service; traces go through the opik-frontend Service.
+  otlphttp/opik:
+    endpoint: http://opik-frontend.opik:5173/api/v1/private/otel
+    tls:
+      insecure: true
+
+processors:
+  batch:
+    send_batch_size: 1000
+    timeout: 1s
+
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 20
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+service:
+  extensions: [health_check]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlp/solo-ui, otlp/tempo, otlphttp/opik]

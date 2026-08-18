@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcp-stock-server
+  namespace: agentgateway-system
+  labels:
+    app.kubernetes.io/managed-by: agentgateway-demo
+    agentgateway.dev/feature: mcp-server
+    app: mcp-stock-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mcp-stock-server
+  template:
+    metadata:
+      labels:
+        app: mcp-stock-server
+    spec:
+      serviceAccountName: mcp-stock-server
+      containers:
+        - name: server
+          image: mcp-stock-server:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+          resources:
+            requests:
+              memory: '128Mi'
+              cpu: '100m'
+            limits:
+              memory: '256Mi'
+              cpu: '200m'
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 30

@@ -1,0 +1,70 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: cel-based-rbac
+  description: |
+    Restrict access to an OpenAI route to clients presenting x-tier: premium header, on the open-source agentgateway.dev chart.
+
+    - AgentgatewayPolicy evaluates a CEL expression per request
+    - Requests without the correct header receive 403 Forbidden
+    - CEL can reference any request header, JWT claims, or derived values
+    - Multiple expressions are ANDed together
+  docs: https://agentgateway.dev/docs/
+
+spec:
+  edition: opensource
+  diagram: |
+    sequenceDiagram
+      participant Client
+      participant AGW as agentgateway (CEL RBAC)
+      participant OAI as OpenAI
+      Client->>AGW: POST /openai (x-tier: premium)
+      AGW->>AGW: CEL: x-tier == premium → Allow
+      AGW->>OAI: forward request
+      OAI-->>Client: response
+      Note over Client,AGW: Without header:
+      Client->>AGW: POST /openai (no x-tier header)
+      AGW-->>Client: 403 Forbidden
+
+  features:
+    - name: providers
+      config:
+        providers:
+          - name: openai
+            providerName: openai
+            pathPrefix: /openai
+            model: gpt-4o-mini
+
+    - name: cel-based-rbac
+      description: Allow only requests with x-tier premium header
+      config:
+        action: Allow
+        expressions:
+          - "request.headers['x-tier'] == 'premium'"
+        targetRefs:
+          - group: gateway.networking.k8s.io
+            kind: HTTPRoute
+            name: openai
+
+  tests:
+    - name: premium-header-allowed
+      description: Request with x-tier=premium is allowed through
+      steps:
+        - action: send-request
+          endpoint: /openai
+          headers:
+            x-tier: premium
+          prompt: 'Hello'
+        - action: verify
+          expect:
+            status: success
+
+    - name: missing-header-denied
+      description: Request without x-tier header receives 403
+      steps:
+        - action: send-request
+          endpoint: /openai
+          prompt: 'Hello'
+        - action: verify
+          expect:
+            status: 403

@@ -1,0 +1,17 @@
+apiVersion: agentgateway.demo/v1
+kind: InfraProfile
+metadata:
+  name: eks-single-cluster
+  description: EKS single cluster
+
+spec:
+  provider: eks
+  environment: aws-dev
+
+  settings:
+    nodes: 2
+    node_type: t3.xlarge
+
+  clusters:
+    - name: demo
+      role: management

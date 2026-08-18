@@ -1,0 +1,105 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: body-routing-embeddings
+  description: |
+    Body-based model routing for embeddings behind a single /embeddings route.
+
+    - An EnterpriseAgentgatewayPolicy (PreRouting) extracts the `model` field from the request body and sets it as the X-Gateway-Model-Name header
+    - HTTPRoute rules match on that header to select the correct backend
+    - text-embedding-3-small → OpenAI  (with fallbackModel support)
+    - bge-m3                 → Ollama  (with fallbackModel support)
+    - `/v1/embeddings` is mapped as passthrough — forwarded as-is, no LLM processing
+    - Unrecognized model names receive a 404
+  references:
+    - https://docs.solo.io/agentgateway/latest/reference/api/solo/#enterpriseagentgatewaypolicyspec
+    - https://agentgateway.dev/docs/kubernetes/main/llm/providers/multiple-endpoints/
+spec:
+  diagram: |
+    flowchart LR
+      Client -->|model in body| AGW[agentgateway]
+      AGW -->|text-embedding| OpenAI[OpenAI]
+      AGW -->|local model| Ollama[Ollama]
+      OpenAI -->|fail| Fallback[Failover Provider]
+
+  features:
+    - name: providers
+      config:
+        pathPrefix: /embeddings
+        bodyRouting: true
+        providers:
+          - name: openai
+            providerName: openai
+            model: text-embedding-3-small
+            fallbackModel: text-embedding-3-large
+            pathRewrite: /
+            policies:
+              auth:
+                secretRef:
+                  name: openai-secret
+              ai:
+                routes:
+                  '/v1/embeddings': Passthrough
+                  '*': Passthrough
+          - name: local-ollama
+            providerName: openai-compatible
+            model: bge-m3
+            #host: host.minikube.internal
+            host: 192.168.162.8
+            port: 11434
+            fallbackModel: all-minilm
+            pathRewrite: /
+            policies:
+              ai:
+                routes:
+                  '/api/embed': Passthrough
+                  '*': Passthrough
+            path:
+              full: /api/embed
+
+  tests:
+    - name: test-openai-embedding-small
+      description: Call with text-embedding-3-small → exact match → OpenAI (passthrough)
+      steps:
+        - action: send-request
+          endpoint: /embeddings/v1/embeddings
+          model: text-embedding-3-small
+          input: 'What is Kubernetes?'
+        - action: verify
+          expect:
+            status: success
+
+    - name: test-openai-embedding-failover
+      description: OpenAI primary fails → failover to text-embedding-3-large
+      steps:
+        - action: send-request
+          endpoint: /embeddings/v1/embeddings
+          model: text-embedding-3-small
+          input: 'What is Kubernetes?'
+          simulateFailure: true
+        - action: verify
+          expect:
+            status: success
+            fallbackUsed: text-embedding-3-large
+
+    - name: test-local-ollama-embedding
+      description: Call single endpoint with local model in body → routed to Ollama backend (passthrough)
+      steps:
+        - action: send-request
+          endpoint: /embeddings
+          model: bge-m3
+          input: 'Say hello in one word.'
+        - action: verify
+          expect:
+            status: success
+
+    - name: test-unknown-model-rejected
+      description: Unknown model has no matching route rule → gateway returns 404
+      steps:
+        - action: send-request
+          endpoint: /embeddings
+          model: unknown-embedding-model
+          input: 'Hello'
+        - action: verify
+          expect:
+            statusCode: 404

@@ -1,0 +1,12 @@
+apiVersion: agentgateway.demo/v1
+kind: Profile
+metadata:
+  name: agentgateway-standard
+  description: |
+    Standard agentgateway profile (without additional addons)
+spec:
+  environment: local
+
+  helmValues: {}
+
+  addons: []

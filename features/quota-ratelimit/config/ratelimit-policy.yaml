@@ -1,0 +1,23 @@
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayPolicy
+metadata:
+  name: quota-management-ratelimit
+  namespace: agentgateway-system
+  labels:
+    app.kubernetes.io/managed-by: agentgateway-demo
+    agentgateway.dev/feature: quota-ratelimit
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: openai
+  traffic:
+    entRateLimit:
+      global:
+        domain: solo.io
+        backendRef:
+          name: rate-limiter-enterprise-agentgateway
+          port: 8083
+        rateLimitConfigRefs:
+          - name: quota-management-token-ratelimit
+          - name: quota-management-request-ratelimit

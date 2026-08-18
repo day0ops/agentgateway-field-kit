@@ -1,0 +1,37 @@
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayParameters
+metadata:
+  name: enterprise-agentgateway-sharedext-params
+  namespace: agentgateway-system
+spec:
+  # Lets the agentgateway proxy pod reach the controller's in-cluster STS endpoint
+  # for the eager-OAuth flow (mcp-eager-auth-okta/mcp-eager-auth-auth0).
+  env:
+    - name: STS_URI
+      value: http://enterprise-agentgateway.agentgateway-system.svc.cluster.local:7777/elicitations/oauth2/token
+    - name: STS_AUTH_TOKEN
+      value: /var/run/secrets/xds-tokens/xds-token
+  sharedExtensions:
+    extCache:
+      enabled: true
+    ratelimiter:
+      enabled: true
+    waf:
+      enabled: true
+    extauth:
+      enabled: true
+      deployment:
+        spec:
+          template:
+            spec:
+              volumes:
+                - name: custom-ca-cert
+                  secret:
+                    secretName: keycloak-ca
+              containers:
+                - name: ext-auth-service
+                  volumeMounts:
+                    - name: custom-ca-cert
+                      mountPath: /etc/ssl/certs/keycloak-ca.crt
+                      subPath: ca.crt
+                      readOnly: true

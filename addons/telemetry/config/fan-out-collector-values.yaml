@@ -1,0 +1,57 @@
+mode: deployment
+
+# Keep resource names predictable for tracing-policy references
+fullnameOverride: fan-out-collector
+
+image:
+  repository: ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib
+
+command:
+  name: otelcol-contrib
+
+config:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+        http:
+          endpoint: 0.0.0.0:4318
+
+  exporters:
+    otlp/solo-ui:
+      endpoint: solo-enterprise-telemetry-collector.agentgateway-system:4317
+      tls:
+        insecure: true
+    otlp/tempo:
+      endpoint: tempo-distributor.telemetry:4317
+      tls:
+        insecure: true
+    # Opik's OTLP ingestion is HTTP-only (its own docs: a gRPC exporter errors),
+    # so this is otlphttp, not otlp - and it goes through the frontend Service,
+    # since there's no dedicated ingestion service.
+    otlphttp/opik:
+      endpoint: http://opik-frontend.opik:5173/api/v1/private/otel
+      tls:
+        insecure: true
+
+  processors:
+    batch:
+      send_batch_size: 1000
+      timeout: 1s
+    memory_limiter:
+      check_interval: 1s
+      limit_percentage: 80
+      spike_limit_percentage: 20
+
+  extensions:
+    health_check:
+      endpoint: 0.0.0.0:13133
+
+  service:
+    extensions: [health_check]
+    pipelines:
+      traces:
+        receivers: [otlp]
+        processors: [memory_limiter, batch]
+        exporters: [otlp/solo-ui, otlp/tempo, otlphttp/opik]

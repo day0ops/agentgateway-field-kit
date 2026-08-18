@@ -1,0 +1,72 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: frontend-mtls
+  description: |
+    Require and validate client certificates during the TLS handshake itself (mTLS), before any HTTP request is processed.
+
+    - The shared Gateway's `https` listener + `spec.tls.frontend.default.validation` and its CA chain are provisioned once at install time by the `gateway-mtls` addon (see `config/profiles/eks-enterprise-agentgateway-minimal.yaml`), not by this usecase - a usecase must never mutate shared, persistent infrastructure like the default Gateway.
+    - frontend-mtls issues a client certificate off that addon's CA-backed Issuer
+    - Requires Gateway API 1.5+ on the experimental channel - spec.tls.frontend doesn't exist on this repo's default (1.4.0, standard channel) Gateway CRDs; check `kubectl get crd gateways.gateway.networking.k8s.io -o jsonpath='{.metadata.annotations}'` for `channel":"experimental"` before deploying
+  docs: https://docs.solo.io/agentgateway/latest/setup/listeners/mtls/
+
+spec:
+  diagram: |
+    sequenceDiagram
+      participant Client
+      participant AGW as agentgateway (HTTPS listener)
+
+      Client->>AGW: TLS handshake, no client cert
+      AGW-->>Client: TLS handshake failure (AllowValidOnly)
+
+      Client->>AGW: TLS handshake, client cert signed by the trusted CA
+      AGW-->>Client: TLS handshake succeeds
+      Client->>AGW: POST /openai
+      AGW-->>Client: 200
+
+  features:
+    - name: frontend-mtls
+      config:
+        name: frontend-mtls
+
+    - name: providers
+      config:
+        providers:
+          - name: openai
+            providerName: openai
+            pathPrefix: /openai
+            model: gpt-4o-mini
+
+  tests:
+    - name: request-without-client-cert-fails-handshake
+      description: A request without a client certificate fails the TLS handshake, not an HTTP-level check
+      steps:
+        - action: send-request
+          scheme: https
+          port: 8443
+          endpoint: /openai
+          prompt: 'Hello'
+        - action: verify
+          expect:
+            connectionError: true
+
+    - name: request-with-client-cert-succeeds
+      description: A request presenting the CA-issued client certificate completes the handshake and gets a normal response
+      steps:
+        - action: send-request
+          scheme: https
+          port: 8443
+          endpoint: /openai
+          prompt: 'Hello'
+          tls:
+            cert:
+              secretRef:
+                name: frontend-mtls-client-secret
+                namespace: agentgateway-system
+            key:
+              secretRef:
+                name: frontend-mtls-client-secret
+                namespace: agentgateway-system
+        - action: verify
+          expect:
+            status: success

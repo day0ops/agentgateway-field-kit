@@ -1,0 +1,21 @@
+apiVersion: ratelimit.solo.io/v1alpha1
+kind: RateLimitConfig
+metadata:
+  name: rate-limit-config
+  namespace: agentgateway-system
+  labels:
+    app.kubernetes.io/managed-by: agentgateway-demo
+    agentgateway.dev/feature: rate-limit
+spec:
+  raw:
+    descriptors:
+      - key: generic_key
+        value: counter
+        rateLimit:
+          requestsPerUnit: 5
+          unit: MINUTE
+    rateLimits:
+      - actions:
+          - genericKey:
+              descriptorValue: counter
+        type: REQUEST

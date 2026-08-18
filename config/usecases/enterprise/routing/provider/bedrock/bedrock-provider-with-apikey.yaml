@@ -1,0 +1,49 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: bedrock-provider-with-apikey
+  description: |
+    Route requests to AWS Bedrock (Nova Lite) using API key authentication.
+
+    - API key stored as a Kubernetes Secret and referenced by the provider config
+    - Gateway signs each outbound request with credentials derived from the key
+    - Exposed at /bedrock behind a single AgentgatewayBackend
+  docs: https://kgateway.dev/docs/latest/agentgateway/llm/providers/amazon-bedrock/
+
+spec:
+  diagram: |
+    flowchart LR
+      Client --> AGW[AGW + API Key]
+      AGW --> Bedrock[AWS Bedrock]
+
+  features:
+    - name: providers
+      config:
+        providers:
+          - name: bedrock
+            providerName: bedrock
+            pathPrefix: /bedrock
+            model: global.amazon.nova-2-lite-v1:0
+            region: us-east-1
+
+  tests:
+    - name: test-bedrock-greeting
+      description: Test Bedrock with a greeting
+      steps:
+        - action: send-request
+          endpoint: /bedrock
+          prompt: 'Hello, how are you?'
+        - action: verify
+          expect:
+            status: success
+
+    - name: test-bedrock-provider
+      description: Test simple Bedrock LLM call
+      steps:
+        - action: send-request
+          endpoint: /bedrock
+          prompt: 'What is 2+2?'
+        - action: verify
+          expect:
+            status: success
+            contains: '4'

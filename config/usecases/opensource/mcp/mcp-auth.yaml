@@ -1,0 +1,157 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: mcp-auth
+  description: |
+    Protect an MCP server with OAuth 2.0 authentication via Keycloak, on the open-source agentgateway.dev chart.
+
+    - Unauthenticated requests receive a 401 with OAuth Protected Resource Metadata
+    - Clients discover the IdP and perform dynamic client registration
+    - Client obtains an access token and attaches it as a Bearer header for MCP calls
+  docs: https://agentgateway.dev/docs/
+
+spec:
+  edition: opensource
+  diagram: |
+    sequenceDiagram
+      participant Client as MCP Client
+      participant AGW as agentgateway
+      participant KC as Keycloak
+      participant MCP as MCP Server
+      Client->>AGW: POST /mcp (no token)
+      AGW-->>Client: 401 + OAuth metadata
+      Client->>KC: dynamic client registration
+      KC-->>Client: client credentials
+      Client->>KC: authorization request
+      KC-->>Client: access token
+      Client->>AGW: POST /mcp + Bearer token
+      AGW->>KC: validate token
+      KC-->>AGW: valid
+      AGW->>MCP: forward MCP request
+      MCP-->>Client: tools response
+  steps:
+    - title: Deploy MCP server
+      description: |
+        Deploy the MCP stock server workload and create a static MCP backend and route through agentgateway. This provides the upstream MCP server that will be protected with OAuth 2.0 authentication.
+      features:
+        - name: mcp-server
+          config:
+            deployServer: true
+            image: '{{env.images.stock-server-mcp}}'
+            serverName: stock-server-mcp
+            serverPort: 8000
+            servicePort: 80
+            protocol: StreamableHTTP
+            mcpPath: /mcp
+            backendName: mcp-backend
+            routeName: mcp
+
+    - title: Enforce MCP auth
+      description: |
+        Create an AgentgatewayPolicy with MCP authentication (traffic.jwtAuthentication) targeting the AgentgatewayBackend. Configure Keycloak for dynamic client registration so MCP clients (e.g. MCP Inspector) can automatically register and run the OAuth flow. Update the HTTPRoute with OAuth discovery paths and CORS to support the MCP auth handshake.
+      features:
+        - name: mcp-auth
+          config:
+            policyName: mcp-auth
+            backendName: mcp-backend
+            routeName: mcp
+            mcpPath: /mcp
+            keycloak:
+              realm: agw-dev
+              serviceName: keycloak
+              serviceNamespace: keycloak
+              servicePort: 443
+              externalUrl: '{{env.keycloak.scheme}}://{{env.domains.keycloak}}'
+              configureDynamicRegistration: true
+              grantAudienceToClients:
+                - agw-client
+            audiences:
+              - 'http://{{env.domains.agentgateway}}:8080/mcp'
+            resource: 'http://{{env.domains.agentgateway}}:8080/mcp'
+            scopesSupported:
+              - email
+            mode: Strict
+            provider: Keycloak
+
+  tests:
+    - name: test-unauthenticated-mcp-request-blocked
+      description: Verify unauthenticated MCP requests are rejected
+      steps:
+        - action: send-mcp-request
+          endpoint: /mcp
+          method: tools/list
+        - action: verify
+          expect:
+            status: error
+
+    - name: test-resource-metadata-discovery
+      description: Verify the OAuth protected resource metadata endpoint is reachable
+      steps:
+        - action: send-request
+          endpoint: /.well-known/oauth-protected-resource/mcp
+        - action: verify
+          expect:
+            status: success
+            contains: resource
+
+    - name: test-dynamic-client-registration
+      description: A client can dynamically register with Keycloak and use the issued credentials to call MCP tools
+      steps:
+        - action: register-client
+          keycloak:
+            realm: agw-dev
+            hostname: '{{env.domains.keycloak}}'
+        - action: get-token
+          keycloak:
+            realm: agw-dev
+            grantType: client_credentials
+            hostname: '{{env.domains.keycloak}}'
+        - action: send-mcp-request
+          endpoint: /mcp
+          method: tools/list
+          auth: bearer
+        - action: verify
+          expect:
+            status: success
+            contains: get_stock_price
+
+    - name: test-authenticated-mcp-tools-list
+      description: Authenticated client can list MCP tools via a client_credentials bearer token
+      steps:
+        - action: get-token
+          keycloak:
+            realm: agw-dev
+            clientId: agw-client
+            clientSecret: agw-client-secret
+            grantType: client_credentials
+            hostname: '{{env.domains.keycloak}}'
+        - action: send-mcp-request
+          endpoint: /mcp
+          method: tools/list
+          auth: bearer
+        - action: verify
+          expect:
+            status: success
+            contains: get_stock_price
+
+    - name: test-authenticated-mcp-tool-call
+      description: Authenticated client can call an MCP tool
+      steps:
+        - action: get-token
+          keycloak:
+            realm: agw-dev
+            clientId: agw-client
+            clientSecret: agw-client-secret
+            grantType: client_credentials
+            hostname: '{{env.domains.keycloak}}'
+        - action: send-mcp-request
+          endpoint: /mcp
+          method: tools/call
+          auth: bearer
+          params:
+            name: get_stock_price
+            arguments:
+              symbol: AAPL
+        - action: verify
+          expect:
+            status: success

@@ -1,0 +1,51 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: bedrock-titan-embeddings
+  description: |
+    Route requests to AWS Bedrock's Titan embeddings model using its native (non-OpenAI-shaped) request format.
+
+    - upstreamRewrite redirects the route to Bedrock's raw model-invoke endpoint
+    - policies.ai.routes Passthrough forwards the request body as-is (no chat-completion reshaping)
+    - Request body uses Bedrock's native `inputText` field, not OpenAI's `input` field
+  docs: https://kgateway.dev/docs/latest/agentgateway/llm/providers/amazon-bedrock/
+
+spec:
+  diagram: |
+    flowchart LR
+      Client --> AGW[agentgateway]
+      AGW -->|upstreamRewrite: bedrock-runtime invoke path| Bedrock[AWS Bedrock Titan Embed]
+
+  features:
+    - name: providers
+      config:
+        providers:
+          - name: bedrock-titan-embed
+            providerName: bedrock
+            pathPrefix: /bedrock-titan-embed
+            model: amazon.titan-embed-text-v2:0
+            region: us-east-1
+            authMode: credentials
+            upstreamRewrite:
+              hostname: bedrock-runtime.us-east-1.amazonaws.com
+              path: /model/amazon.titan-embed-text-v2:0/invoke
+            policies:
+              ai:
+                routes:
+                  '*': Passthrough
+
+  tests:
+    - name: test-titan-embeddings
+      description: Titan embeddings via its native inputText request format
+      steps:
+        - action: send-request
+          endpoint: /bedrock-titan-embed
+          method: POST
+          headers:
+            Accept: application/json
+          body:
+            inputText: 'What is Amazon Bedrock?'
+        - action: verify
+          expect:
+            status: success
+            contains: embedding

@@ -1,0 +1,141 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: protected-resource-metadata
+  description: |
+    Expose the OAuth Protected Resource Metadata endpoint per RFC 9728.
+
+    - Served at /.well-known/oauth-protected-resource/mcp
+    - MCP clients discover the authorization server URL, supported scopes, and bearer methods
+    - Enables zero-configuration IdP discovery without out-of-band setup
+  docs: https://docs.solo.io/agentgateway/latest/mcp/auth/setup/
+
+spec:
+  diagram: |
+    sequenceDiagram
+      participant Client as MCP Client
+      participant AGW as agentgateway
+      participant KC as Keycloak
+      Note over Client: Client discovers OAuth requirements
+      Client->>AGW: GET /.well-known/oauth-protected-resource/mcp
+      AGW-->>Client: Protected Resource Metadata
+      Note over Client: Response includes:
+      Note over Client: - resource: http://localhost:8080/mcp
+      Note over Client: - authorization_servers: [keycloak URL]
+      Note over Client: - scopes_supported: [read, write, email]
+      Note over Client: - bearer_methods_supported: [header, body, query]
+      Client->>KC: Discover auth server metadata
+      KC-->>Client: Authorization Server Metadata
+      Note over Client,KC: Client proceeds with OAuth flow
+  steps:
+    - title: Deploy MCP server
+      description: |
+        Deploy the MCP stock server workload and create a static MCP backend and route through agentgateway.
+      features:
+        - name: mcp-server
+          config:
+            deployServer: true
+            image: '{{env.images.stock-server-mcp}}'
+            serverName: stock-server-mcp
+            serverPort: 8000
+            servicePort: 80
+            protocol: StreamableHTTP
+            mcpPath: /mcp
+            backendName: mcp-backend
+            routeName: mcp
+
+    - title: Configure Protected Resource Metadata
+      description: |
+        Configure the MCP auth policy to expose the OAuth Protected Resource Metadata endpoint at /.well-known/oauth-protected-resource/mcp as defined in RFC 9728. This endpoint allows MCP clients to discover:
+        - The resource identifier (resource)
+        - Authorization servers that protect this resource (authorization_servers)
+        - Supported OAuth scopes (scopes_supported)
+        - Supported bearer token delivery methods (bearer_methods_supported)
+      features:
+        - name: mcp-auth
+          config:
+            policyName: protected-resource-metadata
+            backendName: mcp-backend
+            routeName: mcp
+            mcpPath: /mcp
+            keycloak:
+              realm: agw-dev
+              serviceName: keycloak
+              serviceNamespace: keycloak
+              servicePort: 443
+              configureDynamicRegistration: false
+            resource: http://localhost:8080/mcp
+            scopesSupported:
+              - read
+              - write
+              - email
+            bearerMethodsSupported:
+              - header
+              - body
+              - query
+            mode: Strict
+            provider: Keycloak
+
+  tests:
+    - name: test-protected-resource-metadata-json
+      description: Verify the protected resource metadata endpoint returns valid JSON
+      steps:
+        - action: send-request
+          endpoint: /.well-known/oauth-protected-resource/mcp
+          headers:
+            Accept: application/json
+        - action: verify
+          expect:
+            status: success
+            contentType: application/json
+
+    - name: test-resource-field-matches-config
+      description: Verify the resource field matches the configured value
+      steps:
+        - action: send-request
+          endpoint: /.well-known/oauth-protected-resource/mcp
+        - action: verify
+          expect:
+            status: success
+            json:
+              resource: http://localhost:8080/mcp
+
+    - name: test-authorization-servers-points-to-keycloak
+      description: Verify authorization_servers includes Keycloak realm URL
+      steps:
+        - action: send-request
+          endpoint: /.well-known/oauth-protected-resource/mcp
+        - action: verify
+          expect:
+            status: success
+            containsAll:
+              - authorization_servers
+              - keycloak
+
+    - name: test-scopes-supported-configured
+      description: Verify scopes_supported contains configured scopes
+      steps:
+        - action: send-request
+          endpoint: /.well-known/oauth-protected-resource/mcp
+        - action: verify
+          expect:
+            status: success
+            json:
+              scopes_supported:
+                - read
+                - write
+                - email
+
+    - name: test-bearer-methods-supported-configured
+      description: Verify bearer_methods_supported contains configured methods
+      steps:
+        - action: send-request
+          endpoint: /.well-known/oauth-protected-resource/mcp
+        - action: verify
+          expect:
+            status: success
+            json:
+              bearer_methods_supported:
+                - header
+                - body
+                - query

@@ -1,0 +1,32 @@
+# Gateway template. Override name, namespace, spec.listeners, etc. via feature config.
+# When this feature is used, HTTPRoutes will reference this Gateway via parentRefs.
+#
+# Example with HTTPS listener:
+#   listeners:
+#     - name: https
+#       port: 8443
+#       protocol: HTTPS
+#       tls:
+#         mode: Terminate
+#         certificateRefs:
+#           - name: my-tls-secret
+#             namespace: agentgateway-system
+#       allowedRoutes:
+#         namespaces:
+#           from: All
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: agentgateway
+  namespace: agentgateway-system
+  labels:
+    app: agentgateway
+spec:
+  gatewayClassName: enterprise-agentgateway
+  listeners:
+    - name: http
+      port: 8080
+      protocol: HTTP
+      allowedRoutes:
+        namespaces:
+          from: All

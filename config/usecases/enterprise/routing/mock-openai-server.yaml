@@ -1,0 +1,36 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: mock-openai-server
+  description: |
+    Route to a fake OpenAI-compatible chat-completions server instead of a real provider, so demos that need a controllable backend don't spend real API credentials.
+
+    - Deploys the vLLM community's llm-d-inference-sim as an in-cluster mock backend
+    - Wired up as an EnterpriseAgentgatewayBackend with auth.passthrough (no API key needed)
+    - Useful as a foundation for timeout/retry/load-testing demos
+  docs: https://github.com/llm-d/llm-d-inference-sim
+
+spec:
+  diagram: |
+    flowchart LR
+      Client --> AGW[agentgateway]
+      AGW --> Mock[llm-d-inference-sim]
+
+  features:
+    - name: mock-provider
+      config:
+        name: mock-openai
+        model: mock-gpt-4o
+        pathPrefix: /mock-openai
+
+  tests:
+    - name: test-mock-openai-greeting
+      description: Test the mock OpenAI-compatible server with a greeting
+      steps:
+        - action: send-request
+          endpoint: /mock-openai
+          model: mock-gpt-4o
+          prompt: 'Hello, how are you?'
+        - action: verify
+          expect:
+            status: success

@@ -1,0 +1,69 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: static-mcp-server
+  description: |
+    Routes requests to a fixed MCP server address, the simplest way to expose an MCP server's tools through agentgateway.
+  docs: https://docs.solo.io/agentgateway/latest/mcp/static-mcp/
+
+spec:
+  diagram: |
+    sequenceDiagram
+      participant Agent
+      participant AGW as agentgateway
+      participant MCP as MCP Stock Server
+      Agent->>AGW: MCP initialize
+      AGW->>MCP: forward (static target)
+      MCP-->>Agent: tools list
+      Agent->>AGW: MCP tools/call get_stock_price
+      AGW->>MCP: forward tool call
+      MCP-->>Agent: stock price result
+  steps:
+    - title: Deploy LLM provider and static MCP server
+      description: |
+        Deploy an OpenAI LLM provider and the MCP stock server workload. Create an AgentgatewayBackend with a static MCP target. The Service uses appProtocol kgateway.dev/mcp so agentgateway speaks the MCP protocol to the upstream.
+      features:
+        # - name: providers
+        #   config:
+        #     providers:
+        #       - name: openai
+        #         providerName: openai
+        #         pathPrefix: /openai
+        #         model: gpt-4o-mini
+        - name: mcp-server
+          config:
+            deployServer: true
+            image: '{{env.images.stock-server-mcp}}'
+            serverName: stock-server-mcp
+            serverPort: 8000
+            servicePort: 80
+            protocol: StreamableHTTP
+            backendName: mcp-backend
+            targetName: mcp-target
+            routeName: mcp
+
+  tests:
+    - name: test-mcp-tools-list
+      description: Verify the MCP server tools are discoverable through agentgateway
+      steps:
+        - action: send-mcp-request
+          endpoint: /mcp
+          method: tools/list
+        - action: verify
+          expect:
+            status: success
+            contains: get_stock_price
+
+    - name: test-mcp-tool-call
+      description: Call the get_stock_price tool through agentgateway
+      steps:
+        - action: send-mcp-request
+          endpoint: /mcp
+          method: tools/call
+          params:
+            name: get_stock_price
+            arguments:
+              symbol: AAPL
+        - action: verify
+          expect:
+            status: success

@@ -1,0 +1,110 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: budget-and-spend-limits
+  description: |
+    Enforce per-key token budgets using Solo's native "Budget and spend limits" capability - an EnterpriseAgentgatewayBudget CRD enforced by the built-in rate-limit service. No custom ext-proc/Postgres infrastructure required (replaces the deprecated rate-limit/quota-management use case).
+
+    - virtual-keys: issues alice and bob API keys (identity + a generous per-key token rate limit that is not the constraint under test here)
+    - budget-limits: three EnterpriseAgentgatewayBudget entries -
+    - bob: a 1-token daily budget with onBudgetExceeded: Block - any real request exceeds it and is rejected with 429
+    - alice: a 1-token daily budget with onBudgetExceeded: Audit - the request still succeeds; the overage is only logged
+    - a wildcard ("*") org-wide monthly ceiling in Audit mode, as a catch-all safety net
+    - virtual-keys and budget-limits both target the Gateway; agentgateway-field-kit's PolicyRegistry automatically merges their EnterpriseAgentgatewayPolicy fragments (apiKeyAuthentication + entRateLimit from virtual-keys, entBudgetEnforcement from budget-limits) into a single applied policy.
+  docs: https://docs.solo.io/agentgateway/latest/llm/cost-controls/budget-limits/
+
+spec:
+  diagram: |
+    sequenceDiagram
+      participant Alice
+      participant Bob
+      participant AGW as agentgateway
+      participant OAI as OpenAI
+      Alice->>AGW: Authorization: Bearer sk-alice-xxx
+      AGW->>AGW: budget 'alice-daily-tokens' exceeded (Audit) - log only
+      AGW->>OAI: forward
+      OAI-->>Alice: response
+      Bob->>AGW: Authorization: Bearer sk-bob-xxx
+      AGW->>AGW: budget 'bob-daily-tokens' exceeded (Block)
+      AGW-->>Bob: 429 Too Many Requests
+
+  features:
+    - name: providers
+      config:
+        providers:
+          - name: openai
+            providerName: openai
+            pathPrefix: /openai
+            model: gpt-4o-mini
+
+    - name: virtual-keys
+      description: Issue alice and bob virtual keys (identity; budget-limits enforces spend)
+      config:
+        keys:
+          - name: alice
+            key: sk-alice-demo-abc123def456
+            userId: alice
+            tokenBudget: 100000
+          - name: bob
+            key: sk-bob-demo-xyz789uvw012
+            userId: bob
+            tokenBudget: 100000
+
+    - name: budget-limits
+      description: Per-key token budgets with mixed Block/Audit enforcement
+      config:
+        budgets:
+          - name: bob-daily-tokens
+            subject:
+              virtualKey: bob
+            limit:
+              unit: Tokens
+              amount: 1
+            window:
+              unit: Day
+            onBudgetExceeded: Block
+          - name: alice-daily-tokens
+            subject:
+              virtualKey: alice
+            limit:
+              unit: Tokens
+              amount: 1
+            window:
+              unit: Day
+            onBudgetExceeded: Audit
+          - name: org-wide-monthly-ceiling
+            subject:
+              virtualKey: '*'
+            limit:
+              unit: Tokens
+              amount: 10000000
+            window:
+              unit: Month
+            onBudgetExceeded: Audit
+
+  tests:
+    - name: bob-request-blocked-budget-exceeded
+      description: |
+        Bob's 1-token daily budget (onBudgetExceeded: Block) is exceeded by any real request, so the gateway rejects it with 429.
+      steps:
+        - action: send-request
+          endpoint: /openai
+          headers:
+            Authorization: 'Bearer sk-bob-demo-xyz789uvw012'
+          prompt: 'Hello'
+        - action: verify
+          expect:
+            statusCode: 429
+
+    - name: alice-request-allowed-audit-only
+      description: |
+        Alice's 1-token daily budget (onBudgetExceeded: Audit) is also exceeded, but Audit mode only logs the overage - the request still succeeds.
+      steps:
+        - action: send-request
+          endpoint: /openai
+          headers:
+            Authorization: 'Bearer sk-alice-demo-abc123def456'
+          prompt: 'Hello'
+        - action: verify
+          expect:
+            status: success

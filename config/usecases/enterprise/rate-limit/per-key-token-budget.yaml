@@ -1,0 +1,84 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: per-key-token-budget
+  description: |
+    Issue two virtual keys with different token budgets: alice gets 10,000 tokens/hr, bob gets 1,000.
+
+    - Keys stored as JSON in a Kubernetes Secret with user_id metadata
+    - Gateway authenticates via Authorization header in Strict mode
+    - Token-based rate limit enforced per user_id extracted from matched key
+    - Exceeding budget returns 429 Too Many Requests
+  docs: https://docs.solo.io/agentgateway/latest/llm/virtual-keys/
+
+spec:
+  diagram: |
+    sequenceDiagram
+      participant Alice
+      participant Bob
+      participant AGW as agentgateway
+      participant OAI as OpenAI
+      Alice->>AGW: Authorization: Bearer sk-alice-xxx
+      AGW->>AGW: match key → user_id=alice, budget=10000 tokens/hr
+      AGW->>OAI: forward
+      OAI-->>Alice: response
+      Bob->>AGW: Authorization: Bearer sk-bob-xxx (budget nearly exhausted)
+      AGW->>AGW: match key → user_id=bob, budget=1000 tokens/hr (exceeded)
+      AGW-->>Bob: 429 Too Many Requests
+
+  features:
+    - name: providers
+      config:
+        providers:
+          - name: openai
+            providerName: openai
+            pathPrefix: /openai
+            model: gpt-4o-mini
+
+    - name: virtual-keys
+      description: Issue alice and bob virtual keys with different token budgets
+      config:
+        keys:
+          - name: alice
+            key: sk-alice-demo-abc123def456
+            userId: alice
+            tokenBudget: 10000
+          - name: bob
+            key: sk-bob-demo-xyz789uvw012
+            userId: bob
+            tokenBudget: 1000
+
+  tests:
+    - name: alice-key-authenticated
+      description: Alice's virtual key authenticates successfully
+      steps:
+        - action: send-request
+          endpoint: /openai
+          headers:
+            Authorization: 'Bearer sk-alice-demo-abc123def456'
+          prompt: 'Hello'
+        - action: verify
+          expect:
+            status: success
+
+    - name: invalid-key-rejected
+      description: Unknown key is rejected with 401
+      steps:
+        - action: send-request
+          endpoint: /openai
+          headers:
+            Authorization: 'Bearer sk-invalid-key-000'
+          prompt: 'Hello'
+        - action: verify
+          expect:
+            status: 401
+
+    - name: no-key-rejected
+      description: Request without Authorization header is rejected
+      steps:
+        - action: send-request
+          endpoint: /openai
+          prompt: 'Hello'
+        - action: verify
+          expect:
+            status: 401

@@ -1,0 +1,64 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: jwt-corporate-proxy-okta
+  description: |
+    Routes the gateway's outbound JWKS fetch through a simulated corporate forward proxy (Squid), for environments with no direct internet egress.
+
+    - Requests without a token are rejected immediately, before any JWKS fetch happens
+    - Verifying a valid token succeeds is a manual step - it needs a real Okta token (see scripts/okta-apikey-helper.sh)
+  docs: https://docs.solo.io/agentgateway/latest/llm/providers/backend-tunnel-proxy/
+
+spec:
+  diagram: |
+    sequenceDiagram
+      participant Client
+      participant AGW as agentgateway
+      participant Squid as corporate-proxy (Squid)
+      participant Okta
+
+      Client->>AGW: POST /openai (no token)
+      AGW-->>Client: 401 Unauthorized
+
+      Note over AGW,Okta: On a request with a token whose issuer matches:
+      AGW->>Squid: CONNECT okta-domain:443
+      Squid->>Okta: tunnel established
+      AGW->>Okta: GET JWKS (through tunnel)
+      Okta-->>AGW: JWKS
+      AGW-->>Client: 200 (valid token) or 401 (invalid signature)
+
+  features:
+    - name: corporate-proxy
+      config:
+        name: corporate-proxy
+
+    - name: okta-jwt-auth
+      config:
+        oktaDomain: '{{env.okta.domain}}'
+        authServerId: default
+        audiences: ['api://default']
+        tunnelBackendRef:
+          group: enterpriseagentgateway.solo.io
+          kind: EnterpriseAgentgatewayBackend
+          name: corporate-proxy
+          port: 3128
+
+    - name: providers
+      config:
+        providers:
+          - name: openai
+            providerName: openai
+            pathPrefix: /openai
+            model: gpt-4o-mini
+
+  tests:
+    - name: unauthenticated-request-rejected
+      description: Requests without a Bearer token are rejected
+      steps:
+        - action: send-request
+          endpoint: /openai
+          prompt: 'Hello'
+        - action: verify
+          expect:
+            statusCode: 401
+            contains: 'no bearer token found'

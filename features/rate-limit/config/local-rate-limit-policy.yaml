@@ -1,0 +1,19 @@
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayPolicy
+metadata:
+  name: local-rate-limit-policy
+  namespace: agentgateway-system
+  labels:
+    app.kubernetes.io/managed-by: agentgateway-demo
+    agentgateway.dev/feature: rate-limit
+spec:
+  targetRefs:
+    - name: agentgateway
+      group: gateway.networking.k8s.io
+      kind: Gateway
+  traffic:
+    rateLimit:
+      local:
+        - unit: Minutes
+          tokens: 5
+          burst: 0

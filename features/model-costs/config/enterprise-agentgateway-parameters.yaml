@@ -1,0 +1,14 @@
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayParameters
+metadata:
+  name: model-costs-params
+  namespace: agentgateway-system
+  labels:
+    app.kubernetes.io/managed-by: agentgateway-demo
+    agentgateway.dev/feature: model-costs
+spec:
+  modelCatalog:
+    sources:
+      - configMap:
+          name: model-costs-catalog
+          key: catalog.json

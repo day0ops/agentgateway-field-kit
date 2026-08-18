@@ -1,0 +1,70 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: waf
+  description: |
+    Block requests carrying a disallowed model name in the JSON request body using a Web Application Firewall (WAF) policy, before the request ever reaches a provider.
+
+    - WAF is a shared extension (waf-server) - this usecase assumes sharedExtensions.waf.enabled: true is already set at the profile/GatewayClass level (see config/profiles/agentgateway-with-keycloak/enterprise-agentgateway-sharedext-params.yaml). agw usecase deploy cannot flip that GatewayClass-level toggle itself; if it's missing, the WAFPolicy below applies cleanly but silently has no effect.
+    - The block rule is scoped to ARGS:json.model, not bare ARGS - a bare-ARGS rule would false-positive on every request whose body happens to contain the disallowed string anywhere (e.g. in a chat message), not just the model field
+    - processingConfig.request.mode: HeadersAndBody makes the WAF server actually parse the JSON body so Coraza's ARGS:json.* variables are populated
+  docs: https://docs.solo.io/agentgateway/latest/security/waf/enable/
+
+spec:
+  diagram: |
+    sequenceDiagram
+      participant Client
+      participant WAF as waf-server
+      participant AGW as agentgateway
+      participant OAI as OpenAI
+
+      Client->>AGW: POST /openai {"model": "gpt-4", ...}
+      AGW->>WAF: inspect request (ARGS:json.model)
+      WAF-->>AGW: deny (model matches disallowed pattern)
+      AGW-->>Client: 403 (custom intervention response)
+
+      Client->>AGW: POST /openai {"model": "gpt-4o-mini", ...}
+      AGW->>WAF: inspect request
+      WAF-->>AGW: pass
+      AGW->>OAI: forward
+      OAI-->>Client: 200
+
+  features:
+    - name: providers
+      config:
+        providers:
+          - name: openai
+            providerName: openai
+            pathPrefix: /openai
+            model: gpt-4o-mini
+
+    - name: waf
+      config:
+        disallowedModels: ['gpt-4']
+        targetRefs:
+          - group: gateway.networking.k8s.io
+            kind: HTTPRoute
+            name: openai
+
+  tests:
+    - name: disallowed-model-blocked
+      description: A request naming the disallowed model is blocked by the WAF with the custom response
+      steps:
+        - action: send-request
+          endpoint: /openai
+          body: '{"model": "gpt-4", "messages": [{"role": "user", "content": "Hello"}]}'
+        - action: verify
+          expect:
+            statusCode: 403
+            headers:
+              x-blocked-by: waf-policy
+
+    - name: allowed-model-passes-through
+      description: A request naming an allowed model passes through the WAF and reaches the provider
+      steps:
+        - action: send-request
+          endpoint: /openai
+          body: '{"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "Hello"}]}'
+        - action: verify
+          expect:
+            status: success

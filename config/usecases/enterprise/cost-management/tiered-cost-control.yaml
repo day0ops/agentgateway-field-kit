@@ -1,0 +1,328 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: tiered-cost-control
+  description: |
+    A multi-tier AI cost-control gateway combining native authN, authZ, budget, and rate-limit controls.
+
+    Two authN classes share the SAME /chat endpoint:
+    - Human developers authenticate via a Keycloak JWT. OpenFGA ReBAC gates which models each caller can reach (org:acme members get the cheap/mid models; only team:acme-ml members get the premium model). A native org -> team -> user USD budget hierarchy caps spend at three independent levels, and a shared TOKEN rate limit catches bursts.
+    - Automation/CI traffic authenticates via a virtual API key (read from its own X-Api-Key header) instead of a JWT, gated to the cheap model only via its own OpenFGA direct grant, and capped by its own independent Tokens budget and per-key rate limit.
+
+    Both auth methods are configured Optional (not Strict) so a request only needs to satisfy ONE of them - this engine merges auth policies additively rather than treating them as alternatives, so two Strict methods on one route would both be required simultaneously. A request with neither a valid JWT nor a valid API key still gets rejected: OpenFGA can't resolve an identity for it and fails closed.
+
+    org_id/team_id/username are registered as EnterpriseAgentgatewayBudget subject dimensions via the base profile's `budgetDimensions.config` Helm value (see config/profiles/eks-enterprise-agentgateway-complete.yaml), alongside the shipped group/user/virtualKey defaults other use cases rely on.
+
+    Known native limitations (see the companion tiered-cost-control.md for detail):
+    - No automatic isolation/fallback between budget levels: a request against the premium model is charged against the org ceiling, the team cap, AND the user's own daily cap simultaneously - each budget is matched and enforced independently.
+    - USD budget amounts are whole dollars only (CRD-enforced minimum: $1) - too coarse to deterministically exhaust with a single demo request, so the org/team/user budgets here are sized realistically and demonstrated via response headers/logs rather than a forced 429. The automation tier's Tokens budget is deliberately tiny (1 token/day) specifically so its Block behavior is deterministic in the test suite below.
+  docs: https://docs.solo.io/agentgateway/latest/llm/cost-controls/budget-limits/
+
+spec:
+  diagram: |
+    sequenceDiagram
+      participant Alice
+      participant Bob
+      participant CI as team-ci (automation)
+      participant AGW as agentgateway
+      participant FGA as OpenFGA
+      participant LLM as OpenAI / Anthropic
+
+      Alice->>AGW: POST /chat (JWT: org=acme) model=claude-sonnet-5
+      AGW->>FGA: can user:alice use model:claude-sonnet-5?
+      FGA-->>AGW: denied (not on team:acme-ml)
+      AGW-->>Alice: 403 Forbidden
+
+      Bob->>AGW: POST /chat (JWT: org=acme, team=acme-ml) model=claude-sonnet-5
+      AGW->>FGA: can user:bob use model:claude-sonnet-5?
+      FGA-->>AGW: allowed (team_allowed)
+      AGW->>AGW: charge org ceiling + acme-ml team cap + bob's daily cap
+      AGW->>LLM: forward
+      LLM-->>Bob: response
+
+      CI->>AGW: POST /chat (X-Api-Key: sk-team-ci-xxx) model=gpt-4o-mini
+      AGW->>FGA: can user:team-ci use model:gpt-4o-mini?
+      FGA-->>AGW: allowed (direct grant)
+      AGW->>AGW: team-ci budget (1 token/day) already exceeded
+      AGW-->>CI: 429 Too Many Requests
+
+  steps:
+    - title: Deploy OpenFGA server
+      description: |
+        Deploy OpenFGA (in-memory datastore) and seed the same authorization model plus relationship tuples used by security/openfga-rebac, in its own namespace - this use case reuses those org:acme / team:acme-ml / team-ci tuples rather than seeding its own.
+      features:
+        - name: openfga
+          config:
+            namespace: openfga
+            image: '{{env.images.openfga-engine}}'
+
+    - title: Configure the /chat endpoint
+      description: |
+        Three models behind one body-routed /chat endpoint: a cheap model every org member can reach, a mid-tier model, and a premium model reserved for the ML team.
+      features:
+        - name: providers
+          config:
+            bodyRouting: true
+            pathPrefix: /chat
+            providers:
+              - name: openai-gpt4o-mini
+                providerName: openai
+                model: gpt-4o-mini
+              - name: openai-gpt4o
+                providerName: openai
+                model: gpt-4o
+              - name: anthropic-claude-sonnet
+                providerName: anthropic
+                model: claude-sonnet-5
+
+    - title: Attach a model cost catalog
+      description: |
+        USD-denominated budgets need request pricing. Attach a catalog covering all three models so agentgateway computes llm.cost / agw.ai.usage.cost.total per request. Rates are illustrative, not current provider pricing.
+      features:
+        - name: model-costs
+          config:
+            catalog:
+              providers:
+                openai:
+                  models:
+                    gpt-4o-mini:
+                      rates:
+                        input: '0.15'
+                        output: '0.6'
+                        cacheRead: '0.075'
+                        cacheWrite: '0.0'
+                        reasoning: '0.0'
+                        inputAudio: '0.0'
+                        outputAudio: '0.0'
+                    gpt-4o:
+                      rates:
+                        input: '2.5'
+                        output: '10.0'
+                        cacheRead: '1.25'
+                        cacheWrite: '0.0'
+                        reasoning: '0.0'
+                        inputAudio: '0.0'
+                        outputAudio: '0.0'
+                anthropic:
+                  models:
+                    claude-sonnet-5:
+                      rates:
+                        input: '3.0'
+                        output: '15.0'
+                        cacheRead: '0.3'
+                        cacheWrite: '3.75'
+                        reasoning: '0.0'
+                        inputAudio: '0.0'
+                        outputAudio: '0.0'
+
+    - title: Validate human developers via Keycloak JWT (Optional - shared with API-key auth)
+      description: |
+        Human callers authenticate with a Keycloak-issued JWT. preferred_username is projected into x-user-id for OpenFGA, falling back to the API key's identity (wired up in the next step) when there's no JWT at all. Mode is Optional, not Strict, so this route can also accept the API-key-authenticated automation traffic configured next - Strict here would reject any request that lacks a JWT, even one that authenticates via API key instead.
+      features:
+        - name: keycloak-jwt-auth
+          config:
+            keycloakHost: '{{env.domains.keycloak}}'
+            mode: Optional
+            claimHeaders:
+              - claim: preferred_username
+                header: x-user-id
+                fallback: "apiKey['user_id']"
+
+    - title: Issue a virtual key for automation/CI (Optional - shared with JWT auth)
+      description: |
+        Automation/CI traffic authenticates with a virtual API key read from its own X-Api-Key header rather than Authorization (which JWT auth already reads) - Strict jwtAuthentication and apiKeyAuthentication together would otherwise both be required on every request, since this engine merges auth policies additively rather than treating them as alternatives. A request with neither credential still isn't let through: OpenFGA fails closed when it can't resolve an identity.
+      features:
+        - name: virtual-keys
+          config:
+            keys:
+              - name: team-ci
+                key: sk-team-ci-demo-9f3c7a1e
+                userId: team-ci
+                tokenBudget: 5000
+            mode: Optional
+            location:
+              header:
+                name: X-Api-Key
+
+    - title: Gate model access with OpenFGA ReBAC
+      description: |
+        Reuses the org:acme / team:acme-ml relationships already seeded by the openfga addon (see security/openfga-rebac): every org:acme member can reach the cheap/mid models, only team:acme-ml members can reach the premium model. team-ci gets its own direct grant on the cheap model only, mirroring the addon's existing mcp-user service identity.
+      features:
+        - name: openfga-authz
+          config:
+            policyName: tiered-cost-control-authz
+            adapterImage: '{{env.images.openfga-ext-authz}}'
+            targetRefs:
+              - group: gateway.networking.k8s.io
+                kind: HTTPRoute
+                name: providers-chat-route
+
+    - title: Apply the org -> team -> user -> automation budget hierarchy
+      description: |
+        Five independent budgets: an org-wide USD ceiling, a per-team USD cap, per-user daily USD caps for the two human developers, and a per-key Tokens cap for automation. All matching budgets are evaluated and charged independently - a request against the premium model is charged against the org ceiling, the acme-ml team cap, AND the caller's own daily cap at the same time; there is no automatic isolation/fallback between levels. team-ci's Tokens budget is deliberately tiny (1 token/day) so its Block behavior is deterministic in the test suite below; size it to real automation volume in production (e.g. 500,000 tokens/month).
+
+        The org_id/team_id/username subjects these budgets key on are registered as EnterpriseAgentgatewayBudget dimensions via the base profile's `budgetDimensions.config` Helm value, not by this use case - they must already be live on the cluster before this step runs.
+      features:
+        - name: budget-limits
+          config:
+            budgetsResourceName: human-budgets
+            targetRefs:
+              - group: gateway.networking.k8s.io
+                kind: HTTPRoute
+                name: providers-chat-route
+            budgets:
+              - name: acme-org-monthly-ceiling
+                subject:
+                  org_id: acme
+                limit:
+                  unit: USD
+                  amount: 200
+                window:
+                  unit: Month
+                onBudgetExceeded: Audit
+              - name: acme-ml-team-monthly-cap
+                subject:
+                  team_id: acme-ml
+                limit:
+                  unit: USD
+                  amount: 50
+                window:
+                  unit: Month
+                onBudgetExceeded: Block
+              - name: alice-daily-cap
+                subject:
+                  username: alice
+                limit:
+                  unit: USD
+                  amount: 5
+                window:
+                  unit: Day
+                onBudgetExceeded: Block
+              - name: bob-daily-cap
+                subject:
+                  username: bob
+                limit:
+                  unit: USD
+                  amount: 10
+                window:
+                  unit: Day
+                onBudgetExceeded: Block
+              - name: team-ci-daily-cap
+                subject:
+                  virtualKey: team-ci
+                limit:
+                  unit: Tokens
+                  amount: 1
+                window:
+                  unit: Day
+                onBudgetExceeded: Block
+
+    - title: Add token-based burst protection on /chat
+      description: |
+        Budgets reset daily/monthly at the fastest - they don't stop a short burst. A shared TOKEN rate limit on the /chat route catches a runaway loop within the same minute, independently of the budgets above. team-ci also gets its own tighter per-key limit, bundled automatically by the virtual-keys feature.
+      features:
+        - name: rate-limit
+          config:
+            name: chat-burst-limit
+            type: TOKEN
+            requestsPerUnit: 20000
+            unit: MINUTE
+            targetRefs:
+              - group: gateway.networking.k8s.io
+                kind: HTTPRoute
+                name: providers-chat-route
+
+  tests:
+    - name: alice-cheap-model-allowed-org-entitlement
+      description: |
+        alice is a member of org:acme, which is entitled to every model behind the openai provider - gpt-4o-mini is allowed.
+      steps:
+        - action: get-token
+          keycloak:
+            hostname: '{{env.domains.keycloak}}'
+            realm: agw-dev
+            clientId: agw-client
+            clientSecret: agw-client-secret
+            grantType: password
+            username: alice
+            password: Password1!
+        - action: send-request
+          endpoint: /chat
+          auth: bearer
+          model: gpt-4o-mini
+          prompt: 'What is 2+2?'
+        - action: verify
+          expect:
+            status: success
+
+    - name: alice-premium-model-denied-not-on-team
+      description: |
+        alice is not a member of team:acme-ml and has no direct grant, so claude-sonnet-5 is denied by OpenFGA before it ever reaches the budget layer.
+      steps:
+        - action: get-token
+          keycloak:
+            hostname: '{{env.domains.keycloak}}'
+            realm: agw-dev
+            clientId: agw-client
+            clientSecret: agw-client-secret
+            grantType: password
+            username: alice
+            password: Password1!
+        - action: send-request
+          endpoint: /chat
+          auth: bearer
+          model: claude-sonnet-5
+          prompt: 'What is 2+2?'
+        - action: verify
+          expect:
+            status: blocked
+
+    - name: bob-premium-model-allowed-team-allowlist
+      description: |
+        bob is also a member of team:acme-ml, which is explicitly allowlisted on claude-sonnet-5 - the request is allowed and charged against the org ceiling, the acme-ml team cap, and bob's own daily cap simultaneously.
+      steps:
+        - action: get-token
+          keycloak:
+            hostname: '{{env.domains.keycloak}}'
+            realm: agw-dev
+            clientId: agw-client
+            clientSecret: agw-client-secret
+            grantType: password
+            username: bob
+            password: Password1!
+        - action: send-request
+          endpoint: /chat
+          auth: bearer
+          model: claude-sonnet-5
+          prompt: 'What is 2+2?'
+        - action: verify
+          expect:
+            status: success
+
+    - name: team-ci-premium-model-denied-no-grant
+      description: |
+        team-ci authenticates via API key (no JWT at all) and only has a direct OpenFGA grant on gpt-4o-mini - claude-sonnet-5 is denied before the budget layer is ever reached.
+      steps:
+        - action: send-request
+          endpoint: /chat
+          headers:
+            X-Api-Key: sk-team-ci-demo-9f3c7a1e
+          model: claude-sonnet-5
+          prompt: 'What is 2+2?'
+        - action: verify
+          expect:
+            status: blocked
+
+    - name: team-ci-cheap-model-blocked-tiny-budget
+      description: |
+        team-ci's direct grant allows gpt-4o-mini, but its 1-token daily cap (onBudgetExceeded: Block) is exceeded by any real request's cost estimate before the request is even forwarded - the same trick cost-management/budget-and-spend-limits uses for bob - so the request is rejected with 429, independent of the human budgets above.
+      steps:
+        - action: send-request
+          endpoint: /chat
+          headers:
+            X-Api-Key: sk-team-ci-demo-9f3c7a1e
+          model: gpt-4o-mini
+          prompt: 'Hello'
+        - action: verify
+          expect:
+            statusCode: 429

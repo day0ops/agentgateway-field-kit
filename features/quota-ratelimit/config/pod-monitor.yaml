@@ -1,0 +1,16 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: quota-ratelimit-metrics
+  labels:
+    app.kubernetes.io/managed-by: agentgateway-demo
+    agentgateway.dev/feature: quota-ratelimit
+spec:
+  namespaceSelector:
+    matchNames:
+      - agentgateway-system
+  podMetricsEndpoints:
+    - port: metrics
+  selector:
+    matchLabels:
+      app: quota-ratelimit-extproc

@@ -1,0 +1,71 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: dynamic-user-context
+  description: |
+    Inject a personalized system message derived from the X-User-ID request header.
+
+    - Gateway intercepts the request body using a CEL expression
+    - Prepends a dynamic system message containing the user identity
+    - Clients only send their user message; context injection is transparent
+    - Contrast with prompt-enrichment which only supports static content
+  docs: https://docs.solo.io/agentgateway/latest/llm/prompt-templates/
+
+spec:
+  diagram: |
+    sequenceDiagram
+      participant Client
+      participant AGW as agentgateway (CEL)
+      participant OAI as OpenAI
+      Client->>AGW: POST /openai {"messages": [...]} + X-User-ID: alice
+      AGW->>AGW: CEL: prepend system msg with user=alice
+      AGW->>OAI: {"messages": [{"role":"system","content":"Assisting alice"}, ...]}
+      OAI-->>AGW: response
+      AGW-->>Client: response
+
+  features:
+    - name: providers
+      config:
+        providers:
+          - name: openai
+            providerName: openai
+            pathPrefix: /openai
+            model: gpt-4o-mini
+
+    - name: prompt-templates
+      description: Inject user identity from X-User-ID header into system prompt
+      config:
+        celExpression: |
+          toJson(json(request.body).with(body, {
+            "messages": [{"role": "system", "content": "You are assisting user: " + request.headers["x-user-id"]}]
+                         + body.messages
+          }))
+        targetRefs:
+          - group: gateway.networking.k8s.io
+            kind: HTTPRoute
+            name: openai
+
+  tests:
+    - name: user-context-injected
+      description: Verify system message contains user identity from header
+      steps:
+        - action: send-request
+          endpoint: /openai
+          headers:
+            x-user-id: alice
+          prompt: 'Who am I?'
+        - action: verify
+          expect:
+            status: success
+
+    - name: different-user-different-context
+      description: Different X-User-ID produces different system context
+      steps:
+        - action: send-request
+          endpoint: /openai
+          headers:
+            x-user-id: bob
+          prompt: 'What is my name?'
+        - action: verify
+          expect:
+            status: success

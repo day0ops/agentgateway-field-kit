@@ -1,0 +1,136 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: auth-only-mcp-preissuance
+  description: |
+    Adds a pre-issuance gate in front of the controller's own OAuth issuer: before a token is ever minted, an ext_authz check decides whether the controller is even allowed to issue one for this caller. 
+    - Only user1 is on the allowlist - user2's login should be denied before a token exists.
+  docs: https://docs.solo.io/agentgateway/latest/mcp/token-exchange/auth-only/
+
+spec:
+  diagram: |
+    sequenceDiagram
+      participant Client as MCP Client
+      participant AGW as agentgateway proxy
+      participant Ctrl as controller (OAuth issuer)
+      participant PreAuthz as preissuance-ext-authz
+      participant KC as Keycloak
+
+      Client->>AGW: POST /mcp (no token)
+      AGW-->>Client: 401 + WWW-Authenticate
+      Client->>Ctrl: GET /oauth-issuer/authorize
+      Ctrl->>KC: redirect for login + real DCR
+      KC-->>Ctrl: authorization code
+      Ctrl->>PreAuthz: Check(principal) before issuing a token
+      alt principal allowed
+        PreAuthz-->>Ctrl: OK
+        Ctrl-->>Client: gateway-issued code
+        Client->>Ctrl: POST /oauth-issuer/token
+        Ctrl-->>Client: Bearer JWT
+        Client->>AGW: POST /mcp + Bearer JWT
+        AGW->>KC: validate JWT via JWKS
+        AGW-->>Client: MCP response
+      else principal denied
+        PreAuthz-->>Ctrl: PERMISSION_DENIED
+        Ctrl-->>Client: redirect to deniedRedirect (no token issued)
+      end
+
+  steps:
+    - title: Expose an echo backend as an MCP tool
+      description: |
+        Deploy a plain httpbin backend and wrap its /headers endpoint as an MCP tool via OpenAPI, with a static X-Test-Token credential attached to every upstream request and the OAuth discovery well-known paths matched on the route. Identical to auth-only-mcp's own backend setup.
+      features:
+        - name: httpbin-backend
+          config:
+            name: auth-only-echo-backend
+
+        - name: mcp-enterprise
+          config:
+            backendName: auth-only-mcp-backend
+            routeName: mcp
+            pathPrefix: /mcp
+            wellKnownPaths: true
+            auth:
+              value: demo-static-token
+              header: X-Test-Token
+            targets:
+              - name: echo
+                host: auth-only-echo-backend.agentgateway-system.svc.cluster.local
+                port: 80
+                openAPI:
+                  schemaConfigMapName: auth-only-echo-openapi-schema
+                  schema:
+                    openapi: 3.0.0
+                    info:
+                      title: httpbin echo
+                      version: 1.0.0
+                    servers:
+                      - url: /
+                    paths:
+                      /headers:
+                        get:
+                          operationId: getHeaders
+                          summary: Echo the request headers received by the upstream
+                          responses:
+                            '200':
+                              description: successful operation
+
+    - title: Front the MCP route with a pre-issuance-gated OAuth issuer
+      description: |
+        Enable the controller's OAuth authorization server (port 7777), federating with Keycloak's agw-dev realm, and gate token issuance itself with an ext_authz pre-issuance check (github.com/day0ops/preissuance-ext-authz). Only user1 is on the allowlist, so user2's login should be denied before Keycloak's authorization code is ever exchanged for a controller-issued token. The pre_issuance schema wired into KGW_OAUTH_ISSUER_CONFIG matches solo-io/agentgateway-enterprise#6356 - see features/auth-only-mcp/index.js.
+      features:
+        - name: auth-only-mcp
+          config:
+            keycloak:
+              realm: agw-dev
+              externalUrl: '{{env.keycloak.scheme}}://{{env.domains.keycloak}}'
+            clientId: agw-issuer
+            mcpPath: /mcp
+            preIssuance:
+              enabled: true
+              allowedPrincipals:
+                - user1
+              deniedRedirect: https://example.com/access-denied
+              extAuthz:
+                image: '{{env.images.preissuance-ext-authz}}'
+
+  tests:
+    - name: test-unauthenticated-request-rejected
+      description: An MCP request without a token is rejected before reaching the backend
+      steps:
+        - action: send-mcp-request
+          endpoint: /mcp
+          method: tools/list
+        - action: verify
+          expect:
+            statusCode: 401
+            headers:
+              www-authenticate: '*'
+
+    - name: test-protected-resource-metadata-discoverable
+      description: MCP clients can discover the issuer-proxy via the protected-resource metadata endpoint
+      steps:
+        - action: send-request
+          endpoint: /.well-known/oauth-protected-resource/mcp
+        - action: verify
+          expect:
+            status: success
+            contains: ['resource', 'agentgateway_dev_issuer_proxy']
+
+    - name: test-authorization-server-metadata-discoverable
+      description: MCP clients can discover the controller's own OAuth authorization server metadata
+      steps:
+        - action: send-request
+          endpoint: /.well-known/oauth-authorization-server/mcp
+        - action: verify
+          expect:
+            status: success
+            contains: registration_endpoint
+
+    - name: test-allowed-principal-user1-login-succeeds
+      description: |
+        MANUAL/LIVE-VERIFIED ONLY - not automated, and not part of `--no-prompt` CI runs. user1 is on the pre-issuance allowlist: a real browser login through the controller's /oauth-issuer/authorize should succeed and return a usable Bearer JWT, same as auth-only-mcp's own flow. There is no test-runner action that drives the controller's own issuer through a browser (auth-only-mcp's existing password-grant test bypasses the issuer/pre-issuance hook entirely) - live-verify this with a real browser login and check controller/preissuance-ext-authz logs for a Check() call before treating this usecase as proven.
+
+    - name: test-denied-principal-user2-login-blocked
+      description: |
+        MANUAL/LIVE-VERIFIED ONLY - not automated, and not part of `--no-prompt` CI runs. user2 is not on the pre-issuance allowlist: a real browser login through /oauth-issuer/authorize should be denied before a token is issued, redirecting to deniedRedirect (if configured) instead of returning a Bearer JWT. Live-verify with a real browser login; there is no automated way to exercise this without bypassing the issuer entirely.

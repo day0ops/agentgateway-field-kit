@@ -1,0 +1,51 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: vertex-ai-passthrough-token
+  description: |
+    Pass the client's GCP access token through to Vertex AI without gateway-managed rotation.
+
+    - Provider configured with authMode: passthrough
+    - Client supplies its own GCP Bearer token in the Authorization header
+    - Gateway forwards the header as-is; requests without a token return an error
+  docs: https://docs.solo.io/agentgateway/latest/llm/api-keys/#passthrough
+
+spec:
+  diagram: |
+    flowchart LR
+      Client -->|Bearer GCP-token| AGW[agentgateway]
+      AGW -->|passthrough token| VertexAI[Vertex AI]
+
+  features:
+    - name: providers
+      config:
+        providers:
+          - name: vertex-ai
+            providerName: vertex-ai
+            pathPrefix: /vertex-ai
+            model: google/gemini-2.5-flash
+            authMode: passthrough
+
+  tests:
+    - name: test-passthrough-with-valid-token
+      description: Request succeeds when the client supplies a valid Bearer token
+      steps:
+        - action: send-request
+          endpoint: /vertex-ai
+          headers:
+            Authorization: 'Bearer ${GOOGLE_APPLICATION_CREDENTIALS}'
+          prompt: 'What is 2+2?'
+        - action: verify
+          expect:
+            status: success
+            contains: '4'
+
+    - name: test-passthrough-without-token
+      description: Request fails when no Authorization header is provided
+      steps:
+        - action: send-request
+          endpoint: /vertex-ai
+          prompt: 'Hello'
+        - action: verify
+          expect:
+            status: error

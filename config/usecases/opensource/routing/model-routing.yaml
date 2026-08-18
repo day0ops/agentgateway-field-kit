@@ -1,0 +1,78 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: model-routing
+  description: |
+    Serve one specific model by exact name, and catch every other model name with a catch-all AgentgatewayModel that forwards to a real model behind the scenes, on the open-source agentgateway.dev chart.
+
+    - Requires the experimental AgentgatewayModel API enabled (`helmValues.agentgatewayModels.enabled: true`, already set in config/profiles/eks-opensource-agentgateway.yaml)
+    - `match.model: '*'` matches any model name not claimed by a more specific AgentgatewayModel
+    - A `model` transformation rewrites the client's (possibly unrecognized) name to a real OpenAI model before the request is forwarded - useful for legacy/typo'd model names
+  docs: https://agentgateway.dev/docs/
+
+spec:
+  edition: opensource
+  diagram: |
+    flowchart LR
+      Client -->|"model=gpt-4o-mini"| MG[models-gateway]
+      Client -->|"model=anything-else"| MG
+      MG --> Specific["AgentgatewayModel gpt-4o-mini (exact)"]
+      MG --> Catch["AgentgatewayModel default-model (match=*)"]
+      Specific --> OpenAI[OpenAI]
+      Catch -->|rewrite -> gpt-4o-mini| OpenAI
+
+  features:
+    - name: gateway
+      config:
+        name: models-gateway
+        listeners:
+          - name: http
+            port: 8080
+            protocol: HTTP
+            allowedRoutes:
+              namespaces:
+                from: All
+              kinds:
+                - group: gateway.networking.k8s.io
+                  kind: HTTPRoute
+                - group: agentgateway.dev
+                  kind: AgentgatewayModel
+
+    - name: agentgateway-model
+      description: A specific exact-match model plus a catch-all fallback model
+      config:
+        sectionName: http
+        models:
+          - name: gpt-4o-mini
+            provider: openai
+            visibility: Public
+          - name: default-model
+            match: '*'
+            provider: openai
+            visibility: Public
+            transformations:
+              - field: model
+                expression: '"gpt-4o-mini"'
+
+  tests:
+    - name: test-model-routing-specific-match-still-wins
+      description: A request for the exact model name is served by the specific AgentgatewayModel
+      steps:
+        - action: send-request
+          endpoint: /v1/chat/completions
+          model: gpt-4o-mini
+          prompt: 'What is 2+2?'
+        - action: verify
+          expect:
+            status: success
+
+    - name: test-model-routing-unrecognized-model-name
+      description: An unrecognized model name is still served via the catch-all fallback
+      steps:
+        - action: send-request
+          endpoint: /v1/chat/completions
+          model: totally-unknown-legacy-model
+          prompt: 'What is 2+2?'
+        - action: verify
+          expect:
+            status: success

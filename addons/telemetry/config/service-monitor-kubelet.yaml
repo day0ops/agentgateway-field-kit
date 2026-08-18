@@ -1,0 +1,40 @@
+# ServiceMonitor for kubelet metrics (including cAdvisor)
+# Required for container CPU/memory metrics on Talos Linux
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: kubelet
+  namespace: telemetry
+  labels:
+    app: kubelet
+spec:
+  jobLabel: k8s-app
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kubelet
+  namespaceSelector:
+    matchNames:
+      - kube-system
+  endpoints:
+    # Kubelet metrics
+    - port: https-metrics
+      scheme: https
+      tlsConfig:
+        insecureSkipVerify: true
+      bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+      honorLabels: true
+      relabelings:
+        - sourceLabels: [__metrics_path__]
+          targetLabel: metrics_path
+    # cAdvisor metrics (container CPU, memory, network)
+    - port: https-metrics
+      scheme: https
+      path: /metrics/cadvisor
+      tlsConfig:
+        insecureSkipVerify: true
+      bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+      honorLabels: true
+      metricRelabelings:
+        - sourceLabels: [__name__]
+          action: keep
+          regex: 'container_cpu_usage_seconds_total|container_memory_working_set_bytes|container_memory_usage_bytes|container_network_.*'

@@ -1,0 +1,73 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: local-token-based-rate-limiting
+  description: |
+    Local input-token-based rate limiting enforced independently per proxy replica.
+
+    - Each replica maintains its own token counter — no central rate limit server
+    - Acts as a coarse-grained first line of defense to shed excess traffic
+    - "What is your favorite poem?" consumes ~5 tokens
+    - A budget of 5 tokens/minute allows 1 request before returning 429
+  docs: https://docs.solo.io/agentgateway/latest/security/rate-limit-http/
+
+spec:
+  diagram: |
+    sequenceDiagram
+      participant Client
+      participant AGW as agentgateway
+      participant RL as Local Token Counter
+      participant LLM as OpenAI
+      Client->>AGW: request
+      AGW->>RL: count input tokens
+      RL-->>AGW: budget exceeded (5 tokens/min)
+      AGW-->>Client: 429 Too Many Requests
+      RL-->>AGW: within budget, increment
+      AGW->>LLM: forward request
+      LLM-->>Client: response
+  steps:
+    - title: Add provider
+      description: Configure the OpenAI LLM provider backend and route.
+      features:
+        - name: providers
+          config:
+            providers:
+              - name: openai
+                providerName: openai
+                pathPrefix: /openai
+                model: gpt-4o-mini
+
+    - title: Apply local token rate limit
+      description: |
+        Create an EnterpriseAgentgatewayPolicy with a local token-based rate limit of 5 input tokens per minute. Each proxy replica tracks its own token counter independently — no central rate limit server is used.
+      features:
+        - name: rate-limit
+          config:
+            mode: local
+            tokens: 5
+            burst: 0
+            unit: MINUTE
+
+  tests:
+    - name: first-request-allowed
+      description: First request within token budget should succeed (~5 tokens)
+      steps:
+        - action: send-request
+          endpoint: /openai
+          prompt: 'What is your favorite poem?'
+        - action: verify
+          expect:
+            status: success
+
+    - name: second-request-rate-limited
+      description: Second request exceeds the 5-token budget and should be rate limited
+      steps:
+        - action: send-request
+          endpoint: /openai
+          prompt: 'What is your favorite poem?'
+        - action: send-request
+          endpoint: /openai
+          prompt: 'What is your favorite poem?'
+        - action: verify
+          expect:
+            statusCode: 429

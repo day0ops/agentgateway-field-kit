@@ -1,0 +1,70 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: openai-multiple-endpoints
+  description: |
+    OpenAI provider with multiple endpoint routes via the `policies.ai.routes` field.
+
+    - `/v1/embeddings` mapped as passthrough — forwarded as-is
+    - `/v1/models`     mapped as passthrough — forwarded as-is
+    - All endpoints served behind a single AgentgatewayBackend and HTTPRoute at `/openai`
+  docs: https://agentgateway.dev/docs/kubernetes/main/llm/providers/multiple-endpoints/
+
+spec:
+  diagram: |
+    flowchart LR
+      Client --> AGW[AGW /openai]
+      AGW -->|chat| OpenAI[OpenAI]
+      AGW -->|embeddings passthrough| OpenAI
+      AGW -->|models passthrough| OpenAI
+
+  features:
+    - name: providers
+      config:
+        providers:
+          - name: openai
+            providerName: openai
+            pathPrefix: /openai
+            pathRewrite: /
+            model: gpt-4o-mini
+            policies:
+              ai:
+                routes:
+                  '/v1/embeddings': 'Passthrough'
+                  '/v1/models': 'Passthrough'
+                  '*': Passthrough
+
+  tests:
+    - name: test-openai-embeddings
+      description: Embeddings via passthrough route → forwarded as-is to OpenAI
+      steps:
+        - action: send-request
+          endpoint: /openai/v1/embeddings
+          model: text-embedding-ada-002
+          input: 'The food was delicious'
+        - action: verify
+          expect:
+            status: success
+
+    - name: test-openai-embeddings-batch
+      description: Batch embeddings with multiple inputs
+      steps:
+        - action: send-request
+          endpoint: /openai/v1/embeddings
+          model: text-embedding-3-small
+          input:
+            - 'What is Kubernetes?'
+            - 'What is machine learning?'
+        - action: verify
+          expect:
+            status: success
+
+    - name: test-openai-models
+      description: List models via passthrough route → forwarded as-is to OpenAI
+      steps:
+        - action: send-request
+          endpoint: /openai/v1/models
+          method: GET
+        - action: verify
+          expect:
+            status: success

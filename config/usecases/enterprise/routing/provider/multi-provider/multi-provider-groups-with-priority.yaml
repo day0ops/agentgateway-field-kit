@@ -1,0 +1,88 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: multi-provider-groups
+  description: |
+    Multiple LLM providers in priority groups with load balancing and automatic failover.
+
+    - Primary group (tried first, load balanced): gpt-4o, gpt-4o-mini
+    - Fallback group (used when primary fails):   Claude Sonnet
+    - Groups tried in priority order; no client-side retry logic required
+  docs: https://kgateway.dev/docs/main/reference/api/#prioritygroup
+
+spec:
+  diagram: |
+    sequenceDiagram
+      participant Client
+      participant AGW as agentgateway
+      participant PG as Primary Group
+      participant FG as Fallback Group
+      Client->>AGW: request
+      AGW->>PG: try priority group 1 (load balanced)
+      PG-->>AGW: upstream unhealthy
+      AGW->>FG: failover to group 2
+      FG-->>Client: response
+      Client->>AGW: next request
+      AGW->>PG: primary group recovered
+      PG-->>Client: response
+
+  features:
+    - name: providers
+      config:
+        # Groups mode: Multiple providers in priority groups
+        # Groups are tried in order, providers within a group are load balanced
+        groups:
+          # Priority Group 1: Primary providers (tried first, load balanced)
+          # name is free-form identifier (used as SectionName in NamedLLMProvider)
+          # providerName is the actual provider type (openai, anthropic, etc.) - used for secret naming
+          - name: primary-group
+            providers:
+              - name: openai-primary
+                providerName: openai
+                model: gpt-4o
+                policies:
+                  auth:
+                    secretRef:
+                      name: openai-secret
+              - name: openai-secondary
+                providerName: openai
+                model: gpt-4o-mini
+                policies:
+                  auth:
+                    secretRef:
+                      name: openai-secret
+
+          # Priority Group 2: Fallback providers (tried if primary group fails)
+          - name: fallback-group
+            providers:
+              - name: anthropic-fallback
+                providerName: anthropic
+                model: claude-3-5-sonnet
+                policies:
+                  auth:
+                    secretRef:
+                      name: anthropic-secret
+
+        pathPrefix: /providers # Single endpoint for all providers in groups
+
+  tests:
+    - name: test-groups-endpoint
+      description: Test providers groups endpoint with automatic provider selection
+      steps:
+        - action: send-request
+          endpoint: /providers
+          prompt: 'What is Kubernetes?'
+        - action: verify
+          expect:
+            status: success
+            contains: 'Kubernetes'
+
+    - name: test-load-balancing
+      description: Verify that requests are load balanced across providers in the primary group
+      steps:
+        - action: send-request
+          endpoint: /providers
+          prompt: 'Hello, how are you?'
+        - action: verify
+          expect:
+            status: success

@@ -1,0 +1,83 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: jwt-corporate-proxy-entra
+  description: |
+    Routes the gateway's outbound JWKS fetch through a simulated corporate forward proxy (Squid), for environments with no direct internet egress.
+
+    - Requests without a token are rejected immediately, before any JWKS fetch happens
+    - A request with a real Entra-issued token only succeeds if the JWKS fetch through the proxy tunnel works
+    - The live-token test needs a real Entra app registration and its client secret - it's skipped, not failed, if that's not configured
+  docs: https://docs.solo.io/agentgateway/latest/llm/providers/backend-tunnel-proxy/
+
+spec:
+  diagram: |
+    sequenceDiagram
+      participant Client
+      participant AGW as agentgateway
+      participant Squid as corporate-proxy (Squid)
+      participant Entra as Microsoft Entra ID
+
+      Client->>AGW: POST /openai (no token)
+      AGW-->>Client: 401 Unauthorized
+
+      Note over AGW,Entra: On a request with a token whose issuer matches:
+      AGW->>Squid: CONNECT login.microsoftonline.com:443
+      Squid->>Entra: tunnel established
+      AGW->>Entra: GET JWKS (through tunnel)
+      Entra-->>AGW: JWKS
+      AGW-->>Client: 200 (valid token) or 401 (invalid signature)
+
+  features:
+    - name: corporate-proxy
+      config:
+        name: corporate-proxy
+
+    - name: entra-jwt-auth
+      config:
+        tenantId: '{{env.entra.tenantId}}'
+        clientId: '{{env.entra.clientId}}'
+        issuer: 'https://login.microsoftonline.com/{{env.entra.tenantId}}/v2.0'
+        audiences:
+          - '{{env.entra.clientId}}'
+        tunnelBackendRef:
+          group: enterpriseagentgateway.solo.io
+          kind: EnterpriseAgentgatewayBackend
+          name: corporate-proxy
+          port: 3128
+
+    - name: providers
+      config:
+        providers:
+          - name: openai
+            providerName: openai
+            pathPrefix: /openai
+            model: gpt-4o-mini
+
+  tests:
+    - name: unauthenticated-request-rejected
+      description: Requests without a Bearer token are rejected
+      steps:
+        - action: send-request
+          endpoint: /openai
+          prompt: 'Hello'
+        - action: verify
+          expect:
+            statusCode: 401
+            contains: 'no bearer token found'
+
+    - name: valid-token-succeeds-through-proxy
+      description: |
+        A real Entra app-only token is accepted - the gateway fetched JWKS through the Squid tunnel to validate it. Skipped (not failed) if ENTRA_ISSUER_CLIENT_SECRET isn't set.
+      steps:
+        - action: get-token
+          entra:
+            tenantId: '{{env.entra.tenantId}}'
+            clientId: '{{env.entra.clientId}}'
+        - action: send-request
+          endpoint: /openai
+          auth: bearer
+          prompt: 'Hello'
+        - action: verify
+          expect:
+            status: success

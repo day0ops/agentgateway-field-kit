@@ -1,0 +1,85 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: openai-batch-api
+  description: |
+    Route OpenAI's Files and Batches APIs through agentgateway for asynchronous, bulk request processing.
+
+    - `/v1/files`, `/v1/files/*`, `/v1/batches`, `/v1/batches/*` mapped as Passthrough
+    - All endpoints served behind a single AgentgatewayBackend and HTTPRoute at `/openai`
+    - Full upload -> create -> poll -> retrieve is inherently async (up to 24h) - this demo verifies each endpoint is reachable, not a full batch completion round-trip
+  docs: https://platform.openai.com/docs/guides/batch
+
+spec:
+  diagram: |
+    flowchart LR
+      Client --> AGW[AGW /openai]
+      AGW -->|files upload/list| OpenAI[OpenAI]
+      AGW -->|batches create/list| OpenAI
+
+  features:
+    - name: providers
+      config:
+        providers:
+          - name: openai
+            providerName: openai
+            pathPrefix: /openai
+            pathRewrite: /
+            model: gpt-4o-mini
+            policies:
+              ai:
+                routes:
+                  '/v1/files': 'Passthrough'
+                  '/v1/files/*': 'Passthrough'
+                  '/v1/batches': 'Passthrough'
+                  '/v1/batches/*': 'Passthrough'
+                  '*': Passthrough
+
+  tests:
+    - name: test-upload-batch-input-file
+      description: Upload a JSONL batch-input file via multipart passthrough
+      steps:
+        - action: send-file-upload-request
+          endpoint: /openai/v1/files
+          file: batch-requests.jsonl
+          fields:
+            purpose: batch
+        - action: verify
+          expect:
+            status: success
+            contains: '"id"'
+
+    - name: test-list-files
+      description: List uploaded files
+      steps:
+        - action: send-request
+          endpoint: /openai/v1/files
+          method: GET
+        - action: verify
+          expect:
+            status: success
+
+    - name: test-list-batches
+      description: List batches
+      steps:
+        - action: send-request
+          endpoint: /openai/v1/batches
+          method: GET
+        - action: verify
+          expect:
+            status: success
+
+    - name: test-create-batch-with-invalid-completion-window
+      description: |
+        An invalid completion_window is rejected synchronously by OpenAI's own validation (proving passthrough reaches the real Batches API, not a gateway routing error) - an invalid input_file_id would only fail later, asynchronously, once the batch is processed
+      steps:
+        - action: send-request
+          endpoint: /openai/v1/batches
+          method: POST
+          body:
+            input_file_id: file-does-not-exist
+            endpoint: /v1/chat/completions
+            completion_window: 1h
+        - action: verify
+          expect:
+            status: error

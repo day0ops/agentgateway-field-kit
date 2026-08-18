@@ -1,0 +1,58 @@
+# Example Certificate resource
+# This demonstrates how to create a Certificate that cert-manager will manage
+
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: example-tls-cert
+  namespace: agentgateway-system
+  labels:
+    app.kubernetes.io/managed-by: agentgateway-demo
+spec:
+  # Secret name where the certificate will be stored
+  secretName: example-tls-secret
+
+  # Issuer or ClusterIssuer reference
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+
+  # DNS names for the certificate
+  dnsNames:
+    - example.com
+    - www.example.com
+
+  # Common name (optional, defaults to first dnsName)
+  # commonName: example.com
+
+---
+# Example Certificate with wildcard domain
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: wildcard-tls-cert
+  namespace: agentgateway-system
+spec:
+  secretName: wildcard-tls-secret
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  dnsNames:
+    - '*.example.com'
+    - example.com
+
+---
+# Example Certificate for agentgateway Gateway
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: agentgateway-tls-cert
+  namespace: agentgateway-system
+spec:
+  secretName: agentgateway-tls-secret
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  dnsNames:
+    - agentgateway.example.com
+    - api.example.com

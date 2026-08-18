@@ -1,0 +1,120 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: composable-tool-pipeline
+  description: |
+    Composes a brand-new MCP tool out of two existing tool calls, combining their results into one response, with no new server to write or deploy.
+  docs: https://docs.solo.io/agentgateway/2026.7.1/mcp/composable/
+
+spec:
+  diagram: |
+    sequenceDiagram
+      participant Agent
+      participant AGW as agentgateway (composable)
+      participant Stock as Stock MCP target
+      Agent->>AGW: MCP tools/call stock-price-ratio(symbolA, symbolB)
+      AGW->>Stock: get_stock_price(symbolA)
+      Stock-->>AGW: priceA
+      AGW->>Stock: get_stock_price(symbolB)
+      Stock-->>AGW: priceB
+      AGW->>AGW: output = priceA / priceB
+      AGW-->>Agent: composed result
+  steps:
+    - title: Deploy the stock MCP server workload
+      description: |
+        Deploy the stock MCP server workload behind a federated AgentgatewayBackend so the composable steps below can call it by target name.
+      features:
+        - name: mcp-server
+          config:
+            backendName: mcp-workloads-backend
+            routeName: mcp-workloads
+            protocol: StreamableHTTP
+            mcpPath: /mcp
+            servers:
+              - name: stock-server-mcp
+                image: '{{env.images.stock-server-mcp}}'
+                serverPort: 8000
+                servicePort: 80
+            targets:
+              - name: stock-server-mcp
+                matchLabels:
+                  app: stock-server-mcp
+
+    - title: Compose a derived tool from two calls to the same target
+      description: |
+        Create an EnterpriseAgentgatewayBackend with a custom target that calls get_stock_price twice (once per symbol) and combines both results into a new price-ratio tool.
+      features:
+        - name: mcp-enterprise
+          config:
+            backendName: mcp-composable-backend
+            routeName: mcp-composable
+            pathPrefix: /mcp-composable
+            targets:
+              - name: stock-price-ratio
+                custom:
+                  description: |-
+                    Compare the current prices of two stocks by computing their price ratio.
+                  inputSchema:
+                    type: object
+                    additionalProperties: false
+                    required: [symbolA, symbolB]
+                    properties:
+                      symbolA:
+                        type: string
+                        description: 'First stock ticker symbol, e.g. AAPL'
+                      symbolB:
+                        type: string
+                        description: 'Second stock ticker symbol, e.g. MSFT'
+                  steps:
+                    - name: a
+                      mcp:
+                        backendRef:
+                          group: enterpriseagentgateway.solo.io
+                          kind: EnterpriseAgentgatewayBackend
+                          name: mcp-workloads-backend
+                          # Selector-based (dynamic) targets are resolved at runtime to
+                          # <service-name>-<port>, not the static target `name:` in the
+                          # AgentgatewayBackend spec.
+                          target: stock-server-mcp-80
+                        tool: get_stock_price
+                        arguments: '{"symbol": input.symbolA}'
+                    - name: b
+                      mcp:
+                        backendRef:
+                          group: enterpriseagentgateway.solo.io
+                          kind: EnterpriseAgentgatewayBackend
+                          name: mcp-workloads-backend
+                          target: stock-server-mcp-80
+                        tool: get_stock_price
+                        arguments: '{"symbol": input.symbolB}'
+                  output: |
+                    "1 " + input.symbolA + " = " + string(double(output.a.result) / double(output.b.result))
+                    + " " + input.symbolB + " (" + string(output.a.result) + " / " + string(output.b.result) + ")"
+
+  tests:
+    - name: test-composed-tool-listed
+      description: The composed stock-price-ratio tool is discoverable
+      steps:
+        - action: send-mcp-request
+          endpoint: /mcp-composable
+          method: tools/list
+        - action: verify
+          expect:
+            status: success
+            contains: stock-price-ratio
+
+    - name: test-composed-tool-call
+      description: Calling the composed tool chains two get_stock_price lookups into one ratio
+      steps:
+        - action: send-mcp-request
+          endpoint: /mcp-composable
+          method: tools/call
+          params:
+            name: stock-price-ratio
+            arguments:
+              symbolA: AAPL
+              symbolB: MSFT
+        - action: verify
+          expect:
+            status: success
+            contains: '1 AAPL ='

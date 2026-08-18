@@ -1,0 +1,65 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: anthropic-model-on-vertex-ai-provider
+  description: |
+    Route to an Anthropic Claude model (claude-haiku-4-5) served through Vertex AI.
+
+    - Messages and StreamRawPredict route mappings configured via `ai.llm.routes`
+    - Both standard Anthropic API paths and Vertex AI raw predict paths work transparently
+    - All other paths fall through as passthrough
+  docs: https://kgateway.dev/docs/agentgateway/latest/llm/providers/vertex-ai/
+
+spec:
+  diagram: |
+    flowchart LR
+      Client --> AGW[agentgateway]
+      AGW --> VertexAI[Vertex AI Anthropic Claude]
+
+  features:
+    - name: providers
+      config:
+        providers:
+          - name: vertex-ai-anthropic
+            providerName: vertex-ai
+            pathPrefix: /v1/messages
+            model: claude-haiku-4-5@20251001
+            location: us-east5
+            policies:
+              ai:
+                routes:
+                  /v1/messages: Messages
+                  ':rawPredict': Messages
+                  ':streamRawPredict': Messages
+                  '*': Passthrough
+
+  tests:
+    - name: test-anthropic-via-vertex
+      description: Test Anthropic Claude model via Vertex AI endpoint
+      showTraffic: true
+      steps:
+        - action: send-request
+          endpoint: /v1/messages
+          prompt: 'What is machine learning?'
+          extraFields:
+            anthropic_version: 'vertex-2023-10-16'
+            max_tokens: 100
+            stream: false
+        - action: verify
+          expect:
+            status: success
+
+    - name: test-anthropic-via-vertex-simple
+      description: Test Anthropic via Vertex AI with a simple query
+      showTraffic: true
+      steps:
+        - action: send-request
+          endpoint: /v1/messages
+          prompt: 'Hello, how are you?'
+          extraFields:
+            anthropic_version: 'vertex-2023-10-16'
+            max_tokens: 100
+            stream: false
+        - action: verify
+          expect:
+            status: success

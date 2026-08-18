@@ -1,0 +1,268 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: daily-quota-management
+  description: |
+    Enforce a daily USD budget on LLM requests using cost-based rate limiting.
+
+    Unlike traditional rate limiting (requests/minute or tokens/minute), this system enforces budgets measured in USD based on actual token usage and model-specific pricing.
+
+    The budget management uses an ext-proc server that: 1. Checks available budget before forwarding requests 2. Estimates cost based on model pricing 3. Tracks usage against configured budgets 4. Returns 429 with retry-after header when budget is exceeded
+
+    Note: Response body processing (for actual token-based cost tracking) requires processingMode configuration which is not yet available in EnterpriseAgentgatewayPolicy.
+
+    Features:
+    - Web UI for managing budgets and model costs
+    - Pre-loaded pricing for OpenAI, Anthropic, Google, Mistral models
+    - Usage history tracking and visualization
+    - Prometheus metrics for observability
+  docs: https://docs.solo.io/agentgateway/latest/traffic-management/ext-proc/
+
+spec:
+  deprecated:
+    reason: >-
+      Replaced by the native EnterpriseAgentgatewayBudget CRD - no custom ext-proc/Postgres
+      required. This use case was also already broken/orphaned: it references a
+      'quota-management' feature name that no longer exists in this repo.
+    replacedBy: cost-management/budget-and-spend-limits
+  diagram: |
+    flowchart LR
+      Client([Client]) --> AG[agentgateway]
+      AG --> BL[Budget Limiter<br/>ext-proc]
+      BL <--> DB[(PostgreSQL)]
+      AG --> LLM[OpenAI]
+      LLM --> AG
+      AG --> Client
+
+      subgraph "Rate Limited Response"
+        H1[HTTP 429]
+        H2[retry-after header]
+      end
+
+  steps:
+    - title: Configure OpenAI provider
+      description: |
+        Set up the OpenAI LLM provider with the gpt-4o-mini model. This creates the Backend and HTTPRoute for routing requests.
+      features:
+        - name: providers
+          config:
+            providers:
+              - name: openai
+                providerName: openai
+                pathPrefix: /openai
+                model: gpt-4o-mini
+
+    - title: Apply budget management
+      description: |
+        Deploy the budget management infrastructure and configure a $5 daily budget.
+
+        This will:
+        - Deploy PostgreSQL for storing budget data
+        - Deploy the quota-management ext-proc service
+        - Apply the EnterpriseAgentgatewayPolicy
+        - Create a budget for the 'openai' provider
+
+        The budget management intercepts all requests and tracks costs based on the model's token pricing (pre-loaded from industry standard rates).
+      features:
+        - name: quota-management
+          config:
+            createBudget:
+              amount: 5.00
+              period: daily
+              entityType: provider
+              name: openai
+              matchExpression: 'true'
+              warningThresholdPct: 80
+              description: 'Daily budget for OpenAI provider'
+
+  tests:
+    - name: first-request-within-budget
+      description: First request with fresh budget should succeed
+      setup:
+        - action: reset-budget-usage
+          entityType: provider
+          name: openai
+        - action: wait
+          duration: 15000
+      steps:
+        - action: send-request
+          endpoint: /openai
+          prompt: 'What is 2+2? Reply with just the number.'
+          timeout: 60000
+        - action: verify
+          expect:
+            status: success
+
+    - name: second-request-within-budget
+      description: Second request should still be within budget
+      steps:
+        - action: send-request
+          endpoint: /openai
+          prompt: 'What is 3+3? Reply with just the number.'
+          timeout: 60000
+        - action: verify
+          expect:
+            status: success
+
+    - name: budget-nearly-exhausted-still-allowed
+      description: Request should succeed when budget has some usage but still has room
+      setup:
+        - action: set-budget-usage
+          entityType: provider
+          name: openai
+          usage: 4.50
+        - action: wait
+          duration: 15000
+      steps:
+        - action: send-request
+          endpoint: /openai
+          prompt: 'Hi'
+          timeout: 60000
+        - action: verify
+          expect:
+            status: success
+      teardown:
+        - action: reset-budget-usage
+          entityType: provider
+          name: openai
+
+    - name: budget-exceeded-blocked
+      description: Requests should be blocked when budget is fully exhausted
+      setup:
+        - action: set-budget-usage
+          entityType: provider
+          name: openai
+          usage: 4.99995
+        - action: wait
+          duration: 15000
+      steps:
+        - action: send-request
+          endpoint: /openai
+          prompt: 'What is 2+2?'
+          timeout: 60000
+        - action: verify
+          expect:
+            statusCode: 429
+      teardown:
+        - action: reset-budget-usage
+          entityType: provider
+          name: openai
+
+    - name: budget-exceeded-returns-retry-after
+      description: Rate limited responses should include retry-after header
+      setup:
+        - action: set-budget-usage
+          entityType: provider
+          name: openai
+          usage: 5.00
+        - action: wait
+          duration: 15000
+      steps:
+        - action: send-request
+          endpoint: /openai
+          prompt: 'Hello'
+          timeout: 60000
+        - action: verify
+          expect:
+            statusCode: 429
+            headers:
+              retry-after: '*'
+      teardown:
+        - action: reset-budget-usage
+          entityType: provider
+          name: openai
+
+    # Micro-budget tests - tiny budgets exhausted by natural token usage
+    - name: micro-budget-first-request-allowed
+      description: First request with $0.02 micro-budget should succeed
+      setup:
+        - action: create-budget
+          entityType: team
+          name: micro-test
+          amount: 0.02
+          period: daily
+          matchExpression: 'request.headers["x-team"] == "micro-test"'
+          description: 'Micro budget for testing'
+        - action: wait
+          duration: 15000
+      steps:
+        - action: send-request
+          endpoint: /openai
+          prompt: 'Say hi'
+          headers:
+            x-team: micro-test
+          timeout: 60000
+        - action: verify
+          expect:
+            status: success
+      teardown:
+        - action: delete-budget
+          entityType: team
+          name: micro-test
+
+    - name: micro-budget-with-preset-usage-blocks
+      description: Request blocked when budget usage is preset near limit
+      setup:
+        - action: create-budget
+          entityType: team
+          name: micro-exhaust
+          amount: 0.02
+          period: daily
+          matchExpression: 'request.headers["x-team"] == "micro-exhaust"'
+          description: 'Micro budget that gets exhausted'
+        - action: wait
+          duration: 15000
+        # Simulate usage from previous requests (since response body processing not available)
+        # Estimated cost is ~$0.000075 for gpt-4o-mini (100 tokens), so we need remaining < $0.00007
+        - action: set-budget-usage
+          entityType: team
+          name: micro-exhaust
+          usage: 0.01994
+        - action: wait
+          duration: 15000
+      steps:
+        - action: send-request
+          endpoint: /openai
+          prompt: 'Say goodbye'
+          headers:
+            x-team: micro-exhaust
+          timeout: 60000
+        - action: verify
+          expect:
+            statusCode: 429
+      teardown:
+        - action: delete-budget
+          entityType: team
+          name: micro-exhaust
+
+    - name: micro-budget-too-small-blocks-immediately
+      description: Budget smaller than estimated cost blocks immediately
+      setup:
+        # Estimated cost is ~$0.000075 for gpt-4o-mini (100 tokens)
+        # Budget must be less than this to block immediately
+        - action: create-budget
+          entityType: team
+          name: micro-tiny
+          amount: 0.00005
+          period: daily
+          matchExpression: 'request.headers["x-team"] == "micro-tiny"'
+          description: 'Budget too small for any request'
+        - action: wait
+          duration: 15000
+      steps:
+        - action: send-request
+          endpoint: /openai
+          prompt: 'Hi'
+          headers:
+            x-team: micro-tiny
+          timeout: 60000
+        - action: verify
+          expect:
+            statusCode: 429
+      teardown:
+        - action: delete-budget
+          entityType: team
+          name: micro-tiny
+
+  # Cleanup after tests - undeploys quota-management, PostgreSQL, and all artifacts
+  cleanup: true

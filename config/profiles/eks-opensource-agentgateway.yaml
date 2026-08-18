@@ -1,0 +1,98 @@
+apiVersion: agentgateway.demo/v1
+kind: Profile
+metadata:
+  name: eks-opensource-agentgateway
+  description: |
+    Opensource agentgateway on EKS
+    - Keycloak integration
+    - Route53 DNS, TLS via cert-manager
+spec:
+  edition: opensource
+  environment: aws-dev
+  infra: eks-single-cluster
+
+  agentgateway:
+    version: 1.4.1
+    ociRegistry: oci://cr.agentgateway.dev/charts
+
+  agentgateway-crds:
+    version: 1.4.1
+    ociRegistry: oci://cr.agentgateway.dev/charts
+
+  gatewayApi:
+    version: v1.6.0
+    channel: experimental
+
+  helmValues:
+    agentgatewayModels:
+      enabled: true
+
+  gateway:
+    hostname: '{{env.domains.agentgateway}}'
+
+  addons:
+    - name: cert-manager
+      description: Certificate management for TLS
+      version: 1.21.1
+      namespace: cert-manager
+      config:
+        letsencrypt:
+          enabled: true
+          email: '{{env.acme.email}}'
+          region: '{{env.aws.region}}'
+
+    - name: external-dns
+      description: Automatic DNS record management via Route53
+      version: 1.21.1
+      namespace: external-dns
+      config:
+        provider: route53
+        domainFilter: '{{env.dns.childZone}}.{{env.dns.parentZone.domain}}'
+        region: '{{env.aws.region}}'
+
+    - name: keycloak
+      description: Keycloak OIDC Identity Provider
+      namespace: keycloak
+      keycloakImage: '{{env.images.keycloak}}'
+      postgresVersion: 18.2-alpine
+      config:
+        postgres:
+          persistentVolume:
+            storageClass: gp3
+            size: 5Gi
+        keycloakNamespace: keycloak
+        hostname: '{{env.domains.keycloak}}'
+        protocol: '{{env.keycloak.scheme}}'
+        loginTheme: '{{env.keycloak.loginTheme}}'
+        tls:
+          enabled: true
+          secretName: keycloak-tls
+          createCertificate: true
+        realms:
+          - realm: agw-dev
+            defaultPassword: Password1!
+            clients:
+              - clientId: agw-client
+                type: confidential
+                clientSecret: agw-client-secret
+                flows:
+                  - authorization-code
+                  - service-account
+
+    - name: telemetry
+      description: OpenTelemetry observability stack (Prometheus, Grafana, Loki, Tempo)
+      namespace: telemetry
+      chartVersions:
+        kube-prom-stack: 88.0.1
+        loki: 7.2.0
+        tempo: 1.61.3
+        alloy: 1.11.0
+        otel: 0.165.0
+      config:
+        gatewayNamespace: agentgateway-system
+        database:
+          storageClass: gp3
+          storageSize: 100Gi
+        retention: 120h
+        grafanaServiceType: LoadBalancer
+        grafanaHostname: '{{env.domains.grafana}}'

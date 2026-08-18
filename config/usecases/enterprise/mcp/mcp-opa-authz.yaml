@@ -1,0 +1,99 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: mcp-opa-authz
+  description: |
+    Gates an MCP route with OPA's ext_authz hook using a plain API key check - proving the same OPA mechanism opa-rebac uses for LLM/model traffic composes with MCP traffic too.
+  docs: https://www.openpolicyagent.org/docs/envoy-primer/
+
+spec:
+  diagram: |
+    sequenceDiagram
+      participant Client as MCP Client
+      participant AGW as agentgateway
+      participant OPA as opa-ext-authz
+      participant MCP as Stock MCP Server
+      Client->>AGW: POST /mcp (no x-api-key)
+      AGW->>OPA: Check()
+      OPA->>OPA: evaluate agentgateway/authz/allow (mcp_authz.rego)
+      OPA-->>AGW: Denied
+      AGW-->>Client: 403
+      Client->>AGW: POST /mcp + x-api-key
+      AGW->>OPA: Check()
+      OPA-->>AGW: Ok
+      AGW->>MCP: forward request
+      MCP-->>Client: MCP response
+
+  steps:
+    - title: Deploy OPA policy engine
+      description: |
+        Deploy the OPA server (github.com/day0ops/opa-ext-authz) with the Rego policies - including the MCP API-key check used by this usecase - in its own namespace.
+      features:
+        - name: opa
+          config:
+            namespace: opa
+            image: '{{env.images.opa-ext-authz}}'
+
+    - title: Deploy MCP server
+      description: |
+        Deploy the MCP stock server and create a static MCP backend and route to protect with OPA.
+      features:
+        - name: mcp-server
+          config:
+            deployServer: true
+            image: '{{env.images.stock-server-mcp}}'
+            serverName: stock-server-mcp
+            serverPort: 8000
+            servicePort: 80
+            protocol: StreamableHTTP
+            mcpPath: /mcp
+            backendName: mcp-backend
+            routeName: mcp
+
+    - title: Enforce OPA API-key authorization on the MCP route
+      description: |
+        Apply an EnterpriseAgentgatewayPolicy that delegates every /mcp request to OPA's ext_authz gRPC endpoint, targeting the MCP HTTPRoute directly instead of the Gateway so this doesn't share a decision phase with other routes.
+      features:
+        - name: opa-authz
+          config:
+            policyName: mcp-opa-authz-policy
+            targetRefs:
+              - group: gateway.networking.k8s.io
+                kind: HTTPRoute
+                name: mcp
+
+  tests:
+    - name: test-missing-api-key-denied
+      description: An MCP request without x-api-key is denied by OPA
+      steps:
+        - action: send-mcp-request
+          endpoint: /mcp
+          method: tools/list
+        - action: verify
+          expect:
+            status: blocked
+
+    - name: test-invalid-api-key-denied
+      description: An MCP request with an API key not on OPA's allowlist is denied
+      steps:
+        - action: send-mcp-request
+          endpoint: /mcp
+          method: tools/list
+          headers:
+            x-api-key: wrong-key
+        - action: verify
+          expect:
+            status: blocked
+
+    - name: test-valid-api-key-allowed
+      description: An MCP request with the configured x-api-key succeeds and lists the stock server's tools
+      steps:
+        - action: send-mcp-request
+          endpoint: /mcp
+          method: tools/list
+          headers:
+            x-api-key: demo-mcp-api-key-12345
+        - action: verify
+          expect:
+            status: success
+            contains: get_stock_price

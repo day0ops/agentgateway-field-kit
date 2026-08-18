@@ -1,0 +1,139 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: auth-only-mcp
+  description: |
+    Fronts an MCP backend with the gateway's own built-in OAuth issuer, which federates login to Keycloak with real dynamic client registration - the gateway validates the token and drops it, so no per-user token reaches the backend.
+  docs: https://docs.solo.io/agentgateway/latest/mcp/token-exchange/auth-only/
+
+spec:
+  diagram: |
+    sequenceDiagram
+      participant Client as MCP Client
+      participant AGW as agentgateway proxy
+      participant Ctrl as controller (OAuth issuer)
+      participant KC as Keycloak
+
+      Client->>AGW: POST /mcp (no token)
+      AGW-->>Client: 401 + WWW-Authenticate
+      Client->>AGW: GET /.well-known/oauth-protected-resource/mcp
+      AGW-->>Client: {resource, agentgateway_dev_issuer_proxy, ...}
+      Client->>AGW: GET /oauth-issuer/authorize (via oauth-issuer route)
+      AGW->>Ctrl: forward /oauth-issuer/*
+      Ctrl->>KC: redirect for login + real DCR
+      KC-->>Ctrl: authorization code
+      Ctrl-->>Client: gateway-issued code
+      Client->>Ctrl: POST /oauth-issuer/token
+      Ctrl-->>Client: Bearer JWT
+      Client->>AGW: POST /mcp + Bearer JWT
+      AGW->>KC: validate JWT via JWKS
+      AGW->>Echo: forward + static X-Test-Token (mcp-enterprise auth)
+      AGW-->>Client: MCP response
+
+  steps:
+    - title: Expose an echo backend as an MCP tool
+      description: |
+        Deploy a plain httpbin backend and wrap its /headers endpoint as an MCP tool via OpenAPI, with a static X-Test-Token credential attached to every upstream request and the OAuth discovery well-known paths matched on the route.
+      features:
+        - name: httpbin-backend
+          config:
+            name: auth-only-echo-backend
+
+        - name: mcp-enterprise
+          config:
+            backendName: auth-only-mcp-backend
+            routeName: mcp
+            pathPrefix: /mcp
+            wellKnownPaths: true
+            auth:
+              value: demo-static-token
+              header: X-Test-Token
+            targets:
+              - name: echo
+                host: auth-only-echo-backend.agentgateway-system.svc.cluster.local
+                port: 80
+                openAPI:
+                  schemaConfigMapName: auth-only-echo-openapi-schema
+                  schema:
+                    openapi: 3.0.0
+                    info:
+                      title: httpbin echo
+                      version: 1.0.0
+                    servers:
+                      - url: /
+                    paths:
+                      /headers:
+                        get:
+                          operationId: getHeaders
+                          summary: Echo the request headers received by the upstream
+                          responses:
+                            '200':
+                              description: successful operation
+
+    - title: Front the MCP route with the controller's auth-only OAuth issuer
+      description: |
+        Enable the controller's OAuth authorization server (port 7777), federating with Keycloak's agw-dev realm, and apply an inbound JWT auth policy on the MCP route.
+      features:
+        - name: auth-only-mcp
+          config:
+            keycloak:
+              realm: agw-dev
+              externalUrl: '{{env.keycloak.scheme}}://{{env.domains.keycloak}}'
+            clientId: agw-issuer
+            mcpPath: /mcp
+
+  tests:
+    - name: test-unauthenticated-request-rejected
+      description: An MCP request without a token is rejected before reaching the backend
+      steps:
+        - action: send-mcp-request
+          endpoint: /mcp
+          method: tools/list
+        - action: verify
+          expect:
+            statusCode: 401
+            headers:
+              www-authenticate: '*'
+
+    - name: test-protected-resource-metadata-discoverable
+      description: MCP clients can discover the issuer-proxy via the protected-resource metadata endpoint
+      steps:
+        - action: send-request
+          endpoint: /.well-known/oauth-protected-resource/mcp
+        - action: verify
+          expect:
+            status: success
+            contains: ['resource', 'agentgateway_dev_issuer_proxy']
+
+    - name: test-authorization-server-metadata-discoverable
+      description: MCP clients can discover the controller's own OAuth authorization server metadata
+      steps:
+        - action: send-request
+          endpoint: /.well-known/oauth-authorization-server/mcp
+        - action: verify
+          expect:
+            status: success
+            contains: registration_endpoint
+
+    - name: test-authenticated-mcp-tools-list
+      description: |
+        A real Keycloak-issued token (password grant) is accepted at the MCP route, and the echo backend's getHeaders tool is discoverable. The controller's own interactive eager-login UX (DCR + authorize + token through /oauth-issuer) is covered by the discovery tests above; this test only proves JWT validation and tool access work once a client already has a valid token.
+      steps:
+        - action: get-token
+          keycloak:
+            realm: agw-dev
+            clientId: agw-client
+            clientSecret: agw-client-secret
+            grantType: password
+            username: user1
+            password: Password1!
+            hostname: '{{env.domains.keycloak}}'
+            scheme: '{{env.keycloak.scheme}}'
+        - action: send-mcp-request
+          endpoint: /mcp
+          method: tools/list
+          auth: bearer
+        - action: verify
+          expect:
+            status: success
+            contains: getHeaders

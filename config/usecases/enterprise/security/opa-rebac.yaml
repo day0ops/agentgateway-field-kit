@@ -1,0 +1,278 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: opa-rebac
+  description: |
+    Fine-grained, relationship-based access control (ReBAC) for LLM/model access using OPA (Open Policy Agent), fronting agentgateway's ext_authz hook.
+
+    - Identity comes from a Keycloak-issued JWT (agw-dev realm) - the preferred_username claim is projected into the x-user-id header after JWT validation, so it can't be spoofed by the client
+    - OPA (github.com/day0ops/opa-ext-authz) speaks the Envoy ext_authz gRPC protocol natively - no custom adapter service - and evaluates a Rego policy against that header and the request body's 'model' field
+    - Access is granted via org membership, team allowlists, provider-wide extra grants, or direct per-user grants - the exact same relationships as the sibling openfga-rebac usecase, expressed as static Rego data instead of ReBAC tuples (see addons/opa and day0ops/opa-ext-authz)
+docs: https://www.openpolicyagent.org/docs/envoy-primer/
+spec:
+  diagram: |
+    sequenceDiagram
+      participant Client
+      participant AGW as agentgateway
+      participant KC as Keycloak
+      participant OPA as opa-ext-authz
+      participant LLM as OpenAI/Anthropic
+      Client->>AGW: POST /chat (Authorization: Bearer <JWT>, model)
+      AGW->>KC: validate JWT (JWKS)
+      AGW->>AGW: project preferred_username -> x-user-id
+      AGW->>OPA: Check(user, model)
+      OPA->>OPA: evaluate agentgateway/authz/allow (Rego)
+      OPA-->>AGW: Ok / Denied (403)
+      AGW->>LLM: forward request (if allowed)
+      LLM-->>Client: response
+
+  steps:
+    - title: Deploy OPA policy engine
+      description: |
+        Deploy the OPA server (github.com/day0ops/opa-ext-authz) with the Rego ReBAC policy and its static relationship data baked into the image, in its own namespace.
+      features:
+        - name: opa
+          config:
+            namespace: opa
+            image: '{{env.images.opa-ext-authz}}'
+
+    - title: Deploy LLM providers
+      description: |
+        Deploy OpenAI (gpt-4o, gpt-3.5-turbo) and Anthropic (claude-sonnet-5) providers behind a single body-routed /chat endpoint, so there are protected routes for the OPA ReBAC policy to guard.
+      features:
+        - name: providers
+          config:
+            bodyRouting: true
+            pathPrefix: /chat
+            providers:
+              - name: openai-gpt4o
+                providerName: openai
+                model: gpt-4o
+              - name: openai-gpt35
+                providerName: openai
+                model: gpt-3.5-turbo
+              - name: anthropic-claude35
+                providerName: anthropic
+                model: claude-sonnet-5
+
+    - title: Validate identity via Keycloak JWT
+      description: |
+        Validate the caller's JWT against the agw-dev realm and project its preferred_username claim into the x-user-id header, so downstream ext_authz can trust the identity instead of a client-supplied header.
+      features:
+        - name: keycloak-jwt-auth
+          config:
+            keycloakHost: '{{env.domains.keycloak}}'
+            claimHeaders:
+              - claim: preferred_username
+                header: x-user-id
+
+    - title: Enforce OPA ReBAC authorization
+      description: |
+        Apply an EnterpriseAgentgatewayPolicy that delegates every /chat request to OPA's ext_authz gRPC endpoint, keyed on the (JWT-derived) x-user-id header and the model field in the request body.
+      features:
+        - name: opa-authz
+          config:
+            policyName: opa-rebac-policy
+            targetRefs:
+              - group: gateway.networking.k8s.io
+                kind: HTTPRoute
+                name: providers-chat-route
+
+  tests:
+    - name: test-alice-gpt4o-allowed-org-entitlement
+      description: |
+        alice is a member of org:acme, which is entitled to every model behind the openai provider - gpt-4o is allowed.
+      steps:
+        - action: get-token
+          keycloak:
+            hostname: '{{env.domains.keycloak}}'
+            realm: agw-dev
+            clientId: agw-client
+            clientSecret: agw-client-secret
+            grantType: password
+            username: alice
+            password: Password1!
+        - action: send-request
+          endpoint: /chat
+          auth: bearer
+          model: gpt-4o
+          prompt: 'What is 2+2?'
+        - action: verify
+          expect:
+            status: success
+
+    - name: test-bob-gpt4o-allowed-org-entitlement
+      description: |
+        bob is also a member of org:acme - gpt-4o is allowed via the same org entitlement.
+      steps:
+        - action: get-token
+          keycloak:
+            hostname: '{{env.domains.keycloak}}'
+            realm: agw-dev
+            clientId: agw-client
+            clientSecret: agw-client-secret
+            grantType: password
+            username: bob
+            password: Password1!
+        - action: send-request
+          endpoint: /chat
+          auth: bearer
+          model: gpt-4o
+          prompt: 'What is 2+2?'
+        - action: verify
+          expect:
+            status: success
+
+    - name: test-bob-claude35-allowed-team-allowlist
+      description: |
+        bob is also a member of team:acme-ml, which is explicitly allowlisted on claude-sonnet-5.
+      steps:
+        - action: get-token
+          keycloak:
+            hostname: '{{env.domains.keycloak}}'
+            realm: agw-dev
+            clientId: agw-client
+            clientSecret: agw-client-secret
+            grantType: password
+            username: bob
+            password: Password1!
+        - action: send-request
+          endpoint: /chat
+          auth: bearer
+          model: claude-sonnet-5
+          prompt: 'What is 2+2?'
+        - action: verify
+          expect:
+            status: success
+
+    - name: test-alice-claude35-denied-not-on-allowlist
+      description: |
+        alice is not a member of team:acme-ml and has no direct grant, so claude-sonnet-5 is denied.
+      steps:
+        - action: get-token
+          keycloak:
+            hostname: '{{env.domains.keycloak}}'
+            realm: agw-dev
+            clientId: agw-client
+            clientSecret: agw-client-secret
+            grantType: password
+            username: alice
+            password: Password1!
+        - action: send-request
+          endpoint: /chat
+          auth: bearer
+          model: claude-sonnet-5
+          prompt: 'What is 2+2?'
+        - action: verify
+          expect:
+            status: blocked
+
+    - name: test-erin-gpt4o-allowed-direct-grant
+      description: |
+        erin has a direct per-user grant on gpt-4o with no org/team membership at all.
+      steps:
+        - action: get-token
+          keycloak:
+            hostname: '{{env.domains.keycloak}}'
+            realm: agw-dev
+            clientId: agw-client
+            clientSecret: agw-client-secret
+            grantType: password
+            username: erin
+            password: Password1!
+        - action: send-request
+          endpoint: /chat
+          auth: bearer
+          model: gpt-4o
+          prompt: 'What is 2+2?'
+        - action: verify
+          expect:
+            status: success
+
+    - name: test-dave-gpt4o-allowed-provider-extra-grant
+      description: |
+        dave has a provider-wide extra_can_use grant on the openai provider, independent of any org/team membership.
+      steps:
+        - action: get-token
+          keycloak:
+            hostname: '{{env.domains.keycloak}}'
+            realm: agw-dev
+            clientId: agw-client
+            clientSecret: agw-client-secret
+            grantType: password
+            username: dave
+            password: Password1!
+        - action: send-request
+          endpoint: /chat
+          auth: bearer
+          model: gpt-4o
+          prompt: 'What is 2+2?'
+        - action: verify
+          expect:
+            status: success
+
+    - name: test-charlie-gpt4o-denied-no-permissions
+      description: |
+        charlie has no org, team, direct, or provider-level grant - gpt-4o is denied.
+      steps:
+        - action: get-token
+          keycloak:
+            hostname: '{{env.domains.keycloak}}'
+            realm: agw-dev
+            clientId: agw-client
+            clientSecret: agw-client-secret
+            grantType: password
+            username: charlie
+            password: Password1!
+        - action: send-request
+          endpoint: /chat
+          auth: bearer
+          model: gpt-4o
+          prompt: 'What is 2+2?'
+        - action: verify
+          expect:
+            status: blocked
+
+    - name: test-mcp-user-gpt4o-allowed-direct-grant
+      description: |
+        mcp-user (a service identity, not a human) has a direct grant on gpt-4o.
+      steps:
+        - action: get-token
+          keycloak:
+            hostname: '{{env.domains.keycloak}}'
+            realm: agw-dev
+            clientId: agw-client
+            clientSecret: agw-client-secret
+            grantType: password
+            username: mcp-user
+            password: Password1!
+        - action: send-request
+          endpoint: /chat
+          auth: bearer
+          model: gpt-4o
+          prompt: 'What is 2+2?'
+        - action: verify
+          expect:
+            status: success
+
+    - name: test-mcp-user-gpt35-denied-no-grant
+      description: |
+        mcp-user has no grant on gpt-3.5-turbo, only on gpt-4o.
+      steps:
+        - action: get-token
+          keycloak:
+            hostname: '{{env.domains.keycloak}}'
+            realm: agw-dev
+            clientId: agw-client
+            clientSecret: agw-client-secret
+            grantType: password
+            username: mcp-user
+            password: Password1!
+        - action: send-request
+          endpoint: /chat
+          auth: bearer
+          model: gpt-3.5-turbo
+          prompt: 'What is 2+2?'
+        - action: verify
+          expect:
+            status: blocked

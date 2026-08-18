@@ -1,0 +1,337 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: fd-loan-rbac-native-obo
+  description: |
+    A loan agent calls a fixed-deposit (FD) agent, and the caller's identity carries through every hop so access can be restricted per caller, not just per agent.
+
+    - The loan agent's identity propagates through the FD agent down to the FD tool server
+    - The loan agent can only read fixed-deposit balances, never book new deposits
+    - The FD agent itself is allowed to do both - the restriction is tied to who's calling, not which agent is calling
+  docs: https://docs.solo.io/agentgateway/latest/security/obo-elicitations/obo/
+
+spec:
+  diagram: |
+    sequenceDiagram
+      participant LA as Loan Agent
+      participant KC as Keycloak
+      participant STS as agentgateway STS (port 7777)
+      participant AGW as agentgateway
+      participant FA as FD Agent
+      participant MCP as FD MCP Server
+      Note over LA: Autonomous workload — no user session
+      LA->>KC: POST /token (client_credentials, client_id=loan-agent)
+      KC-->>LA: access_token aud=agentgateway, azp=loan-agent
+      LA->>STS: POST /token (RFC 8693 token-exchange)
+      Note over STS: subject_token=KC token, actor_token=SA JWT
+      STS-->>LA: OBO token iss=STS, client_id=loan-agent
+      LA->>AGW: POST /fd-agent/run + Bearer OBO token
+      Note over AGW: /fd-agent open — OBO token passes through
+      AGW->>FA: forward with OBO token
+      Note over FA: MCP_AUTH_MODE=propagate
+      Note over FA: propagates OBO token to MCP calls (no plugin)
+      FA->>AGW: POST /openai (LLM call)
+      AGW-->>FA: answer
+      FA->>AGW: POST /fd-mcp + OBO token
+      Note over AGW: JWT policy Strict on /fd-mcp (STS issuer)
+      Note over AGW: CEL: jwt.client_id==loan-agent && tool==get_total_fixed_deposits
+      Note over AGW: book_fixed_deposit BLOCKED
+      AGW->>MCP: forward authenticated request
+      MCP-->>FA: FD summary
+      FA-->>LA: final answer
+
+  steps:
+    - title: Deploy LLM provider
+      description: |
+        Expose an OpenAI LLM provider at /openai so the FD agent can route completions through the gateway.
+      features:
+        - name: providers
+          config:
+            providers:
+              - name: openai
+                providerName: openai
+                pathPrefix: /openai
+
+    - title: Deploy FD MCP server
+      description: |
+        Deploy the FD MCP server and expose it through agentgateway at /fd-mcp. The server exposes two tools: get_total_fixed_deposits (read) and book_fixed_deposit (write). The fd-agent connects to this backend.
+      features:
+        - name: mcp-server
+          config:
+            deployServer: true
+            image: '{{env.images.fd-server-mcp}}'
+            serverName: fd-server-mcp
+            serverPort: 8000
+            servicePort: 80
+            protocol: StreamableHTTP
+            env:
+              MCP_TRANSPORT: streamable-http
+            mcpPath: /mcp
+            pathPrefix: /fd-mcp
+            backendName: fd-mcp-backend
+            routeName: fd-mcp
+
+    - title: Deploy Postgres for the token exchange service
+      description: |
+        Deploy a dedicated Postgres instance for this usecase's own STS database - required because token-exchange's Helm upgrades never clear a previous usecase's database.postgres.url, only ever set it.
+      features:
+        - name: postgres
+          config:
+            name: fd-loan-rbac-jwt-propagation-postgres
+
+    - title: Enable agentgateway Security Token Service (STS)
+      description: |
+        Enable the agentgateway built-in STS at port 7777 via Helm upgrade. The STS accepts RFC 8693 token-exchange requests: a subject token (Keycloak client_credentials token, validated against Keycloak JWKS) plus an actor token (K8s ServiceAccount JWT, validated against the K8s API). On success it issues a short-lived OBO token signed by the STS, preserving the client_id claim from the original Keycloak token so downstream CEL RBAC rules can still identify the caller.
+      features:
+        - name: token-exchange
+          config:
+            keycloak:
+              realm: agw-dev
+              serviceName: keycloak
+              serviceNamespace: keycloak
+            tokenExpiration: 1h
+            skipMayActClaimValidation: true
+            database:
+              postgres:
+                url: postgres://tokenexchange:tokenexchange@fd-loan-rbac-jwt-propagation-postgres.agentgateway-system.svc.cluster.local:5432/tokenexchange?sslmode=disable
+
+    - title: Apply JWT auth policy on the FD MCP route
+      description: |
+        Apply an EnterpriseAgentgatewayPolicy with JWT authentication in Strict mode on the FD MCP HTTPRoute. Only requests bearing a valid STS-issued OBO token are admitted. The client_id claim is preserved from the original Keycloak token so CEL RBAC can identify the original caller (loan-agent). Raw Keycloak tokens are rejected at this boundary.
+      features:
+        - name: obo-token-exchange
+          config:
+            policyName: fd-mcp-obo-jwt-policy
+            issuer: '{{env.internal.stsIssuer}}'
+            jwksPath: /.well-known/jwks.json
+            jwksBackend:
+              name: enterprise-agentgateway
+              namespace: agentgateway-system
+              port: 7777
+            audiences:
+              - agentgateway
+            jwtMode: Strict
+            targetRefs:
+              - group: gateway.networking.k8s.io
+                kind: HTTPRoute
+                name: fd-mcp
+
+    - title: Restrict FD MCP tool access by caller identity
+      description: |
+        Apply CEL-based RBAC on the fd-mcp-backend AgentgatewayBackend. Two identity tiers are enforced via OR'd match expressions:
+
+        1. fd-agent identity (client_id=fd-agent): full read+write access — may call both get_total_fixed_deposits AND book_fixed_deposit. This covers direct fd-agent calls to /fd-mcp using fd-agent's own STS OBO token.
+
+        2. loan-agent identity (client_id=loan-agent): read-only access — may only call get_total_fixed_deposits. When the loan-agent OBO token is propagated through fd-agent (MCP_AUTH_MODE=propagate), the /fd-mcp boundary sees client_id=loan-agent and blocks book_fixed_deposit, returning "unknown tool".
+
+        agentgateway evaluates the expressions in OR: either rule may match. A request matching neither expression is denied.
+      features:
+        - name: mcp-tool-access
+          config:
+            policyName: fd-loan-tool-access
+            backendName: fd-mcp-backend
+            action: Allow
+            matchExpressions:
+              - 'jwt.client_id == "fd-agent" && (mcp.tool.name == "get_total_fixed_deposits" || mcp.tool.name == "book_fixed_deposit")'
+              - 'jwt.client_id == "loan-agent" && mcp.tool.name == "get_total_fixed_deposits"'
+
+    - title: Deploy FD agent
+      description: |
+        Deploy the FD ADK agent at /fd-agent with MCP_AUTH_MODE=propagate. When the loan-agent calls /fd-agent, the incoming OBO token (client_id=loan-agent) is propagated unchanged to every /fd-mcp call (Path B). agentgateway sees client_id=loan-agent at /fd-mcp and restricts access to get_total_fixed_deposits only.
+
+        useTokenExchange=true mounts the fd-agent K8s ServiceAccount JWT. USE_AGENTGATEWAY_STS=true and fd-agent-credentials Secret (client_id=fd-agent) allow fd-agent to exchange its own identity at the STS if MCP_AUTH_MODE=workload is used in a different deployment (Path A — client_id=fd-agent unlocks full read+write access).
+
+        Path A is demonstrated in the test suite by obtaining an fd-agent OBO token directly and calling /fd-mcp, confirming that book_fixed_deposit is permitted for client_id=fd-agent while remaining blocked for client_id=loan-agent.
+      features:
+        - name: workload-agent
+          config:
+            agentName: fd-agent
+            image: '{{env.images.fd-agent}}'
+            pathPrefix: /fd-agent
+            pathRewrite: /
+            routeName: fd-agent
+            clientId: fd-agent
+            clientSecretName: fd-agent-credentials
+            audience: agentgateway
+            useTokenExchange: true
+            saTokenAudience: agentgateway
+            mayActClaim: true
+            keycloakUrl: '{{env.keycloak.scheme}}://{{env.domains.keycloak}}'
+            llmBaseUrl: '{{env.internal.agentgateway}}/openai'
+            mcpUrl: '{{env.internal.agentgateway}}/fd-mcp'
+            model: gpt-4o-mini
+            mcpAuthMode: propagate
+            additionalEnv:
+              - name: STS_URL
+                value: '{{env.internal.sts}}'
+
+    - title: Deploy loan agent
+      description: |
+        Deploy the loan agent at /loan-agent. It is an autonomous workload that:
+
+        (1) fetches its own Keycloak token via client_credentials (client_id=loan-agent);
+
+        (2) exchanges it for an OBO token at the agentgateway STS (port 7777), presenting its K8s ServiceAccount JWT as the actor token (USE_AGENTGATEWAY_STS=true);
+
+        (3) calls the FD agent through the gateway with the OBO token.
+
+        The SA token is auto-mounted by useTokenExchange: true. STS_URL provides the STS endpoint; USE_AGENTGATEWAY_STS=true enables the exchange. The Keycloak client secret is read from the Kubernetes Secret provisioned by the Keycloak addon.
+      features:
+        - name: workload-agent
+          config:
+            agentName: loan-agent
+            image: '{{env.images.loan-agent}}'
+            pathPrefix: /loan-agent
+            routeName: loan-agent
+            clientId: loan-agent
+            clientSecretName: loan-agent-credentials
+            audience: agentgateway
+            useTokenExchange: true
+            saTokenAudience: agentgateway
+            mayActClaim: true
+            keycloakUrl: '{{env.keycloak.scheme}}://{{env.domains.keycloak}}'
+            stockAgentUrl: '{{env.internal.agentgateway}}/fd-agent/run'
+            additionalEnv:
+              - name: FD_AGENT_URL
+                value: '{{env.internal.agentgateway}}/fd-agent/run'
+              - name: STS_URL
+                value: '{{env.internal.sts}}'
+              - name: USE_AGENTGATEWAY_STS
+                value: 'true'
+
+  tests:
+    - name: test-unauthenticated-fd-mcp-blocked
+      description: |
+        Direct call to the FD MCP route without a token is rejected with 401. JWT policy is enforced on /fd-mcp in Strict mode (STS issuer).
+      steps:
+        - action: send-mcp-request
+          endpoint: /fd-mcp
+          method: tools/list
+        - action: verify
+          expect:
+            status: 401
+
+    - name: test-loan-agent-reads-fd-summary
+      description: |
+        Loan agent fetches its Keycloak token, exchanges it for an OBO token via the agentgateway STS, then calls the FD agent. FD agent propagates the OBO token to FD MCP. CEL RBAC allows get_total_fixed_deposits for client_id=loan-agent. Returns FD summary.
+      steps:
+        - action: send-request
+          endpoint: /loan-agent/run
+          method: POST
+          body:
+            query: 'What is the total value of fixed deposits for customer C001?'
+        - action: verify
+          expect:
+            status: success
+
+    - name: test-loan-agent-write-blocked
+      description: |
+        A valid OBO token (loan-agent identity) presented directly to /fd-mcp with book_fixed_deposit is blocked. The CEL RBAC policy only allows get_total_fixed_deposits for client_id=loan-agent; book_fixed_deposit is returned as unknown tool.
+      steps:
+        - action: get-token
+          keycloak:
+            realm: agw-dev
+            clientId: loan-agent
+            clientSecret: loan-agent-secret
+            grantType: client_credentials
+            hostname: '{{env.domains.keycloak}}'
+            scheme: '{{env.keycloak.scheme}}'
+        - action: get-k8s-token
+          serviceAccount: loan-agent
+          namespace: agentgateway-system
+          role: actor
+        - action: exchange-sts-token
+        - action: send-mcp-request
+          endpoint: /fd-mcp
+          method: tools/call
+          auth: bearer
+          params:
+            name: book_fixed_deposit
+            arguments:
+              customer_id: C001
+              amount: 100000
+              duration_months: 12
+        - action: verify
+          expect:
+            status: error
+            contains: unknown tool
+
+    - name: test-fd-agent-read-allowed
+      description: |
+        FD agent exchanges its own SA JWT and Keycloak credentials (client_id=fd-agent) at the agentgateway STS. The resulting OBO token carries client_id=fd-agent. CEL RBAC at /fd-mcp allows fd-agent to call get_total_fixed_deposits (read).
+      steps:
+        - action: get-token
+          keycloak:
+            realm: agw-dev
+            clientId: fd-agent
+            clientSecret: fd-agent-secret
+            grantType: client_credentials
+            hostname: '{{env.domains.keycloak}}'
+            scheme: '{{env.keycloak.scheme}}'
+        - action: get-k8s-token
+          serviceAccount: fd-agent
+          namespace: agentgateway-system
+          role: actor
+        - action: exchange-sts-token
+        - action: send-mcp-request
+          endpoint: /fd-mcp
+          method: tools/call
+          auth: bearer
+          params:
+            name: get_total_fixed_deposits
+            arguments:
+              customer_id: C001
+        - action: verify
+          expect:
+            status: success
+
+    - name: test-fd-agent-write-allowed
+      description: |
+        FD agent exchanges its own SA JWT and Keycloak credentials (client_id=fd-agent) at the agentgateway STS. The resulting OBO token carries client_id=fd-agent. CEL RBAC at /fd-mcp allows fd-agent to call book_fixed_deposit (write) — fd-agent has full read+write access unlike loan-agent which is read-only.
+      steps:
+        - action: get-token
+          keycloak:
+            realm: agw-dev
+            clientId: fd-agent
+            clientSecret: fd-agent-secret
+            grantType: client_credentials
+            hostname: '{{env.domains.keycloak}}'
+            scheme: '{{env.keycloak.scheme}}'
+        - action: get-k8s-token
+          serviceAccount: fd-agent
+          namespace: agentgateway-system
+          role: actor
+        - action: exchange-sts-token
+        - action: send-mcp-request
+          endpoint: /fd-mcp
+          method: tools/call
+          auth: bearer
+          params:
+            name: book_fixed_deposit
+            arguments:
+              customer_id: C001
+              amount: 50000
+              duration_months: 6
+        - action: verify
+          expect:
+            status: success
+
+    - name: test-raw-kc-token-rejected-at-fd-mcp
+      description: |
+        A raw Keycloak token (not exchanged via STS) is rejected at the FD MCP route with 401. The JWT policy at /fd-mcp expects STS-issued tokens; KC-issued tokens fail issuer validation regardless of audience.
+      steps:
+        - action: get-token
+          keycloak:
+            realm: agw-dev
+            clientId: loan-agent
+            clientSecret: loan-agent-secret
+            grantType: client_credentials
+            hostname: '{{env.domains.keycloak}}'
+            scheme: '{{env.keycloak.scheme}}'
+        - action: send-mcp-request
+          endpoint: /fd-mcp
+          method: tools/list
+          auth: bearer
+        - action: verify
+          expect:
+            status: 401

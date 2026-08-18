@@ -1,0 +1,117 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: eager-auth-entra
+  description: |
+    Fronts an MCP server with agentgateway's built-in Microsoft Entra login adapter, with no separate broker in the loop. Since Entra has no dynamic client registration, the gateway hands clients a pre-registered app ID instead.
+  docs: https://docs.solo.io/agentgateway/latest/mcp/auth/entra/
+
+spec:
+  diagram: |
+    sequenceDiagram
+      participant Client as MCP Client
+      participant AGW as agentgateway
+      participant Entra
+
+      Client->>AGW: POST /mcp (no token)
+      AGW-->>Client: 401 + OAuth metadata
+      Client->>AGW: GET /.well-known/oauth-protected-resource/mcp
+      AGW-->>Client: {resource, authorization_servers, ...}
+      Client->>AGW: GET /.well-known/oauth-authorization-server/mcp
+      AGW-->>Client: Entra's authorization server metadata (proxied)
+      Client->>AGW: POST registration_endpoint (dynamic client registration)
+      AGW-->>Client: mock client_id (pre-registered - Entra has no real DCR)
+      Client->>AGW: authorization request (resource param stripped)
+      AGW->>Entra: proxy authorize + login
+      Entra-->>Client: authorization code
+      Client->>AGW: POST token_endpoint
+      AGW->>Entra: proxy token exchange
+      Entra-->>Client: access token (JWT)
+      Client->>AGW: POST /mcp + Bearer JWT
+      AGW->>Entra: validate JWT via JWKS
+      AGW-->>Client: MCP response
+
+  features:
+    - name: mcp-server
+      config:
+        serverName: mcp-eager-auth-entra-server
+        protocol: StreamableHTTP
+        # stock-server-mcp (the default image this feature deploys) serves at /mcp, not
+        # root - without this, a real authenticated initialize call 404s even though the
+        # discovery/401 automated tests below don't reach far enough to notice.
+        mcpPath: /mcp
+        # Browser-based clients (e.g. the MCP inspector) send a CORS preflight before
+        # the real request - without this, the Strict MCP auth policy 401s the
+        # preflight with no CORS headers and the browser blocks the real request.
+        cors:
+          enabled: true
+        backendName: mcp-backend
+        routeName: mcp
+
+    - name: mcp-eager-auth-entra
+      config:
+        tenantId: '{{env.entra.tenantId}}'
+        clientId: '{{env.entra.clientId}}'
+        # Real OAuth 2.1 clients (e.g. a browser doing the interactive login) refuse
+        # non-TLS authorize/token endpoints, so this needs the profile's public HTTPS
+        # listener (port 443), not the plain :8080 address - same rationale as
+        # eager-auth-okta's gatewayBaseUrl override. The 4 non-interactive automated
+        # tests below still hit the default :8080 address; only the browser-login
+        # discoveryUrl needs the public HTTPS listener.
+        resource: 'https://{{env.domains.agentgateway}}/mcp'
+
+  tests:
+    - name: unauthenticated-mcp-request-rejected
+      description: An MCP request without a token is rejected before reaching the backend
+      steps:
+        - action: send-mcp-request
+          endpoint: /mcp
+          method: tools/list
+        - action: verify
+          expect:
+            statusCode: 401
+            headers:
+              www-authenticate: '*'
+
+    - name: protected-resource-metadata-discoverable
+      description: MCP clients can discover the protected-resource metadata endpoint
+      steps:
+        - action: send-request
+          endpoint: /.well-known/oauth-protected-resource/mcp
+        - action: verify
+          expect:
+            status: success
+            contains: resource
+
+    - name: authorization-server-metadata-discoverable
+      description: MCP clients can discover Entra's authorization server metadata, proxied through the gateway
+      steps:
+        - action: send-request
+          endpoint: /.well-known/oauth-authorization-server/mcp
+        - action: verify
+          expect:
+            status: success
+            contains: registration_endpoint
+
+    - name: dynamic-client-registration
+      description: MCP clients registering against the gateway's mock DCR endpoint receive the pre-registered Entra client_id (Entra itself has no DCR endpoint)
+      steps:
+        - action: register-client
+          discoveryEndpoint: /.well-known/oauth-authorization-server/mcp
+
+    - name: authenticated-mcp-tools-list-via-browser-login
+      description: |
+        Opens a real browser for an interactive Entra login using the pre-registered clientId (no DCR involved), then calls MCP tools with the resulting genuine Entra JWT. Not part of `--no-prompt` CI runs - requires a human to complete the login (live-verified manually).
+      steps:
+        - action: get-token
+          entra:
+            clientId: '{{env.entra.clientId}}'
+            discoveryUrl: 'https://{{env.domains.agentgateway}}/.well-known/oauth-authorization-server/mcp'
+        - action: send-mcp-request
+          endpoint: /mcp
+          method: tools/list
+          auth: bearer
+        - action: verify
+          expect:
+            status: success
+            contains: get_stock_price

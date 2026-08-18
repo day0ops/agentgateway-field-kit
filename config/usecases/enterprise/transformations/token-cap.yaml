@@ -1,0 +1,67 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: token-cap
+  description: |
+    Enforce a maximum token limit on all LLM requests regardless of what clients send.
+
+    - Gateway intercepts max_completion_tokens and caps it at 500 using CEL
+    - Clients requesting 9999 tokens silently get capped to 500
+    - Centrally enforced without modifying any client code
+    - Also sets reasoning_effort to "low" to reduce costs on reasoning models
+  docs: https://docs.solo.io/agentgateway/latest/llm/transformations/
+
+spec:
+  diagram: |
+    sequenceDiagram
+      participant Client
+      participant AGW as agentgateway (CEL)
+      participant OAI as OpenAI
+      Client->>AGW: POST /openai {"max_completion_tokens": 9999, ...}
+      AGW->>AGW: CEL: min(9999, 500) = 500
+      AGW->>OAI: forward with max_completion_tokens: 500
+      OAI-->>AGW: response (max 500 tokens)
+      AGW-->>Client: response
+
+  features:
+    - name: providers
+      config:
+        providers:
+          - name: openai
+            providerName: openai
+            pathPrefix: /openai
+            model: o3-mini
+
+    - name: request-transformation
+      description: Cap max_completion_tokens at 500 and set reasoning_effort to low
+      config:
+        transformations:
+          - field: max_completion_tokens
+            expression: 'has(llmRequest.max_completion_tokens) ? min(int(llmRequest.max_completion_tokens), 500) : 500'
+          - field: reasoning_effort
+            expression: '"low"'
+        targetRefs:
+          - group: gateway.networking.k8s.io
+            kind: HTTPRoute
+            name: openai
+
+  tests:
+    - name: high-token-request-capped
+      description: Request with max_completion_tokens=9999 is capped at 500
+      steps:
+        - action: send-request
+          endpoint: /openai
+          body: '{"model": "o3-mini", "max_completion_tokens": 9999, "messages": [{"role": "user", "content": "Tell me a story"}]}'
+        - action: verify
+          expect:
+            status: success
+
+    - name: no-token-limit-gets-default
+      description: Request without max_completion_tokens gets default cap of 500
+      steps:
+        - action: send-request
+          endpoint: /openai
+          body: '{"model": "o3-mini", "messages": [{"role": "user", "content": "Hello"}]}'
+        - action: verify
+          expect:
+            status: success

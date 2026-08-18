@@ -1,0 +1,195 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: agent-workload-identity
+  description: |
+    Two autonomous agents authenticate to each other and to their tools using their own workload identity, with no human user or login involved anywhere in the chain.
+  docs: https://docs.solo.io/agentgateway/latest/security/
+
+spec:
+  diagram: |
+    sequenceDiagram
+      participant CA as Caller Agent
+      participant KC as Keycloak
+      participant AGW as agentgateway
+      participant SA as Stock Agent
+      participant MCP as MCP Server
+      Note over CA: Autonomous workload
+      Note over CA: No user JWT
+      CA->>KC: POST /token (client_credentials, client_id=caller-agent)
+      KC-->>CA: access_token aud=agentgateway, azp=caller-agent
+      CA->>AGW: POST /agent/run + Bearer token
+      Note over AGW: /agent has no JWT policy
+      Note over AGW: token passes through intact
+      AGW->>SA: forward with Authorization header
+      Note over SA: ADKTokenPropagationPlugin
+      Note over SA: propagates incoming token to MCP
+      SA->>AGW: POST /openai (LLM call)
+      AGW-->>SA: answer
+      SA->>AGW: POST /mcp + propagated token
+      Note over AGW: JWT policy on /mcp
+      Note over AGW: CEL RBAC jwt.azp=caller-agent
+      AGW->>MCP: forward authenticated request
+      MCP-->>SA: tool result
+      SA-->>CA: final answer
+
+  steps:
+    - title: Deploy LLM provider
+      description: |
+        Expose an OpenAI LLM provider at /openai so the stock agent can route completions through the gateway.
+      features:
+        - name: providers
+          config:
+            providers:
+              - name: openai
+                providerName: openai
+                pathPrefix: /openai
+
+    - title: Deploy MCP stock server
+      description: |
+        Deploy the MCP stock price server and expose it through agentgateway at /mcp. This is the tool backend the stock agent uses.
+      features:
+        - name: mcp-server
+          config:
+            deployServer: true
+            image: '{{env.images.stock-server-mcp}}'
+            serverName: stock-server-mcp
+            serverPort: 8000
+            servicePort: 80
+            protocol: StreamableHTTP
+            env:
+              MCP_TRANSPORT: streamable-http
+            mcpPath: /mcp
+            pathPrefix: /mcp
+            backendName: mcp-backend
+            routeName: mcp
+
+    - title: Apply JWT auth policy on the MCP route
+      description: |
+        Apply an EnterpriseAgentgatewayPolicy with JWT authentication in Strict mode on the MCP HTTPRoute. The /agent route is left open so the caller's token passes through untouched and ADKTokenPropagationPlugin can propagate it to downstream MCP calls. Only requests to /mcp bearing a Keycloak-issued token with aud=agentgateway are admitted.
+      features:
+        - name: obo-token-exchange
+          config:
+            policyName: workload-identity-jwt-policy
+            issuer: '{{env.keycloak.scheme}}://{{env.domains.keycloak}}/realms/agw-dev'
+            jwksPath: realms/agw-dev/protocol/openid-connect/certs
+            audiences:
+              - agentgateway
+            jwtMode: Strict
+            targetRefs:
+              - group: gateway.networking.k8s.io
+                kind: HTTPRoute
+                name: mcp
+
+    - title: Restrict MCP tool access by workload identity
+      description: |
+        Apply CEL-based RBAC on the mcp-backend AgentgatewayBackend to restrict tool access. Only the caller-agent workload (identified by jwt.azp) may call the get_stock_price tool. This demonstrates two-layer enforcement: JWT auth at the route level (aud=agentgateway) and fine-grained tool RBAC at the backend level (azp=caller-agent && tool=get_stock_price).
+      features:
+        - name: mcp-tool-access
+          config:
+            policyName: workload-identity-tool-access
+            backendName: mcp-backend
+            action: Allow
+            matchExpressions:
+              - 'jwt.azp == "caller-agent" && mcp.tool.name == "get_stock_price"'
+
+    - title: Deploy stock ADK agent
+      description: |
+        Deploy the stock ADK agent (extras/stock-agent/) at /agent. It receives the caller agent's forwarded request with the Authorization header intact (the /agent route has no JWT policy). ADKTokenPropagationPlugin reads this header and injects it into every outbound MCP call, so the caller's workload identity token travels end-to-end and is validated by the JWT policy on /mcp.
+      features:
+        - name: agent
+          config:
+            image: '{{env.images.stock-agent}}'
+            agentName: stock-agent
+            model: gpt-4o-mini
+            llmBaseUrl: '{{env.internal.agentgateway}}/openai'
+            mcpUrl: '{{env.internal.agentgateway}}/mcp'
+            pathPrefix: /agent
+            pathRewrite: /
+            routeName: stock-agent
+
+    - title: Deploy caller (workload) agent
+      description: |
+        Deploy the caller agent (extras/caller-agent/) at /caller-agent. It is an autonomous workload — it accepts a POST /run with a plain query, fetches its own Keycloak token via client_credentials, and calls the stock agent through the gateway with that token. The client secret is read from the Kubernetes Secret provisioned by the Keycloak addon at install time.
+      features:
+        - name: workload-agent
+          config:
+            agentName: caller-agent
+            image: '{{env.images.caller-agent}}'
+            pathPrefix: /caller-agent
+            routeName: caller-agent
+            clientId: caller-agent
+            clientSecretName: caller-agent-credentials
+            audience: agentgateway
+            keycloakUrl: '{{env.domains.keycloak}}'
+
+  tests:
+    - name: test-unauthenticated-mcp-blocked
+      description: |
+        Direct call to the MCP route without a token is rejected with 401. The JWT policy is on /mcp (not /agent), so this is the actual enforcement point.
+      steps:
+        - action: send-mcp-request
+          endpoint: /mcp
+          method: tools/list
+        - action: verify
+          expect:
+            status: error
+
+    - name: test-caller-agent-calls-stock-agent
+      description: |
+        The caller agent obtains its own workload identity token and calls the stock agent through the gateway. No user token is involved.
+      steps:
+        - action: call-agent
+          endpoint: /caller-agent
+          path: /run
+          query: 'What is the current stock price of AAPL?'
+          timeout: 90s
+        - action: verify
+          expect:
+            status: success
+            contains: AAPL
+
+    - name: test-wrong-audience-blocked
+      description: |
+        A token with the wrong audience (not agentgateway) is rejected at the MCP route. The JWT policy on /mcp requires aud=agentgateway; anything else is 401.
+      steps:
+        - action: get-token
+          keycloak:
+            realm: agw-dev
+            clientId: agw-client
+            clientSecret: agw-client-secret
+            grantType: client_credentials
+            hostname: '{{env.domains.keycloak}}'
+            scheme: '{{env.keycloak.scheme}}'
+        - action: send-mcp-request
+          endpoint: /mcp
+          method: tools/list
+          auth: bearer
+        - action: verify
+          expect:
+            status: 401
+
+    - name: test-unauthorized-tool-blocked
+      description: |
+        The mcp-tool-access CEL policy filters get_stock_history from the tools list for jwt.azp=caller-agent. When called directly, the AGW has no record of the tool and returns HTTP 500 with "Unknown tool: get_stock_history".
+      steps:
+        - action: get-token
+          keycloak:
+            realm: agw-dev
+            clientId: caller-agent
+            clientSecret: caller-agent-secret
+            grantType: client_credentials
+            hostname: '{{env.domains.keycloak}}'
+            scheme: '{{env.keycloak.scheme}}'
+        - action: send-mcp-request
+          endpoint: /mcp
+          method: tools/call
+          auth: bearer
+          params:
+            name: get_stock_history
+            arguments:
+              symbol: AAPL
+        - action: verify
+          expect:
+            status: error
+            contains: unknown tool

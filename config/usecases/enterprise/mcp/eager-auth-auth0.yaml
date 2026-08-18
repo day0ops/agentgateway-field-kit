@@ -1,0 +1,107 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: eager-auth-auth0
+  description: |
+    Fronts an MCP server with agentgateway's built-in Auth0 login adapter: the gateway itself discovers Auth0's OAuth endpoints, proxies real client registration through to Auth0, and validates the resulting token directly - no separate broker in the loop.
+  docs: https://docs.solo.io/agentgateway/latest/mcp/auth/setup/
+
+spec:
+  diagram: |
+    sequenceDiagram
+      participant Client as MCP Client
+      participant AGW as agentgateway
+      participant Auth0
+
+      Client->>AGW: POST /mcp (no token)
+      AGW-->>Client: 401 + OAuth metadata
+      Client->>AGW: GET /.well-known/oauth-protected-resource/mcp
+      AGW-->>Client: {resource, authorization_servers, ...}
+      Client->>AGW: GET /.well-known/oauth-authorization-server/mcp
+      AGW-->>Client: Auth0's authorization server metadata (proxied)
+      Client->>AGW: POST registration_endpoint (dynamic client registration)
+      AGW->>Auth0: proxy real DCR request
+      Auth0-->>Client: client_id (+ client_secret)
+      Client->>Auth0: authorization request + login (?audience=... injected)
+      Auth0-->>Client: access token (JWT)
+      Client->>AGW: POST /mcp + Bearer JWT
+      AGW->>Auth0: validate JWT via JWKS
+      AGW-->>Client: MCP response
+
+  features:
+    - name: mcp-server
+      config:
+        serverName: mcp-eager-auth-auth0-server
+        protocol: StreamableHTTP
+        # stock-server-mcp (the default image this feature deploys) serves at /mcp, not
+        # root - without this, a real authenticated initialize call 404s even though the
+        # discovery/401 automated tests below don't reach far enough to notice.
+        mcpPath: /mcp
+        # Browser-based clients (e.g. the MCP inspector) send a CORS preflight before
+        # the real request - without this, the Strict MCP auth policy 401s the
+        # preflight with no CORS headers and the browser blocks the real request.
+        cors:
+          enabled: true
+        backendName: mcp-backend
+        routeName: mcp
+
+    - name: mcp-eager-auth-auth0
+      config:
+        auth0Domain: '{{env.auth0.domain}}'
+        audience: '{{env.auth0.audience}}'
+        resource: 'http://{{env.domains.agentgateway}}:8080/mcp'
+
+  tests:
+    - name: unauthenticated-mcp-request-rejected
+      description: An MCP request without a token is rejected before reaching the backend
+      steps:
+        - action: send-mcp-request
+          endpoint: /mcp
+          method: tools/list
+        - action: verify
+          expect:
+            statusCode: 401
+            headers:
+              www-authenticate: '*'
+
+    - name: protected-resource-metadata-discoverable
+      description: MCP clients can discover the protected-resource metadata endpoint
+      steps:
+        - action: send-request
+          endpoint: /.well-known/oauth-protected-resource/mcp
+        - action: verify
+          expect:
+            status: success
+            contains: resource
+
+    - name: authorization-server-metadata-discoverable
+      description: MCP clients can discover Auth0's authorization server metadata, proxied through the gateway
+      steps:
+        - action: send-request
+          endpoint: /.well-known/oauth-authorization-server/mcp
+        - action: verify
+          expect:
+            status: success
+            contains: registration_endpoint
+
+    - name: dynamic-client-registration
+      description: A client can dynamically register directly against Auth0 via the gateway's discovered registration endpoint
+      steps:
+        - action: register-client
+          discoveryEndpoint: /.well-known/oauth-authorization-server/mcp
+
+    - name: authenticated-mcp-tools-list-via-browser-login
+      description: |
+        Registers a fresh client via real DCR, opens a real browser for an interactive Auth0 login (no controller involved), then calls MCP tools with the resulting genuine Auth0 JWT. Not part of `--no-prompt` CI runs - requires a human to complete the login (live-verified manually).
+      steps:
+        - action: get-token
+          auth0:
+            discoveryUrl: 'http://{{env.domains.agentgateway}}:8080/.well-known/oauth-authorization-server/mcp'
+        - action: send-mcp-request
+          endpoint: /mcp
+          method: tools/list
+          auth: bearer
+        - action: verify
+          expect:
+            status: success
+            contains: get_stock_price

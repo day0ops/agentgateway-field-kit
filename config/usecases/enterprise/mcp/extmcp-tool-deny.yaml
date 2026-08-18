@@ -1,0 +1,82 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: extmcp-tool-deny
+  description: |
+    Blocks calls to a specific MCP tool before they reach the server, using an external policy server on the request path - other tools are unaffected.
+  docs: https://docs.solo.io/agentgateway/2026.7.1/mcp/guardrails/setup/
+
+spec:
+  diagram: |
+    sequenceDiagram
+      participant Agent
+      participant AGW as agentgateway
+      participant Guard as ext-mcp-guardrail (gRPC)
+      participant MCP as MCP Stock Server
+      Agent->>AGW: MCP tools/call get_stock_history
+      AGW->>Guard: CheckRequest(tool=get_stock_history)
+      Guard-->>AGW: AuthorizationError(PERMISSION_DENIED)
+      AGW-->>Agent: JSON-RPC error, request never reaches MCP
+      Agent->>AGW: MCP tools/call get_stock_price
+      AGW->>Guard: CheckRequest(tool=get_stock_price)
+      Guard-->>AGW: Pass
+      AGW->>MCP: forward tool call
+      MCP-->>Agent: stock price result
+  steps:
+    - title: Deploy the stock MCP server
+      description: Deploy the MCP stock server workload behind a static AgentgatewayBackend.
+      features:
+        - name: mcp-server
+          config:
+            deployServer: true
+            image: '{{env.images.stock-server-mcp}}'
+            serverName: stock-server-mcp
+            serverPort: 8000
+            servicePort: 80
+            protocol: StreamableHTTP
+            backendName: mcp-backend
+            targetName: mcp-target
+            routeName: mcp
+
+    - title: Deploy the ExtMCP guardrail server and deny get_stock_history
+      description: |
+        Deploy ext-mcp-guardrail and wire an EnterpriseAgentgatewayPolicy that routes tools/call requests through its CheckRequest hook, denying get_stock_history while leaving every other tool untouched.
+      features:
+        - name: mcp-guardrails
+          config:
+            image: '{{env.images.ext-mcp-guardrail}}'
+            backendName: mcp-backend
+            backendKind: EnterpriseAgentgatewayBackend
+            deniedTools: get_stock_history
+            methods:
+              tools/call: Request
+            failureMode: FailClosed
+
+  tests:
+    - name: test-denied-tool-blocked
+      description: get_stock_history is rejected by the ExtMCP CheckRequest hook before reaching the MCP server
+      steps:
+        - action: send-mcp-request
+          endpoint: /mcp
+          method: tools/call
+          params:
+            name: get_stock_history
+            arguments:
+              symbol: AAPL
+        - action: verify
+          expect:
+            contains: blocked by policy
+
+    - name: test-allowed-tool-passes
+      description: get_stock_price is not on the deny list and reaches the MCP server normally
+      steps:
+        - action: send-mcp-request
+          endpoint: /mcp
+          method: tools/call
+          params:
+            name: get_stock_price
+            arguments:
+              symbol: AAPL
+        - action: verify
+          expect:
+            status: success

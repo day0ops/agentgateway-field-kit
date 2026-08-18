@@ -1,0 +1,73 @@
+apiVersion: agentgateway.demo/v1
+kind: Environment
+metadata:
+  name: local
+  description: Local Kubernetes cluster (lok8s)
+
+spec:
+  # No infraProfile or dns - purely local cluster
+  tls:
+    issuer: selfsigned-issuer
+
+  keycloak:
+    scheme: http
+
+  # Custom demo images, built and pushed to this GAR repo. Each value is a full
+  # repo:tag reference - bump the tag here to roll every usecase forward at once.
+  images:
+    keycloak: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/keycloak:latest
+    stock-agent: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/stock-agent:latest
+    caller-agent: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/caller-agent:latest
+    stock-server-mcp: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/stock-server-mcp:0.1.1
+    currency-server-mcp: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/currency-server-mcp:0.1.1
+    random-server-mcp: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/random-server-mcp:latest
+    fd-server-mcp: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/fd-server-mcp:latest
+    mcp-graph-me-tool: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/mcp-graph-me-tool:0.1.0
+    fd-agent: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/fd-agent:0.1.3
+    loan-agent: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/loan-agent:0.1.3
+    quota-budget-extproc: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/quota-budget-extproc:0.1.3
+    quota-management-ui: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/quota-management-ui:0.1.3
+    quota-ratelimit-extproc: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/quota-ratelimit-extproc:0.1.3
+    opik-guardrail-webhook: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/opik-guardrail-webhook:0.1.2
+    sidecar-agent: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/sidecar-agent:0.1.1
+    opa-ext-authz: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/opa-ext-authz:latest
+    openfga-engine: openfga/openfga:v1.10.3
+    openfga-ext-authz: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/openfga-ext-authz:latest
+    ext-mcp-guardrail: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/ext-mcp-guardrail:latest
+    preissuance-ext-authz: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/preissuance-ext-authz:latest
+
+  internal:
+    agentgateway: http://agentgateway.agentgateway-system.svc.cluster.local:8080
+    sts: http://enterprise-agentgateway.agentgateway-system.svc.cluster.local:7777/oauth2/token
+    stsIssuer: enterprise-agentgateway.agentgateway-system.svc.cluster.local:7777
+
+  domains:
+    keycloak: keycloak.keycloak.svc.cluster.local
+    grafana: kube-prometheus-stack-grafana.telemetry.svc.cluster.local
+    quotaManagement: quota-management.agentgateway-system.svc.cluster.local
+    soloUI: solo-enterprise-ui.agentgateway-system.svc.cluster.local
+    okta: dev-12345.okta.com
+    agentgateway: agentgateway.agentgateway-system.svc.cluster.local
+
+  # Placeholder Entra ID (Azure AD) tenant/app registration - replace with a real
+  # tenant to test entra-jwt-auth end-to-end; the 401-without-token test doesn't
+  # need a real tenant, but JWKS validation of an actual token does. Also used by
+  # eager-auth-entra, which additionally needs (one-time, in the Azure portal,
+  # live-verified 2026-08-09): a "Mobile and desktop applications" platform
+  # redirect URI set to `http://localhost` (no port - Azure AD's loopback
+  # matching allows any port for this platform type); an exposed API scope
+  # named `mcp_access` under "Expose an API"; "Allow public client flows" set
+  # to Yes under Authentication > Advanced settings (else token exchange 400s
+  # with AADSTS7000218, demanding a client_secret); and `accessTokenAcceptedVersion`
+  # set to `2` in the app manifest (else minted tokens carry a v1 issuer,
+  # `https://sts.windows.net/<tenantId>/`, and the gateway's v2-issuer default
+  # rejects them with InvalidIssuer).
+  entra:
+    tenantId: 00000000-0000-0000-0000-000000000000
+    clientId: 00000000-0000-0000-0000-000000000000
+
+  # Placeholder Auth0 tenant - replace with a real tenant to test
+  # mcp-eager-auth-auth0 end-to-end; the discovery/401 tests don't need one.
+  auth0:
+    domain: dev-00000000.us.auth0.com
+    audience: https://agentgateway.example.com/mcp

@@ -1,0 +1,20 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: quota-budget-metrics
+  labels:
+    app.kubernetes.io/managed-by: agentgateway-demo
+    agentgateway.dev/feature: quota-budget
+spec:
+  namespaceSelector:
+    matchNames:
+      - agentgateway-system
+  podMetricsEndpoints:
+    - port: metrics
+  selector:
+    matchExpressions:
+      - key: app
+        operator: In
+        values:
+          - quota-budget-extproc
+          - quota-management-ui

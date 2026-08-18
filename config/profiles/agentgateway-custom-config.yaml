@@ -1,0 +1,17 @@
+apiVersion: agentgateway.demo/v1
+kind: Profile
+metadata:
+  name: agentgateway-custom-config
+  description: |
+    Agentgateway with custom configuration via ConfigMap and GatewayParameters
+spec:
+  environment: local
+
+  helmValues: {}
+
+  resources:
+    - agentgateway-custom-config/configmap.yaml
+    - agentgateway-custom-config/gateway-parameters.yaml
+    - agentgateway-custom-config/gateway.yaml
+
+  addons: []

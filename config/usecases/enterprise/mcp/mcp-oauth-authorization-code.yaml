@@ -1,0 +1,164 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: mcp-oauth-authorization-code
+  description: |
+    Full OAuth 2.0 authorization code flow for MCP server access per the MCP auth spec.
+
+    - Client discovers the IdP via /.well-known/oauth-protected-resource
+    - Redirects through Keycloak's authorization endpoint and exchanges the code for tokens
+    - MCP calls are authenticated with the resulting validated JWT
+  docs: https://docs.solo.io/agentgateway/latest/mcp/auth/setup/
+
+spec:
+  diagram: |
+    sequenceDiagram
+      participant Client as MCP Client
+      participant AGW as agentgateway
+      participant KC as Keycloak
+      participant MCP as MCP Server
+      Client->>AGW: POST /mcp (no token)
+      AGW-->>Client: 401 + WWW-Authenticate
+      Client->>AGW: GET /.well-known/oauth-protected-resource/mcp
+      AGW-->>Client: {resource, authorization_servers}
+      Client->>AGW: GET /.well-known/oauth-authorization-server/mcp
+      AGW-->>Client: {issuer, authorization_endpoint, token_endpoint, ...}
+      Client->>KC: POST /clients-registrations/openid-connect
+      KC-->>Client: {client_id, client_secret}
+      Client->>KC: GET /authorize?response_type=code&...
+      KC-->>Client: redirect to login
+      Note over Client,KC: User authenticates
+      KC-->>Client: redirect with code
+      Client->>KC: POST /token (code + client credentials)
+      KC-->>Client: {access_token, ...}
+      Client->>AGW: POST /mcp + Bearer access_token
+      AGW->>KC: validate JWT via JWKS
+      KC-->>AGW: valid
+      AGW->>MCP: forward MCP request
+      MCP-->>Client: tools response
+  steps:
+    - title: Deploy MCP server
+      description: |
+        Deploy the MCP stock server workload and create a static MCP backend and route through agentgateway. This provides the upstream MCP server that will be protected with OAuth 2.0 authorization code flow.
+      features:
+        - name: mcp-server
+          config:
+            deployServer: true
+            image: '{{env.images.stock-server-mcp}}'
+            serverName: stock-server-mcp
+            serverPort: 8000
+            servicePort: 80
+            protocol: StreamableHTTP
+            mcpPath: /mcp
+            backendName: mcp-backend
+            routeName: mcp
+
+    - title: Configure OAuth authorization code flow
+      description: |
+        Create an EnterpriseAgentgatewayPolicy with MCP authentication targeting the AgentgatewayBackend. Configure Keycloak for dynamic client registration to enable the full OAuth authorization code flow. MCP clients can discover the authorization server via the /.well-known/oauth-protected-resource and /.well-known/oauth-authorization-server endpoints, dynamically register, redirect the user to Keycloak for login, and exchange the authorization code for an access token.
+      features:
+        - name: mcp-auth
+          config:
+            policyName: mcp-oauth-authz-code
+            backendName: mcp-backend
+            routeName: mcp
+            mcpPath: /mcp
+            keycloak:
+              realm: agw-dev
+              serviceName: keycloak
+              serviceNamespace: keycloak
+              servicePort: 443
+              externalUrl: '{{env.keycloak.scheme}}://{{env.domains.keycloak}}'
+              configureDynamicRegistration: true
+              grantAudienceToClients:
+                - agw-client
+            resource: http://localhost:8080/mcp
+            audiences:
+              - http://localhost:8080/mcp
+            scopesSupported:
+              - openid
+              - email
+              - profile
+            bearerMethodsSupported:
+              - header
+            mode: Strict
+            provider: Keycloak
+
+  tests:
+    - name: test-unauthenticated-request-returns-401
+      description: Verify unauthenticated MCP requests receive 401 with WWW-Authenticate header
+      steps:
+        - action: send-mcp-request
+          endpoint: /mcp
+          method: tools/list
+        - action: verify
+          expect:
+            status: error
+            code: 401
+
+    - name: test-protected-resource-metadata-endpoint
+      description: Verify /.well-known/oauth-protected-resource/mcp returns valid metadata
+      steps:
+        - action: send-request
+          endpoint: /.well-known/oauth-protected-resource/mcp
+        - action: verify
+          expect:
+            status: success
+            contains: resource
+
+    - name: test-authorization-server-metadata-endpoint
+      description: Verify /.well-known/oauth-authorization-server/mcp returns IdP metadata
+      steps:
+        - action: send-request
+          endpoint: /.well-known/oauth-authorization-server/mcp
+        - action: verify
+          expect:
+            status: success
+            contains: authorization_endpoint
+
+    - name: test-authenticated-mcp-tools-list
+      description: Authenticated user with valid JWT can list MCP tools
+      steps:
+        - action: get-token
+          keycloak:
+            realm: agw-dev
+            clientId: agw-client
+            clientSecret: agw-client-secret
+            grantType: password
+            username: user1
+            password: Password1!
+            hostname: '{{env.domains.keycloak}}'
+            scheme: '{{env.keycloak.scheme}}'
+        - action: send-mcp-request
+          endpoint: /mcp
+          method: tools/list
+          auth: bearer
+        - action: verify
+          expect:
+            status: success
+            contains: get_stock_price
+
+    - name: test-authenticated-mcp-tool-call
+      description: Authenticated user can call an MCP tool
+      steps:
+        - action: get-token
+          keycloak:
+            realm: agw-dev
+            clientId: agw-client
+            clientSecret: agw-client-secret
+            grantType: password
+            username: user1
+            password: Password1!
+            hostname: '{{env.domains.keycloak}}'
+            scheme: '{{env.keycloak.scheme}}'
+        - action: send-mcp-request
+          endpoint: /mcp
+          method: tools/call
+          auth: bearer
+          params:
+            name: get_stock_price
+            arguments:
+              symbol: AAPL
+        - action: verify
+          expect:
+            status: success

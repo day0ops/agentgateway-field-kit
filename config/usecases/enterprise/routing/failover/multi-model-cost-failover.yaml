@@ -1,0 +1,101 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: multi-model-cost-failover
+  description: |
+    Cost-optimized failover across Gemini and Anthropic models on Vertex AI.
+
+    - Priority 100 (cheap, load balanced):  Gemini Flash, Claude Haiku
+    - Priority 50  (premium, fallback only): Gemini Pro, Claude Sonnet
+    - Premium models only receive traffic when the primary tier fails
+  docs: https://docs.solo.io/agentgateway/latest/llm/failover/
+
+spec:
+  diagram: |
+    sequenceDiagram
+      participant Client
+      participant AGW as agentgateway
+      participant Cheap as Gemini Flash / Claude Haiku
+      participant Premium as Gemini Pro / Claude Sonnet
+      Client->>AGW: request
+      AGW->>Cheap: route to cheap models (priority 100)
+      Cheap-->>AGW: upstream error
+      AGW->>Premium: failover to premium models
+      Premium-->>Client: response
+
+  features:
+    - name: model-failover
+      description: Cheaper Vertex AI models first, premium models as fallback
+      config:
+        pathPrefix: /model
+        providers:
+          # Priority 100 - Cheaper models (load balanced, tried first)
+          - name: vertex-ai
+            model: google/gemini-2.5-flash
+            location: us-east5
+            priority: 100
+          - name: vertex-ai
+            model: claude-haiku-4-5@20251001
+            location: us-east5
+            priority: 100
+            policies:
+              ai:
+                routes:
+                  /v1/messages: Messages
+                  /count_tokens: AnthropicTokenCount
+                  ':rawPredict': Messages
+                  ':streamRawPredict': Messages
+
+          # Priority 50 - Premium models (fallback only)
+          - name: vertex-ai
+            model: google/gemini-2.5-pro
+            location: us-east5
+            priority: 50
+          - name: vertex-ai
+            model: claude-sonnet-4@20250514
+            location: us-east5
+            priority: 50
+            policies:
+              ai:
+                routes:
+                  /v1/messages: Messages
+                  /count_tokens: AnthropicTokenCount
+                  ':rawPredict': Messages
+                  ':streamRawPredict': Messages
+
+  tests:
+    - name: test-cheaper-models-first
+      description: Verify that cheaper models (priority 100) are used first
+      steps:
+        - action: send-request
+          endpoint: /model
+          prompt: 'What is machine learning?'
+        - action: verify
+          expect:
+            status: success
+            modelIn:
+              - gemini-2.5-flash
+              - claude-haiku-4-5
+
+    - name: test-load-balancing
+      description: Verify load balancing across cheaper models
+      steps:
+        - action: send-request
+          endpoint: /model
+          prompt: 'Explain AI in simple terms'
+        - action: verify
+          expect:
+            status: success
+            modelIn:
+              - gemini-2.5-flash
+              - claude-haiku-4-5
+
+    - name: test-premium-fallback-available
+      description: Verify the endpoint responds consistently
+      steps:
+        - action: send-request
+          endpoint: /model
+          prompt: 'Hello, how are you?'
+        - action: verify
+          expect:
+            status: success

@@ -1,0 +1,92 @@
+{
+  "schema_version": "1.1",
+  "type_definitions": [
+    {
+      "type": "user",
+      "relations": {},
+      "metadata": null
+    },
+    {
+      "type": "org",
+      "relations": {
+        "member": { "this": {} },
+        "admin": { "this": {} }
+      },
+      "metadata": {
+        "relations": {
+          "member": { "directly_related_user_types": [{ "type": "user" }] },
+          "admin": { "directly_related_user_types": [{ "type": "user" }] }
+        }
+      }
+    },
+    {
+      "type": "team",
+      "relations": {
+        "member": { "this": {} },
+        "org": { "this": {} }
+      },
+      "metadata": {
+        "relations": {
+          "member": { "directly_related_user_types": [{ "type": "user" }] },
+          "org": { "directly_related_user_types": [{ "type": "org" }] }
+        }
+      }
+    },
+    {
+      "type": "provider",
+      "relations": {
+        "org_can_use": { "this": {} },
+        "extra_can_use": { "this": {} }
+      },
+      "metadata": {
+        "relations": {
+          "org_can_use": {
+            "directly_related_user_types": [{ "type": "org", "relation": "member" }]
+          },
+          "extra_can_use": { "directly_related_user_types": [{ "type": "user" }] }
+        }
+      }
+    },
+    {
+      "type": "model",
+      "relations": {
+        "provider": { "this": {} },
+        "team_allowed": { "this": {} },
+        "direct": { "this": {} },
+        "can_use": {
+          "union": {
+            "child": [
+              { "computedUserset": { "relation": "direct" } },
+              {
+                "tupleToUserset": {
+                  "tupleset": { "relation": "provider" },
+                  "computedUserset": { "relation": "org_can_use" }
+                }
+              },
+              {
+                "tupleToUserset": {
+                  "tupleset": { "relation": "provider" },
+                  "computedUserset": { "relation": "extra_can_use" }
+                }
+              },
+              {
+                "tupleToUserset": {
+                  "tupleset": { "relation": "team_allowed" },
+                  "computedUserset": { "relation": "member" }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "metadata": {
+        "relations": {
+          "provider": { "directly_related_user_types": [{ "type": "provider" }] },
+          "team_allowed": { "directly_related_user_types": [{ "type": "team" }] },
+          "direct": { "directly_related_user_types": [{ "type": "user" }] },
+          "can_use": { "directly_related_user_types": [] }
+        }
+      }
+    }
+  ]
+}

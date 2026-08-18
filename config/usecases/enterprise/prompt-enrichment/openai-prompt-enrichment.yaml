@@ -1,0 +1,96 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: openai-prompt-enrichment
+  description: |
+    Automatically inject prompt fragments into every request via an EnterpriseAgentgatewayPolicy.
+
+    - SYSTEM prompts can be prepended or appended before forwarding to OpenAI
+    - USER prompts can also be injected to add context or output format constraints
+    - Operators enforce persona and safety context without modifying client code
+    - Clients can still override by providing their own system prompt
+  docs: https://docs.solo.io/agentgateway/latest/llm/prompt-enrichment/
+
+spec:
+  diagram: |
+    sequenceDiagram
+      participant Client
+      participant AGW as agentgateway
+      participant LLM as OpenAI
+      Client->>AGW: user prompt
+      AGW->>AGW: inject system prompts (prepend/append)
+      AGW->>LLM: enriched request with context
+      LLM-->>AGW: response
+      AGW-->>Client: response
+
+  features:
+    - name: providers
+      config:
+        providers:
+          - name: openai
+            providerName: openai
+            pathPrefix: /openai
+            model: gpt-3.5-turbo
+
+    - name: prompt-enrichment
+      description: Enrich prompts by prepending and appending system and user prompts
+      config:
+        # Prepend system instructions to every request
+        prepend:
+          - role: system
+            content: 'Parse the unstructured text into CSV format.'
+          - role: system
+            content: 'Always include a header row with column names.'
+
+        # Optionally append additional context
+        append:
+          - role: system
+            content: 'Ensure the CSV is properly formatted with commas as delimiters.'
+
+  tests:
+    - name: csv-parsing-with-enrichment
+      description: Test that system prompt is automatically prepended from EnterpriseAgentgatewayPolicy
+      steps:
+        - action: send-request
+          endpoint: /openai
+          prompt: 'Seattle, Los Angeles, and Chicago are cities in North America. London, Paris, and Berlin are cities in Europe.'
+        - action: verify
+          expect:
+            status: success
+            # Should return CSV format even though user didn't request it
+
+    - name: csv-parsing-with-prices
+      description: Parse recipe ingredients with prices into CSV format
+      steps:
+        - action: send-request
+          endpoint: /openai
+          prompt: 'The recipe called for eggs, flour and sugar. The price was $5, $3, and $2.'
+        - action: verify
+          expect:
+            status: success
+            # Should return CSV with header: Item, Price
+
+    - name: override-enrichment
+      description: Override the default system prompt by providing a custom one
+      steps:
+        - action: send-request
+          endpoint: /openai
+          method: POST
+          body: |
+            {
+              "model": "gpt-3.5-turbo",
+              "messages": [
+                {
+                  "role": "system",
+                  "content": "Parse the unstructured content and give back a JSON format"
+                },
+                {
+                  "role": "user",
+                  "content": "The recipe called for eggs, flour and sugar. The price was $5, $3, and $2."
+                }
+              ]
+            }
+        - action: verify
+          expect:
+            status: success
+            # Should return JSON format because custom system prompt overrides policy

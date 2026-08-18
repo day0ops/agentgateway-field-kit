@@ -1,0 +1,87 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: sni-matching
+  description: |
+    Serve two different hostnames with two different TLS certificates from the same Gateway and port, selected purely by SNI (Server Name Indication) during the TLS handshake - before any HTTP-level routing happens.
+
+    - sni-matching deploys a dedicated Gateway (not the shared default one - a full-manifest apply there would clobber its other listeners) with two hostname-scoped HTTPS listeners on port 443, each presenting its own cert
+    - mock-provider supplies a controllable backend both hostnames route to
+    - A third hostname has a real HTTPRoute but no matching listener/cert on the Gateway - proving the TLS handshake itself rejects an unrecognized SNI value, before HTTP routing is ever considered
+    - Provisions a brand-new LoadBalancer for the dedicated Gateway (removed on cleanup)
+  docs: https://docs.solo.io/agentgateway/latest/traffic-management/redirect/https/
+
+spec:
+  diagram: |
+    sequenceDiagram
+      participant Client
+      participant AGW as agentgateway-sni (dedicated Gateway)
+      participant Mock as mock-provider
+
+      Client->>AGW: TLS handshake, SNI=alpha.sni-demo.local
+      AGW-->>Client: cert A presented, handshake succeeds
+      Client->>AGW: POST /
+      AGW->>Mock: forward
+      Mock-->>Client: 200
+
+      Client->>AGW: TLS handshake, SNI=beta.sni-demo.local
+      AGW-->>Client: cert B presented, handshake succeeds
+      Client->>AGW: POST /
+      AGW->>Mock: forward
+      Mock-->>Client: 200
+
+      Client->>AGW: TLS handshake, SNI=gamma.sni-demo.local (no listener)
+      AGW-->>Client: connection closed - no filter chain matches this SNI
+
+  features:
+    - name: mock-provider
+      config:
+        model: mock-gpt-4o
+
+    - name: sni-matching
+      config:
+        name: agentgateway-sni
+
+  tests:
+    - name: alpha-hostname-gets-cert-a-and-routes-to-backend
+      description: SNI=alpha.sni-demo.local completes the handshake and reaches the mock backend
+      steps:
+        - action: send-request
+          scheme: https
+          gatewayName: agentgateway-sni
+          resolve:
+            hostname: alpha.sni-demo.local
+          endpoint: /
+          model: mock-gpt-4o
+          prompt: 'Hello'
+        - action: verify
+          expect:
+            status: success
+
+    - name: beta-hostname-gets-cert-b-and-routes-to-backend
+      description: SNI=beta.sni-demo.local completes the handshake and reaches the mock backend
+      steps:
+        - action: send-request
+          scheme: https
+          gatewayName: agentgateway-sni
+          resolve:
+            hostname: beta.sni-demo.local
+          endpoint: /
+          model: mock-gpt-4o
+          prompt: 'Hello'
+        - action: verify
+          expect:
+            status: success
+
+    - name: unmatched-hostname-rejected-at-tls-layer
+      description: SNI=gamma.sni-demo.local has a real HTTPRoute but no listener/cert - the TLS handshake itself fails
+      steps:
+        - action: send-request
+          scheme: https
+          gatewayName: agentgateway-sni
+          resolve:
+            hostname: gamma.sni-demo.local
+          endpoint: /
+        - action: verify
+          expect:
+            connectionError: true

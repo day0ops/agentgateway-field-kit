@@ -1,0 +1,53 @@
+{
+  "name": "agentgateway-field-kit",
+  "version": "0.1.0",
+  "description": "Agentgateway Field Kit - demo framework for agentgateway features and use cases",
+  "type": "module",
+  "main": "src/index.js",
+  "bin": {
+    "agw": "./src/cli.js"
+  },
+  "scripts": {
+    "start": "bun run src/cli.js",
+    "dev": "bun --watch src/cli.js",
+    "test": "bun test test/**/*.test.js",
+    "lint": "eslint src/**/*.js",
+    "format": "prettier --write .",
+    "setup": "bun install && bun run src/cli.js base install-local",
+    "clean": "bun run src/cli.js base cleanup"
+  },
+  "keywords": [
+    "agentgateway",
+    "kubernetes",
+    "llm",
+    "ai-gateway",
+    "demo"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "beautiful-mermaid": "^1.1.2",
+    "chalk": "^5.3.0",
+    "commander": "^14",
+    "execa": "^9",
+    "figlet": "^1.11.0",
+    "inquirer": "^13",
+    "js-yaml": "^4.1.1",
+    "log-symbols": "^7.0.1",
+    "ora": "^9",
+    "string-width": "^8"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@stylistic/eslint-plugin": "^5.10.0",
+    "eslint": "^10",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^17.4.0",
+    "playwright": "^1.58.2",
+    "prettier": "^3.8.1"
+  },
+  "packageManager": "bun@1.3.9",
+  "engines": {
+    "node": ">=24.14.0"
+  }
+}

@@ -1,0 +1,68 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: stateful-session-routing
+  description: |
+    Pins an MCP client's session to the same agentgateway instance across requests, so state isn't lost when the gateway runs multiple replicas.
+  docs: https://docs.solo.io/agentgateway/2026.7.1/mcp/session/
+
+spec:
+  diagram: |
+    sequenceDiagram
+      participant Agent
+      participant AGW as agentgateway (replica A/B)
+      participant MCP as MCP Stock Server
+      Agent->>AGW: MCP initialize
+      AGW->>MCP: forward (selector target)
+      MCP-->>Agent: tools list + Mcp-Session-Id header
+      Agent->>AGW: MCP tools/call (Mcp-Session-Id: <id>)
+      AGW->>AGW: route to the same proxy instance that owns <id>
+      AGW->>MCP: forward tool call
+      MCP-->>Agent: tool result
+  steps:
+    - title: Deploy MCP server with Stateful session routing
+      description: |
+        Deploy the MCP stock server workload behind a label-selector (dynamic) AgentgatewayBackend target, matching the docs' recommendation that stateful routing requires a selector-based target for consistent instance routing. sessionRouting: Stateful is set explicitly.
+      features:
+        - name: mcp-server
+          config:
+            deployServer: true
+            image: '{{env.images.stock-server-mcp}}'
+            serverName: stock-server-mcp
+            serverPort: 8000
+            servicePort: 80
+            protocol: StreamableHTTP
+            mcpPath: /mcp
+            backendName: mcp-backend
+            targetName: stock-server-mcp
+            matchLabels:
+              app: stock-server-mcp
+            sessionRouting: Stateful
+            routeName: mcp
+
+  tests:
+    - name: test-initialize-assigns-session-id
+      description: |
+        MCP initialize assigns an Mcp-Session-Id (only sent on the initialize response, not repeated on every subsequent response) that pins this client to the same backend for later requests.
+      steps:
+        - action: send-mcp-request
+          endpoint: /mcp
+          method: tools/list
+        - action: verify
+          expect:
+            status: success
+            contains: get_stock_price
+
+    - name: test-mcp-tool-call
+      description: Call the get_stock_price tool through agentgateway with session routing enabled
+      steps:
+        - action: send-mcp-request
+          endpoint: /mcp
+          method: tools/call
+          params:
+            name: get_stock_price
+            arguments:
+              symbol: AAPL
+        - action: verify
+          expect:
+            status: success

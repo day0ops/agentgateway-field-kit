@@ -1,0 +1,17 @@
+apiVersion: agentgateway.demo/v1
+kind: Profile
+metadata:
+  name: agentgateway-with-opa
+  description: |
+    OPA (Open Policy Agent) authorization server for Rego-based model access control demos
+spec:
+  environment: local
+
+  helmValues: {}
+
+  addons:
+    - name: opa
+      description: OPA authorization server (Rego policies bundled)
+      namespace: opa
+      config:
+        image: '{{env.images.opa-ext-authz}}'

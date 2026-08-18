@@ -1,0 +1,89 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: sidecar-agents
+  description: |
+    Two agents (A and B) each running as a sidecar container inside their own dedicated agentgateway pod. Demonstrates how multiple agents share the sidecar-agentgateway GatewayClass while each getting a fully isolated stack (EAP, Gateway, Service). Agent A uses gpt-4o-mini; Agent B uses gpt-4o.
+  docs: https://docs.solo.io/agentgateway/latest/setup/customize/configs/#sidecar-container
+
+spec:
+  diagram: |
+    flowchart LR
+      Client -->|POST /chat| SvcA[Service\nsidecar-agent-a-agent :8081]
+      Client -->|POST /chat| SvcB[Service\nsidecar-agent-b-agent :8081]
+      SvcA --> PodA[agentgateway Pod A]
+      SvcB --> PodB[agentgateway Pod B]
+      subgraph PodA[agentgateway Pod A]
+        AgentA[sidecar-agent-a\n:8081] -->|localhost:8080/openai| ProxyA[agentgateway proxy\n:8080]
+      end
+      subgraph PodB[agentgateway Pod B]
+        AgentB[sidecar-agent-b\n:8081] -->|localhost:8080/openai| ProxyB[agentgateway proxy\n:8080]
+      end
+      ProxyA --> OpenAI[api.openai.com]
+      ProxyB --> OpenAI
+
+  steps:
+    - title: Deploy Agent A
+      description: Deploy sidecar-agent-a with its own EAP + Gateway and OpenAI provider.
+      features:
+        - name: sidecar-agent
+          config:
+            agentName: sidecar-agent-a
+            agentImage: '{{env.images.sidecar-agent}}'
+            agentPort: 8081
+            model: gpt-4o-mini
+            llmPath: /openai
+
+        - name: providers
+          config:
+            providers:
+              - name: openai
+                providerName: openai
+                pathPrefix: /openai
+                model: gpt-4o-mini
+
+    - title: Deploy Agent B
+      description: Deploy sidecar-agent-b with its own isolated EAP + Gateway and OpenAI provider.
+      features:
+        - name: sidecar-agent
+          config:
+            agentName: sidecar-agent-b
+            agentImage: '{{env.images.sidecar-agent}}'
+            agentPort: 8081
+            model: gpt-4o
+            llmPath: /openai
+
+        - name: providers
+          config:
+            providers:
+              - name: openai
+                providerName: openai
+                pathPrefix: /openai
+                model: gpt-4o
+
+  tests:
+    - name: agent-a-routing
+      description: Agent A routes a prompt through its sidecar agentgateway to OpenAI
+      steps:
+        - action: call-agent
+          agent: sidecar-agent-a-agent
+          namespace: agentgateway-system
+          port: 8081
+          message: What is the capital of France? Answer in one word.
+        - action: verify
+          expect:
+            status: 200
+            contains: Paris
+
+    - name: agent-b-routing
+      description: Agent B routes a prompt through its sidecar agentgateway to OpenAI
+      steps:
+        - action: call-agent
+          agent: sidecar-agent-b-agent
+          namespace: agentgateway-system
+          port: 8081
+          message: What is the capital of Japan? Answer in one word.
+        - action: verify
+          expect:
+            status: 200
+            contains: Tokyo

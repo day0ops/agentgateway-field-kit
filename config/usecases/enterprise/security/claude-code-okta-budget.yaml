@@ -1,0 +1,133 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: claude-code-okta-budget
+  description: |
+    Place agentgateway in front of Claude Code with Okta JWT authentication and per-org/team budget enforcement.
+
+    Developers authenticate via Okta device flow (scripts/okta-apikey-helper.sh). Gateway uses a shared ANTHROPIC_API_KEY to call Anthropic. JWT claims org_id and team_id drive budget enforcement via quota-budget.
+
+    Developer one-time setup: export OKTA_DOMAIN=dev-12345.okta.com export OKTA_CLIENT_ID=<native-app-client-id>
+
+    ~/.claude/settings.json: { "env": { "ANTHROPIC_BASE_URL": "https://<agentgateway-public-host>" }, "apiKeyHelper": "/path/to/repo/scripts/okta-apikey-helper.sh" }
+spec:
+  deprecated:
+    reason: >-
+      Replaced by the native EnterpriseAgentgatewayBudget CRD - no custom ext-proc/Postgres
+      required.
+    replacedBy: security/claude-code-okta-budget-limits
+  diagram: |
+    sequenceDiagram
+      participant CC as Claude Code
+      participant SC as okta-apikey-helper.sh
+      participant OK as Okta
+      participant GW as agentgateway
+      participant QB as quota-budget extproc
+      participant AN as api.anthropic.com
+
+      CC->>SC: invoke apiKeyHelper
+      SC->>OK: device flow (cached if valid)
+      OK-->>SC: access token (org_id, team_id claims)
+      SC-->>CC: JWT token (used as API key)
+      CC->>GW: POST /v1/messages (Authorization: Bearer JWT)
+      GW->>GW: [PreRouting] validate JWT, extract org_id/team_id
+      GW->>QB: [PostRouting] track token cost against budget
+      QB-->>GW: within budget — pass through
+      GW->>AN: forward request with gateway's X-Api-Key
+      AN-->>CC: response
+
+  steps:
+    - title: Create TLS certificate
+      description: |
+        Create a TLS certificate for the agentgateway domain using cert-manager.
+      features:
+        - name: certificate
+          config:
+            name: agentgateway-tls
+            secretName: agentgateway-tls-secret
+            issuer: '{{env.tls.issuer}}'
+            dnsNames:
+              - '{{env.domains.agentgateway}}'
+
+    - title: Configure Gateway with HTTPS and hostname
+      description: |
+        Update the Gateway with HTTPS listener and hostname for external-dns. TLS termination using the cert-manager certificate.
+      features:
+        - name: gateway
+          config:
+            listeners:
+              - name: https
+                port: 443
+                protocol: HTTPS
+                hostname: '{{env.domains.agentgateway}}'
+                tls:
+                  mode: Terminate
+                  certificateRefs:
+                    - name: agentgateway-tls-secret
+                allowedRoutes:
+                  namespaces:
+                    from: All
+
+    - title: Configure Anthropic provider
+      description: |
+        Deploy the Anthropic LLM provider at path /. Gateway uses ANTHROPIC_API_KEY from secret to authenticate to Anthropic. Developers authenticate via Okta JWT only - no individual API keys needed.
+      features:
+        - name: providers
+          config:
+            providers:
+              - name: anthropic
+                providerName: anthropic
+                pathPrefix: /
+                hostname: '{{env.domains.agentgateway}}'
+                policies:
+                  ai:
+                    routes:
+                      /v1/messages: Messages
+                      '*': Passthrough
+
+    - title: Deploy Okta JWT authentication
+      description: |
+        Validate Okta JWTs at the gateway in strict mode. Requests without a valid Okta token are rejected with 401. Extracts org_id and team_id JWT claims into x-gw-org-id and x-gw-team-id request headers for downstream budget enforcement.
+      features:
+        - name: okta-jwt-auth
+          config:
+            oktaDomain: '{{env.okta.domain}}'
+            authServerId: default
+            audiences: ['api://default']
+
+    - title: Deploy quota-budget (infrastructure + budget ext-proc)
+      description: |
+        Deploy the budget management service with:
+        - PostgreSQL database
+        - Budget ext-proc (PostRouting phase)
+        - OIDC authentication via Keycloak
+        - TLS termination at the gateway
+        - TLS for PostgreSQL (verify-ca with cert-manager CA)
+        - Web UI accessible at /
+      features:
+        - name: quota-budget
+          config:
+            extprocImage: '{{env.images.quota-budget-extproc}}'
+            uiImage: '{{env.images.quota-management-ui}}'
+            uiPath: /
+            deployInfra: true
+            providerRoutes:
+              - anthropic
+            enableTLS: true
+            enablePostgresTLS: true
+            enableUIAuth: true
+            enableCORS: true
+            cors:
+              allowOrigins:
+                - 'https://{{env.domains.quotaManagement}}'
+            keycloakHost: '{{env.domains.keycloak}}'
+            tls:
+              hostname: '{{env.domains.quotaManagement}}'
+              issuer: '{{env.tls.issuer}}'
+            auth:
+              appUrl: 'https://{{env.domains.quotaManagement}}'
+              clientId: quota-management
+              callbackPath: /callback
+              logoutPath: /logout
+              sessionCacheHost: ext-cache-enterprise-agentgateway-custom:6379
+              extAuthBackend: ext-auth-service-enterprise-agentgateway-custom

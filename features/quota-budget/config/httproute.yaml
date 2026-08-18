@@ -1,0 +1,55 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: quota-management-ui
+  namespace: agentgateway-system
+  labels:
+    app.kubernetes.io/managed-by: agentgateway-demo
+    agentgateway.dev/feature: quota-budget
+spec:
+  parentRefs:
+    - name: quota-management-https
+      namespace: agentgateway-system
+      group: gateway.networking.k8s.io
+      kind: Gateway
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: quota-management-ui
+          port: 8080
+---
+# Public routes - no auth required (EnterpriseAgentgatewayPolicy does not target this route).
+# Also handles all OPTIONS preflight requests so ext-auth does not intercept them.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: quota-management-public
+  namespace: agentgateway-system
+  labels:
+    app.kubernetes.io/managed-by: agentgateway-demo
+    agentgateway.dev/feature: quota-budget
+spec:
+  parentRefs:
+    - name: quota-management-https
+      namespace: agentgateway-system
+      group: gateway.networking.k8s.io
+      kind: Gateway
+  rules:
+    - matches:
+        - path:
+            type: Exact
+            value: /api/v1/validate-cel
+      backendRefs:
+        - name: quota-management-ui
+          port: 8080
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+          method: OPTIONS
+      backendRefs:
+        - name: quota-management-ui
+          port: 8080

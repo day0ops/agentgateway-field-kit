@@ -1,0 +1,65 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: token-usage-monitoring
+  description: |
+    Deploy a Prometheus ServiceMonitor to track token usage and costs per provider/model.
+
+    - agentgateway emits agentgateway_gen_ai_client_token_usage automatically
+    - ServiceMonitor configures Prometheus Operator to scrape agentgateway-proxy
+    - PromQL: sum by (gen_ai_system, gen_ai_request_model) (agentgateway_gen_ai_client_token_usage)
+    - Requires Prometheus Operator installed; feature skips gracefully if absent
+  docs: https://docs.solo.io/agentgateway/latest/llm/cost-tracking/
+
+spec:
+  diagram: |
+    sequenceDiagram
+      participant Client
+      participant AGW as agentgateway
+      participant OAI as OpenAI
+      participant Prom as Prometheus
+      Client->>AGW: POST /openai
+      AGW->>OAI: forward request
+      OAI-->>AGW: response (prompt=50 tokens, completion=100 tokens)
+      AGW-->>Client: response
+      AGW->>AGW: emit agentgateway_gen_ai_client_token_usage{model=gpt-4o-mini} += 150
+      Prom->>AGW: scrape /metrics (every 15s)
+      AGW-->>Prom: agentgateway_gen_ai_client_token_usage{...} 150
+
+  features:
+    - name: providers
+      config:
+        providers:
+          - name: openai
+            providerName: openai
+            pathPrefix: /openai
+            model: gpt-4o-mini
+
+    - name: llm-cost-tracking
+      description: Deploy ServiceMonitor for Prometheus token usage scraping
+      config:
+        monitoringNamespace: monitoring
+        scrapeInterval: 15s
+
+  tests:
+    - name: metric-emitted-after-request
+      description: Token usage metric appears in Prometheus after a request
+      steps:
+        - action: send-request
+          endpoint: /openai
+          prompt: 'Say hello'
+        - action: verify
+          expect:
+            status: success
+
+    - name: service-monitor-deployed
+      description: ServiceMonitor resource is present in the cluster
+      steps:
+        - action: verify-resource
+          kind: ServiceMonitor
+          name: agentgateway-llm-metrics
+          expect:
+            - jsonpath: '{.spec.endpoints[0].path}'
+              value: /metrics
+            - jsonpath: '{.spec.selector.matchLabels.app}'
+              value: agentgateway-proxy

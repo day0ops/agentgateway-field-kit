@@ -1,0 +1,41 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: bedrock-provider-with-irsa
+  description: |
+    Route requests to AWS Bedrock using EKS IAM Roles for Service Accounts (IRSA) instead of static credentials - no AWS secret in the cluster at all.
+
+    - authMode: none omits policies.auth entirely, so agentgateway falls back to the pod's own ambient AWS credentials (populated by the IRSA webhook)
+    - No AWS_ACCESS_KEY_ID/SECRET_ACCESS_KEY or AWS_BEDROCK_API_KEY required
+    - Exposed at /bedrock-irsa behind a single AgentgatewayBackend
+
+    PREREQUISITE (not automated by this use case, not yet done on any cluster in this repo): the agentgateway proxy's ServiceAccount must be annotated with `eks.amazonaws.com/role-arn` for an IAM role trusted via this EKS cluster's OIDC provider, scoped to that ServiceAccount, with a Bedrock invoke policy attached - then the proxy deployment restarted so the IRSA webhook injects the projected token. Until that one-time setup exists, only validate this use case with `agw usecase dryrun` - `agw usecase deploy`/`test` will reach Bedrock without credentials and fail.
+  docs: https://kgateway.dev/docs/latest/agentgateway/llm/providers/amazon-bedrock/
+
+spec:
+  diagram: |
+    flowchart LR
+      Client --> AGW[agentgateway]
+      AGW -->|SigV4-signed via pod's IRSA credentials| Bedrock[AWS Bedrock]
+
+  features:
+    - name: providers
+      config:
+        providers:
+          - name: bedrock-irsa
+            providerName: bedrock
+            pathPrefix: /bedrock-irsa
+            model: global.amazon.nova-2-lite-v1:0
+            region: us-east-1
+            authMode: none
+
+  tests:
+    - name: test-bedrock-irsa-greeting
+      description: Test Bedrock (via IRSA) with a greeting
+      steps:
+        - action: send-request
+          endpoint: /bedrock-irsa
+          prompt: 'Hello, how are you?'
+        - action: verify
+          expect:
+            status: success

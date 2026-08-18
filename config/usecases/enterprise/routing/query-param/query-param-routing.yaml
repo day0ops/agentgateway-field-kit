@@ -1,0 +1,90 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: query-param-routing
+  description: |
+    Route to different OpenAI model backends via a ?model= query parameter, all under /openai.
+
+    - gpt-3.5-turbo → dedicated AgentgatewayBackend with model override
+    - gpt-4o-mini   → dedicated AgentgatewayBackend with model override
+    - gpt-4o        → dedicated AgentgatewayBackend with model override
+    - Requests without a recognized ?model= value receive no match
+  docs: https://kgateway.dev/docs/latest/agentgateway/llm/providers/
+  references:
+    - https://gateway-api.sigs.k8s.io/reference/spec/#gateway.networking.k8s.io/v1.HTTPQueryParamMatch
+
+spec:
+  diagram: |
+    flowchart LR
+      Client -->|"?model=X"| AGW[agentgateway]
+      AGW -->|gpt-3.5| A[gpt-3.5-turbo]
+      AGW -->|gpt-4o-mini| B[gpt-4o-mini]
+      AGW -->|gpt-4o| C[gpt-4o]
+
+  features:
+    - name: providers
+      config:
+        pathPrefix: /openai
+        queryParamRouting: true
+        queryParamName: model
+        providers:
+          - name: openai-gpt-3.5-turbo
+            providerName: openai
+            model: gpt-3.5-turbo
+          - name: openai-gpt-4o-mini
+            providerName: openai
+            model: gpt-4o-mini
+          - name: openai-gpt-4o
+            providerName: openai
+            model: gpt-4o
+
+  tests:
+    - name: test-gpt-3.5-turbo-via-query-param
+      description: Route to gpt-3.5-turbo backend using ?model=gpt-3.5-turbo
+      steps:
+        - action: send-request
+          endpoint: /openai?model=gpt-3.5-turbo
+          prompt: 'What is your favorite poem?'
+        - action: verify
+          expect:
+            status: success
+
+    - name: test-gpt-4o-mini-via-query-param
+      description: Route to gpt-4o-mini backend using ?model=gpt-4o-mini
+      steps:
+        - action: send-request
+          endpoint: /openai?model=gpt-4o-mini
+          prompt: 'What is your favorite poem?'
+        - action: verify
+          expect:
+            status: success
+
+    - name: test-gpt-4o-via-query-param
+      description: Route to gpt-4o backend using ?model=gpt-4o
+      steps:
+        - action: send-request
+          endpoint: /openai?model=gpt-4o
+          prompt: 'What is your favorite poem?'
+        - action: verify
+          expect:
+            status: success
+
+    - name: test-no-query-param-rejected
+      description: Request without model query param has no matching route rule
+      steps:
+        - action: send-request
+          endpoint: /openai
+          prompt: 'Hello'
+        - action: verify
+          expect:
+            statusCode: 404
+
+    - name: test-unknown-model-rejected
+      description: Unrecognized model query param value has no matching route rule
+      steps:
+        - action: send-request
+          endpoint: /openai?model=unknown-model
+          prompt: 'Hello'
+        - action: verify
+          expect:
+            statusCode: 404

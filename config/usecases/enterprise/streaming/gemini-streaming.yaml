@@ -1,0 +1,57 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: gemini-streaming
+  description: |
+    Stream Gemini responses through agentgateway using Server-Sent Events (SSE).
+
+    - Google uses a distinct HTTP stream protocol under the hood, but agentgateway handles the translation automatically
+    - "stream": true in the request body is all that's needed - no extra policy required, same as OpenAI/Anthropic/Azure
+    - Clients receive incremental SSE chunks as the model generates tokens
+  docs: https://docs.solo.io/agentgateway/latest/llm/streaming/
+
+spec:
+  diagram: |
+    sequenceDiagram
+      participant Client
+      participant AGW as agentgateway
+      participant GEM as Gemini
+      Client->>AGW: POST /gemini {"stream": true, ...}
+      AGW->>GEM: forward to native streamGenerateContent endpoint
+      GEM-->>AGW: native stream chunk 1
+      AGW-->>Client: data: {...}
+      GEM-->>AGW: native stream chunk 2
+      AGW-->>Client: data: {...}
+      GEM-->>AGW: stream end
+      AGW-->>Client: data: [DONE]
+
+  features:
+    - name: providers
+      config:
+        providers:
+          - name: gemini
+            providerName: gemini
+            pathPrefix: /gemini
+            model: gemini-flash-latest
+
+  tests:
+    - name: streaming-returns-sse-chunks
+      description: Verify streaming response contains SSE data chunks
+      steps:
+        - action: send-request
+          endpoint: /gemini
+          body: '{"model": "gemini-flash-latest", "stream": true, "messages": [{"role": "user", "content": "Count to 5"}]}'
+        - action: verify
+          expect:
+            status: success
+            streaming: true
+
+    - name: non-streaming-still-works
+      description: Non-streaming requests still work on the same route
+      steps:
+        - action: send-request
+          endpoint: /gemini
+          body: '{"model": "gemini-flash-latest", "messages": [{"role": "user", "content": "Say hello"}]}'
+        - action: verify
+          expect:
+            status: success

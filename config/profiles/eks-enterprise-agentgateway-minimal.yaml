@@ -1,0 +1,464 @@
+apiVersion: agentgateway.demo/v1
+kind: Profile
+metadata:
+  name: eks-enterprise-agentgateway-minimal
+  description: |
+    Minimal enterprise agentgateway demo on EKS
+    - Keycloak integration
+    - TLS via cert-manager, and DNS via Route53
+spec:
+  environment: aws-dev
+  infra: eks-single-cluster
+
+  agentgateway:
+    version: v2026.7.1-patch.0
+    ociRegistry: oci://us-docker.pkg.dev/solo-public/enterprise-agentgateway/charts
+
+  agentgateway-crds:
+    version: v2026.7.1-patch.0
+    ociRegistry: oci://us-docker.pkg.dev/solo-public/enterprise-agentgateway/charts
+    helmValues:
+      installAgentgatewayModelCRD: true
+
+  gatewayApi:
+    version: v1.6.0
+    channel: experimental
+
+  helmValues:
+    controller:
+      extraEnv:
+        KGW_ENABLE_GATEWAY_API_EXPERIMENTAL_FEATURES: 'true'
+    budgetDimensions:
+      config:
+        hierarchy:
+          - id: org_id
+            expression: jwt.org_id
+            displayName: Organization
+          - id: team_id
+            expression: jwt.team_id
+            displayName: Team
+          - id: group
+            expression: coalesce(jwt.group, apiKey.group)
+            displayName: Group
+          - id: user
+            expression: 'coalesce(apiKey.user, apiKey.name, apiKey.owner, jwt.sub, jwt.email, basicAuth.username, source.identity.namespace + "/" + source.identity.serviceAccount, source.subjectCn)'
+            displayName: User
+        attributes:
+          - id: username
+            expression: jwt.preferred_username
+            displayName: Username
+          - id: virtualKey
+            expression: apiKey.id
+            displayName: Virtual Key
+    tokenExchange:
+      enabled: true
+      issuer: enterprise-agentgateway.agentgateway-system.svc.cluster.local:7777
+      tokenExpiration: 24h
+      subjectValidator:
+        validatorType: remote
+        remoteConfig:
+          url: '{{env.keycloak.scheme}}://{{env.domains.keycloak}}/realms/agw-dev/protocol/openid-connect/certs'
+        skipMayActClaimValidation: true
+      actorValidator:
+        validatorType: k8s
+      apiValidator:
+        validatorType: remote
+        remoteConfig:
+          url: '{{env.keycloak.scheme}}://{{env.domains.keycloak}}/realms/agw-dev/protocol/openid-connect/certs'
+    agentgatewayModels:
+      enabled: true
+
+  gateway:
+    hostname: '{{env.domains.agentgateway}}'
+    mtls:
+      enabled: true
+    publicHttps:
+      enabled: true
+
+  resources:
+    - eks-enterprise-agentgateway-minimal/enterprise-agentgateway-sharedext-params.yaml
+    - eks-enterprise-agentgateway-minimal/enterprise-agentgateway-gatewayclass.yaml
+
+  featureGates:
+    injectExtAuthCustomCaCert:
+      enabled: true
+      sourceSecret: keycloak-tls
+      sourceNamespace: keycloak
+
+  addons:
+    - name: cert-manager
+      description: Certificate management for TLS
+      version: 1.21.1
+      namespace: cert-manager
+      config:
+        letsencrypt:
+          enabled: true
+          email: '{{env.acme.email}}'
+          region: '{{env.aws.region}}'
+
+    - name: gateway-mtls
+      description: CA chain and server certificate for the Gateway's mTLS listener
+      config:
+        dnsNames:
+          - '{{env.domains.agentgateway}}'
+        publicHttps:
+          enabled: true
+          dnsNames:
+            - '{{env.domains.agentgateway}}'
+
+    - name: external-dns
+      description: Automatic DNS record management via Route53
+      version: 1.21.1
+      namespace: external-dns
+      config:
+        provider: route53
+        domainFilter: '{{env.dns.childZone}}.{{env.dns.parentZone.domain}}'
+        region: '{{env.aws.region}}'
+
+    - name: keycloak
+      description: Keycloak OIDC Identity Provider
+      namespace: keycloak
+      keycloakImage: '{{env.images.keycloak}}'
+      postgresVersion: 18.2-alpine
+      config:
+        postgres:
+          persistentVolume:
+            storageClass: gp3
+            size: 5Gi
+        keycloakNamespace: keycloak
+        hostname: '{{env.domains.keycloak}}'
+        protocol: '{{env.keycloak.scheme}}'
+        loginTheme: '{{env.keycloak.loginTheme}}'
+        tls:
+          enabled: true
+          secretName: keycloak-tls
+          createCertificate: true
+        realms:
+          - realm: agw-dev
+            defaultPassword: Password1!
+            clients:
+              - clientId: agw-client
+                type: confidential
+                clientSecret: agw-client-secret
+                flows:
+                  - authorization-code
+                  - service-account
+              - clientId: agw-client-public
+                type: public
+                flows:
+                  - authorization-code
+              - clientId: agw-issuer
+                type: confidential
+                clientSecret: agw-issuer-secret
+                directAccessGrantsEnabled: false
+                flows:
+                  - authorization-code
+              - clientId: quota-management
+                type: confidential
+                clientSecret: quota-management-secret
+                flows:
+                  - authorization-code
+                  - service-account
+              - clientId: agw-token-exchange
+                type: confidential
+                clientSecret: agw-token-exchange-secret
+                directAccessGrantsEnabled: false
+                flows: []
+                attributes:
+                  standard.token.exchange.enabled: 'true'
+            customAttributes:
+              - org_id
+              - team_id
+              - group
+              - is_org_admin
+              - is_team_admin
+            users:
+              - username: acme-corp-admin
+                firstName: Acme Corp
+                lastName: Admin
+                email: acme-corp-admin@acme-corp.demo
+                attributes:
+                  org_id: acme-corp
+                  is_org_admin: 'true'
+                  is_team_admin: 'false'
+                  group: admins
+              - username: user1
+                firstName: Alpha
+                lastName: User
+                email: user1@acme-corp.demo
+                attributes:
+                  org_id: acme-corp
+                  team_id: team-alpha
+                  group: users
+                  is_org_admin: 'false'
+                  is_team_admin: 'false'
+              - username: user2
+                firstName: Beta
+                lastName: User Two
+                email: user2@acme-corp.demo
+                attributes:
+                  org_id: acme-corp
+                  team_id: team-beta
+                  group: users
+                  is_org_admin: 'false'
+                  is_team_admin: 'false'
+              - username: team-alpha-admin
+                firstName: Team Alpha
+                lastName: Admin
+                email: team-alpha-admin@acme-corp.demo
+                attributes:
+                  org_id: acme-corp
+                  team_id: team-alpha
+                  group: users
+                  is_org_admin: 'false'
+                  is_team_admin: 'true'
+              - username: team-beta-admin
+                firstName: Team Beta
+                lastName: Admin
+                email: team-beta-admin@acme-corp.demo
+                attributes:
+                  org_id: acme-corp
+                  team_id: team-beta
+                  group: users
+                  is_org_admin: 'false'
+                  is_team_admin: 'true'
+              - username: alice
+                firstName: Alice
+                lastName: ReBAC
+                email: alice@acme-corp.demo
+                attributes:
+                  org_id: acme
+              - username: bob
+                firstName: Bob
+                lastName: ReBAC
+                email: bob@acme-corp.demo
+                attributes:
+                  org_id: acme
+                  team_id: acme-ml
+              - username: charlie
+                firstName: Charlie
+                lastName: ReBAC
+                email: charlie@acme-corp.demo
+              - username: dave
+                firstName: Dave
+                lastName: ReBAC
+                email: dave@acme-corp.demo
+              - username: erin
+                firstName: Erin
+                lastName: ReBAC
+                email: erin@acme-corp.demo
+              - username: mcp-user
+                firstName: MCP
+                lastName: Service
+                email: mcp-user@acme-corp.demo
+
+          - realm: org-acme
+            orgId: acme
+            defaultPassword: Password1!
+            teams:
+              - teamId: team-eng
+                clientId: acme-team-eng
+                clientSecret: acme-team-eng-secret
+                users:
+                  - username: acme-eng-user1
+                    firstName: Acme Eng
+                    lastName: User
+                    email: acme-eng-user1@org-acme.demo
+                    attributes:
+                      org_id: acme
+                      team_id: team-eng
+                  - username: acme-eng-admin
+                    firstName: Acme Eng
+                    lastName: Admin
+                    email: acme-eng-admin@org-acme.demo
+                    attributes:
+                      org_id: acme
+                      team_id: team-eng
+                      is_org_admin: 'true'
+              - teamId: team-finance
+                clientId: acme-team-finance
+                clientSecret: acme-team-finance-secret
+                users:
+                  - username: acme-finance-user1
+                    firstName: Acme Finance
+                    lastName: User
+                    email: acme-finance-user1@org-acme.demo
+                    attributes:
+                      org_id: acme
+                      team_id: team-finance
+
+          - realm: org-globex
+            orgId: globex
+            defaultPassword: Password1!
+            teams:
+              - teamId: team-ops
+                clientId: globex-team-ops
+                clientSecret: globex-team-ops-secret
+                users:
+                  - username: globex-ops-user1
+                    firstName: Globex Ops
+                    lastName: User
+                    email: globex-ops-user1@org-globex.demo
+                    attributes:
+                      org_id: globex
+                      team_id: team-ops
+              - teamId: team-sales
+                clientId: globex-team-sales
+                clientSecret: globex-team-sales-secret
+                users:
+                  - username: globex-sales-user1
+                    firstName: Globex Sales
+                    lastName: User
+                    email: globex-sales-user1@org-globex.demo
+                    attributes:
+                      org_id: globex
+                      team_id: team-sales
+
+          - realm: org-initech
+            orgId: initech
+            defaultPassword: Password1!
+            teams:
+              - teamId: team-dev
+                clientId: initech-team-dev
+                clientSecret: initech-team-dev-secret
+                users:
+                  - username: initech-dev-user1
+                    firstName: Initech Dev
+                    lastName: User
+                    email: initech-dev-user1@org-initech.demo
+                    attributes:
+                      org_id: initech
+                      team_id: team-dev
+              - teamId: team-qa
+                clientId: initech-team-qa
+                clientSecret: initech-team-qa-secret
+                users:
+                  - username: initech-qa-user1
+                    firstName: Initech QA
+                    lastName: User
+                    email: initech-qa-user1@org-initech.demo
+                    attributes:
+                      org_id: initech
+                      team_id: team-qa
+
+          - realm: org-umbrella
+            orgId: umbrella
+            defaultPassword: Password1!
+            teams:
+              - teamId: team-research
+                clientId: umbrella-team-research
+                clientSecret: umbrella-team-research-secret
+                users:
+                  - username: umbrella-research-user1
+                    firstName: Umbrella Research
+                    lastName: User
+                    email: umbrella-research-user1@org-umbrella.demo
+                    attributes:
+                      org_id: umbrella
+                      team_id: team-research
+              - teamId: team-security
+                clientId: umbrella-team-security
+                clientSecret: umbrella-team-security-secret
+                users:
+                  - username: umbrella-security-user1
+                    firstName: Umbrella Security
+                    lastName: User
+                    email: umbrella-security-user1@org-umbrella.demo
+                    attributes:
+                      org_id: umbrella
+                      team_id: team-security
+
+          - realm: workforce-idp
+            defaultPassword: Password1!
+            clients:
+              - clientId: workforce-agent
+                type: confidential
+                clientSecret: workforce-agent-secret
+                directAccessGrantsEnabled: true
+                flows: []
+            customAttributes:
+              - role
+              - department
+            users:
+              - username: alice-admin
+                firstName: Alice
+                lastName: Admin
+                email: alice-admin@workforce.demo
+                attributes:
+                  role: admin
+                  department: platform
+              - username: bob-manager
+                firstName: Bob
+                lastName: Manager
+                email: bob-manager@workforce.demo
+                attributes:
+                  role: manager
+                  department: engineering
+              - username: carol-employee
+                firstName: Carol
+                lastName: Employee
+                email: carol-employee@workforce.demo
+                attributes:
+                  role: employee
+                  department: engineering
+
+          - realm: partner-idp
+            defaultPassword: Password1!
+            clients:
+              - clientId: partner-agent
+                type: confidential
+                clientSecret: partner-agent-secret
+                directAccessGrantsEnabled: true
+                flows: []
+            customAttributes:
+              - partner_tier
+              - partner_id
+            users:
+              - username: acme-gold-user
+                firstName: Acme Gold
+                lastName: User
+                email: acme-gold-user@partner.demo
+                attributes:
+                  partner_tier: gold
+                  partner_id: acme-partner
+              - username: acme-silver-user
+                firstName: Acme Silver
+                lastName: User
+                email: acme-silver-user@partner.demo
+                attributes:
+                  partner_tier: silver
+                  partner_id: acme-partner
+              - username: acme-bronze-user
+                firstName: Acme Bronze
+                lastName: User
+                email: acme-bronze-user@partner.demo
+                attributes:
+                  partner_tier: bronze
+                  partner_id: acme-partner
+
+        workloadClients:
+          - clientId: caller-agent
+            clientSecret: caller-agent-secret
+            audience: agentgateway
+            k8sSecretName: caller-agent-credentials
+            k8sSecretNamespace: agentgateway-system
+          - clientId: chain-caller-agent
+            clientSecret: chain-caller-agent-secret
+            audience: agentgateway
+            k8sSecretName: chain-caller-agent-credentials
+            k8sSecretNamespace: agentgateway-system
+          - clientId: chain-stock-agent
+            clientSecret: chain-stock-agent-secret
+            audience: agentgateway
+            k8sSecretName: chain-stock-agent-credentials
+            k8sSecretNamespace: agentgateway-system
+          - clientId: loan-agent
+            clientSecret: loan-agent-secret
+            audience: agentgateway
+            k8sSecretName: loan-agent-credentials
+            k8sSecretNamespace: agentgateway-system
+          - clientId: fd-agent
+            clientSecret: fd-agent-secret
+            audience: agentgateway
+            k8sSecretName: fd-agent-credentials
+            k8sSecretNamespace: agentgateway-system

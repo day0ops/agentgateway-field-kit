@@ -1,0 +1,61 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: semantic-routing
+  description: |
+    Let vLLM Semantic Router (vSR) pick a "cheap" or "premium" model per request based on prompt content, before agentgateway ever selects a route.
+
+    - vSR runs as an ExtProc processor during the PreRouting phase
+    - Clients send model: "auto" - a policy convention, not a special agentgateway value
+    - Fronts a single llm-d-inference-sim instance (base model + a LoRA tier) instead of real models, so no provider credentials are needed - see features/semantic-router/index.js for why this needs to be one backend answering to both model names rather than two separate mock backends (agentgateway has no mechanism to route one backend to different hosts by the request's model field)
+    - Live-verified end-to-end on an EKS cluster: vSR installs from the published OCI chart (oci://ghcr.io/vllm-project/charts/semantic-router, not a git clone), the classification model download from HuggingFace on first install took a few minutes (well under the chart's own ~20-60m readiness-probe allowance) - no GPU or HF_TOKEN needed for the chart's default (ungated) model. See the feature's own comments for chart-packaging quirks that had to be worked around (a broken default image tag, invalid default domain signals, a Helm fullname mismatch, and a required routing.modelCards field).
+  docs: https://docs.solo.io/agentgateway/latest/integrations/vllm-semantic-router/
+
+spec:
+  diagram: |
+    sequenceDiagram
+      participant Client
+      participant AGW as agentgateway
+      participant vSR as semantic-router (ExtProc, PreRouting)
+      participant Cheap as cheap-model (llm-d-inference-sim)
+      participant Premium as premium-model (llm-d-inference-sim)
+
+      Client->>AGW: POST /v1/chat/completions {"model": "auto", ...simple prompt...}
+      AGW->>vSR: PreRouting ExtProc call
+      vSR-->>AGW: selected model: cheap-model
+      AGW->>Cheap: forward
+      Cheap-->>Client: response (model: cheap-model)
+
+      Client->>AGW: POST /v1/chat/completions {"model": "auto", ...complex prompt...}
+      AGW->>vSR: PreRouting ExtProc call
+      vSR-->>AGW: selected model: premium-model
+      AGW->>Premium: forward
+      Premium-->>Client: response (model: premium-model)
+
+  features:
+    - name: semantic-router
+      config:
+        name: semantic-routing
+
+  tests:
+    - name: simple-prompt-routes-to-cheap-model
+      description: A short, routine prompt is routed to the cheap-tier model
+      steps:
+        - action: send-request
+          endpoint: /v1/chat/completions
+          body: '{"model": "auto", "messages": [{"role": "user", "content": "Say hello"}]}'
+        - action: verify
+          expect:
+            status: success
+            contains: 'cheap-model'
+
+    - name: complex-prompt-routes-to-premium-model
+      description: A prompt matching the complexity keywords is routed to the premium-tier model
+      steps:
+        - action: send-request
+          endpoint: /v1/chat/completions
+          body: '{"model": "auto", "messages": [{"role": "user", "content": "Design a fault-tolerant distributed consensus protocol, provide a proof of correctness, and do a root cause analysis of split-brain failure modes in this architecture under concurrency."}]}'
+        - action: verify
+          expect:
+            status: success
+            contains: 'premium-model'

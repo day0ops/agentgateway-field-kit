@@ -1,0 +1,45 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: azure-openai-provider
+  description: |
+    Route requests to Azure OpenAI using an API key.
+
+    - providers feature with providerName: azure-openai at /azure-openai
+    - Requires AZURE_OPENAI_API_KEY and an endpoint/deployment
+    - No extra policies, auth, or routing logic applied
+  docs: https://kgateway.dev/docs/latest/agentgateway/llm/providers/
+  status: |
+    NOT YET LIVE-TESTED - no AZURE_OPENAI_API_KEY is available in this environment.
+    Validate with `agw usecase dryrun --name routing/azure-openai-provider` only.
+    Set AZURE_OPENAI_API_KEY, AZURE_OPENAI_ENDPOINT, and the deploymentName/apiVersion
+    below to your own Azure OpenAI resource before running `agw usecase deploy`/`test`.
+
+spec:
+  diagram: |
+    flowchart LR
+      Client --> AGW[agentgateway]
+      AGW --> Azure[Azure OpenAI]
+
+  features:
+    - name: providers
+      config:
+        providers:
+          - name: azure-openai
+            providerName: azure-openai
+            pathPrefix: /azure-openai
+            model: gpt-4o-mini
+            deploymentName: gpt-4o-mini
+            endpoint: https://your-resource.openai.azure.com
+            apiVersion: '2024-10-21'
+
+  tests:
+    - name: test-azure-openai-greeting
+      description: Test Azure OpenAI with a greeting
+      steps:
+        - action: send-request
+          endpoint: /azure-openai
+          prompt: 'Hello, how are you?'
+        - action: verify
+          expect:
+            status: success

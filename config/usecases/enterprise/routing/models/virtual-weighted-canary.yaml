@@ -1,0 +1,77 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: virtual-weighted-canary
+  description: |
+    Split traffic across two concrete OpenAI models by weight through a single public virtual model, without the client knowing about either target.
+
+    - Requires the experimental AgentgatewayModel CRD/API enabled (`agentgatewayModels.enabled=true` Helm value on the control plane chart, `installAgentgatewayModelCRD=true` on the CRD chart)
+    - `internal-fast` (gpt-4o-mini) and `internal-premium` (gpt-4o) are Internal - not directly requestable
+    - `balanced` is a public virtual model that splits traffic 80/20 across the two targets
+  docs: https://docs.solo.io/agentgateway/latest/llm/models/virtual/
+
+spec:
+  diagram: |
+    flowchart LR
+      Client -->|POST model=balanced| MG[models-gateway]
+      MG --> VM["AgentgatewayModel balanced (virtual, weighted 80/20)"]
+      VM -->|80%| Fast["internal-fast (gpt-4o-mini)"]
+      VM -->|20%| Premium["internal-premium (gpt-4o)"]
+
+  features:
+    - name: gateway
+      config:
+        name: models-gateway
+        listeners:
+          - name: http
+            port: 8080
+            protocol: HTTP
+            allowedRoutes:
+              namespaces:
+                from: All
+              kinds:
+                - group: gateway.networking.k8s.io
+                  kind: HTTPRoute
+                - group: agentgateway.dev
+                  kind: AgentgatewayModel
+
+    - name: agentgateway-model
+      description: Two internal concrete targets plus a public virtual model with weighted routing
+      config:
+        sectionName: http
+        models:
+          - name: internal-fast
+            provider: openai
+            visibility: Internal
+            transformations:
+              - field: model
+                expression: '"gpt-4o-mini"'
+          - name: internal-premium
+            provider: openai
+            visibility: Internal
+            transformations:
+              - field: model
+                expression: '"gpt-4o"'
+          - name: balanced
+            virtualModel:
+              weighted:
+                targets:
+                  - name: internal-fast
+                    weight: 80
+                  - name: internal-premium
+                    weight: 20
+
+  tests:
+    - name: test-virtual-weighted-canary-routes-to-targets
+      description: Requests to the virtual model are served by one of the two weighted targets
+      steps:
+        - action: send-request
+          endpoint: /v1/chat/completions
+          model: balanced
+          prompt: 'What is 2+2?'
+        - action: verify
+          expect:
+            status: success
+            modelIn:
+              - gpt-4o-mini
+              - gpt-4o

@@ -1,0 +1,67 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: oauth-token-exchange
+  description: |
+    Exchange a caller's token for a new token against Keycloak's token endpoint (RFC 8693), natively in the agentgateway data plane - no STS/controller component involved. This is Impersonation (re-sign with the same identity, no `act` claim) done the proxy-native way, not through the legacy controller-side Security Token Service.
+
+    - `backend.auth.oauthTokenExchange` on the backend resolves the exchange against Keycloak's token endpoint
+    - Uses the `agw-token-exchange` confidential client, provisioned in the agw-dev realm by this profile with Standard Token Exchange enabled (`standard.token.exchange.enabled: true`, Keycloak 26.2+) - `export OAUTH_TOKEN_EXCHANGE_CLIENT_SECRET=agw-token-exchange-secret` (or the profile's own value, if changed) to run the live exchange
+    - Only the edge JWT check is automated below; the actual exchange call is verified manually
+    - Contrast with Delegation (fd-loan-rbac-jwt-propagation, workload-identity-chain): those flows carry an `act` claim identifying the delegating agent and require the caller to explicitly call the legacy controller-side STS up front. Impersonation is transparent to the caller and needs no STS - it just sends its own token and the proxy silently exchanges it at the IdP's own token endpoint.
+    - For exchanging against a *different* identity provider than the one that issued the caller's token (e.g. Microsoft Entra), see obo-entra-token-exchange, which uses the same `oauthTokenExchange` mechanism with `grantType: JwtBearer`
+  docs: https://docs.solo.io/agentgateway/latest/mcp/token-exchange/oauth/standard/
+
+spec:
+  diagram: |
+    sequenceDiagram
+      participant Client
+      participant AGW as agentgateway proxy
+      participant KC as Keycloak (validator + token endpoint)
+      participant MCP as MCP backend
+
+      Client->>AGW: Keycloak JWT
+      AGW->>KC: validate via JWKS (traffic.jwtAuthentication)
+      AGW->>KC: exchange (RFC 8693 subject_token) - backend.auth.oauthTokenExchange
+      KC-->>AGW: exchanged token
+      AGW->>MCP: forward with exchanged token substituted for Authorization
+
+  features:
+    - name: mcp-server
+      config:
+        serverName: oauth-token-exchange-server
+        protocol: StreamableHTTP
+        backendName: mcp-backend
+        routeName: mcp
+
+    - name: oauth-token-exchange
+      config:
+        targetRefs:
+          - group: gateway.networking.k8s.io
+            kind: HTTPRoute
+            name: mcp
+        jwtAuthentication:
+          issuer: '{{env.keycloak.scheme}}://{{env.domains.keycloak}}/realms/agw-dev'
+          jwks:
+            host: keycloak.keycloak.svc.cluster.local
+            port: 8080
+            path: realms/agw-dev/protocol/openid-connect/certs
+            tls: false
+        tokenEndpoint:
+          host: keycloak.keycloak.svc.cluster.local
+          port: 8080
+          path: /realms/agw-dev/protocol/openid-connect/token
+          tls: false
+        clientAuth:
+          clientId: agw-token-exchange
+
+  tests:
+    - name: unauthenticated-mcp-request-rejected
+      description: An MCP request without a token is rejected at the gateway edge, before any call to the token endpoint
+      steps:
+        - action: send-mcp-request
+          endpoint: /mcp
+          method: tools/list
+        - action: verify
+          expect:
+            statusCode: 401

@@ -1,0 +1,107 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: extmcp-pii-masking
+  description: |
+    Redacts emails, phone numbers, and other PII from an MCP tool's result before it reaches the caller, using an external policy server on the response path.
+  docs: https://docs.solo.io/agentgateway/2026.7.1/mcp/guardrails/setup/
+
+spec:
+  diagram: |
+    sequenceDiagram
+      participant Agent
+      participant AGW as agentgateway
+      participant Guard as ext-mcp-guardrail (gRPC)
+      participant Composed as composed "customer-lookup" tool
+      participant Stock as Stock MCP target
+      Agent->>AGW: MCP tools/call customer-lookup(symbol)
+      AGW->>Stock: get_stock_price(symbol)
+      Stock-->>AGW: price
+      AGW->>Composed: build result: price + synthetic PII string
+      AGW->>Guard: CheckResponse(result)
+      Guard-->>AGW: mutated (PII redacted)
+      AGW-->>Agent: redacted result
+  steps:
+    - title: Deploy the stock MCP server
+      description: Deploy the MCP stock server workload behind a static AgentgatewayBackend.
+      features:
+        - name: mcp-server
+          config:
+            deployServer: true
+            image: '{{env.images.stock-server-mcp}}'
+            serverName: stock-server-mcp
+            serverPort: 8000
+            servicePort: 80
+            protocol: StreamableHTTP
+            backendName: mcp-backend
+            targetName: mcp-target
+            routeName: mcp
+
+    - title: Compose a demo tool that embeds synthetic PII
+      description: |
+        Create an EnterpriseAgentgatewayBackend with a custom target that calls get_stock_price and appends a hardcoded, clearly-synthetic customer record so the masking hook below has real content to redact.
+      features:
+        - name: mcp-enterprise
+          config:
+            backendName: mcp-composable-backend
+            routeName: mcp-composable
+            pathPrefix: /mcp-composable
+            targets:
+              - name: customer-lookup
+                custom:
+                  description: |-
+                    Look up a stock price alongside the on-file customer contact for demo purposes.
+                  inputSchema:
+                    type: object
+                    additionalProperties: false
+                    required: [symbol]
+                    properties:
+                      symbol:
+                        type: string
+                        description: 'Stock ticker symbol, e.g. AAPL'
+                  steps:
+                    - name: price
+                      mcp:
+                        backendRef:
+                          group: enterpriseagentgateway.solo.io
+                          kind: EnterpriseAgentgatewayBackend
+                          name: mcp-backend
+                          target: mcp-target
+                        tool: get_stock_price
+                        arguments: '{"symbol": input.symbol}'
+                  output: |
+                    input.symbol + " price: " + string(output.price.result)
+                    + ". Customer on file: Jane Doe, email jane.doe@example.com, phone 555-123-4567."
+
+    - title: Deploy the ExtMCP guardrail server and mask PII in results
+      description: |
+        Deploy ext-mcp-guardrail and wire an EnterpriseAgentgatewayPolicy that routes tools/call results through its CheckResponse hook.
+      features:
+        - name: mcp-guardrails
+          config:
+            image: '{{env.images.ext-mcp-guardrail}}'
+            backendName: mcp-composable-backend
+            backendKind: EnterpriseAgentgatewayBackend
+            methods:
+              tools/call: Response
+            failureMode: FailClosed
+
+  tests:
+    - name: test-pii-masked-in-result
+      description: |
+        The synthetic email and phone in the composed tool's result are redacted. contains asserts the redaction markers are present (a real, hard failure if masking regresses); piiRedacted is a secondary soft check the test framework runs over the same response for any remaining PII pattern.
+      steps:
+        - action: send-mcp-request
+          endpoint: /mcp-composable
+          method: tools/call
+          params:
+            name: customer-lookup
+            arguments:
+              symbol: AAPL
+        - action: verify
+          expect:
+            status: success
+            contains:
+              - '[REDACTED_EMAIL]'
+              - '[REDACTED_PHONE]'
+            piiRedacted: true

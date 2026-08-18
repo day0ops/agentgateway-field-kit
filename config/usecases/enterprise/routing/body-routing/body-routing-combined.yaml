@@ -1,0 +1,127 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: body-routing-combined
+  description: |
+    Single /common endpoint routing across both chat and embeddings backends. The model field in the request body determines the backend — no path distinction required.
+
+    - google/gemini-2.5-flash → Vertex AI  (chat)
+    - llama3                  → Ollama     (chat)
+    - text-embedding-3-small  → OpenAI     (embeddings)
+    - bge-m3                  → Ollama     (embeddings)
+spec:
+  diagram: |
+    flowchart LR
+      Client -->|POST /common, model in body| AGW[agentgateway]
+      AGW -->|gemini-2.5-flash| Vertex[Vertex AI]
+      AGW -->|llama3| OllamaChat[Ollama chat]
+      AGW -->|text-embedding-3-small| OpenAI[OpenAI]
+      AGW -->|bge-m3| OllamaEmbed[Ollama embed]
+
+  features:
+    - name: providers
+      config:
+        pathPrefix: /common
+        bodyRouting: true
+        providers:
+          - name: vertex-ai
+            providerName: vertex-ai
+            model: google/gemini-2.5-flash
+            policies:
+              auth:
+                secretRef:
+                  name: vertex-ai-secret
+
+          - name: local-ollama-chat
+            providerName: openai-compatible
+            model: llama3
+            #host: host.minikube.internal
+            host: 192.168.162.8
+            port: 11434
+            path:
+              full: /v1/chat/completions
+
+          - name: openai-embeddings
+            providerName: openai
+            model: text-embedding-3-small
+            fallbackModel: text-embedding-3-large
+            pathRewrite: /v1/embeddings
+            policies:
+              auth:
+                secretRef:
+                  name: openai-secret
+              ai:
+                routes:
+                  '/v1/embeddings': Passthrough
+                  '*': Passthrough
+
+          - name: local-ollama-embeddings
+            providerName: openai-compatible
+            model: bge-m3
+            #host: host.minikube.internal
+            host: 192.168.162.8
+            port: 11434
+            fallbackModel: all-minilm
+            path:
+              full: /api/embed
+            policies:
+              ai:
+                routes:
+                  '/api/embed': Passthrough
+                  '*': Passthrough
+
+  tests:
+    - name: test-vertex-gemini-flash
+      description: POST /common with gemini-2.5-flash → Vertex AI
+      steps:
+        - action: send-request
+          endpoint: /common
+          model: google/gemini-2.5-flash
+          prompt: 'What is Kubernetes?'
+        - action: verify
+          expect:
+            status: success
+
+    - name: test-local-chat-ollama
+      description: POST /common with llama3 → local Ollama chat
+      steps:
+        - action: send-request
+          endpoint: /common
+          model: llama3
+          prompt: 'Say hello in one word.'
+        - action: verify
+          expect:
+            status: success
+
+    - name: test-openai-embedding
+      description: POST /common with text-embedding-3-small → OpenAI embeddings
+      steps:
+        - action: send-request
+          endpoint: /common
+          model: text-embedding-3-small
+          input: 'What is Kubernetes?'
+        - action: verify
+          expect:
+            status: success
+
+    - name: test-local-embedding-ollama
+      description: POST /common with bge-m3 → local Ollama embeddings
+      steps:
+        - action: send-request
+          endpoint: /common
+          model: bge-m3
+          input: 'Hello world'
+        - action: verify
+          expect:
+            status: success
+
+    - name: test-unknown-model
+      description: Unknown model → no matching route rule → 404
+      steps:
+        - action: send-request
+          endpoint: /common
+          model: unknown-model
+          prompt: 'Hello'
+        - action: verify
+          expect:
+            statusCode: 404

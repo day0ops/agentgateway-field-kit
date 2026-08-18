@@ -1,0 +1,2128 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [],
+  "panels": [
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 3,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1000,
+      "options": {
+        "content": "## Cost Estimation & Attribution\n\nEstimate LLM spending based on token usage and reference pricing. Track cost trends across models and providers for capacity planning and cost optimization.",
+        "mode": "markdown"
+      },
+      "title": "",
+      "type": "text",
+      "transparent": true
+    },
+    {
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 3
+      },
+      "id": 50,
+      "panels": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 6,
+            "x": 0,
+            "y": 4
+          },
+          "id": 51,
+          "options": {
+            "content": "### OpenAI\n| Model | Input | Output |\n|-------|-------|--------|\n| GPT-4o | $${openai_4o_in} | $${openai_4o_out} |\n| GPT-4o-mini | $${openai_mini_in} | $${openai_mini_out} |\n| o1 | $${openai_o1_in} | $${openai_o1_out} |",
+            "mode": "markdown"
+          },
+          "title": "",
+          "type": "text",
+          "transparent": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 6,
+            "x": 6,
+            "y": 4
+          },
+          "id": 52,
+          "options": {
+            "content": "### Anthropic\n| Model | Input | Output |\n|-------|-------|--------|\n| Claude Opus | $${claude_opus_in} | $${claude_opus_out} |\n| Claude Sonnet | $${claude_sonnet_in} | $${claude_sonnet_out} |\n| Claude Haiku | $${claude_haiku_in} | $${claude_haiku_out} |",
+            "mode": "markdown"
+          },
+          "title": "",
+          "type": "text",
+          "transparent": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 6,
+            "x": 12,
+            "y": 4
+          },
+          "id": 53,
+          "options": {
+            "content": "### Google\n| Model | Input | Output |\n|-------|-------|--------|\n| Gemini Pro | $${gemini_pro_in} | $${gemini_pro_out} |\n| Gemini Flash | $${gemini_flash_in} | $${gemini_flash_out} |",
+            "mode": "markdown"
+          },
+          "title": "",
+          "type": "text",
+          "transparent": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 6,
+            "x": 18,
+            "y": 4
+          },
+          "id": 54,
+          "options": {
+            "content": "### AWS Nova\n| Model | Input | Output |\n|-------|-------|--------|\n| Nova Micro | $${nova_micro_in} | $${nova_micro_out} |\n| Nova Lite | $${nova_lite_in} | $${nova_lite_out} |\n| Nova Pro | $${nova_pro_in} | $${nova_pro_out} |",
+            "mode": "markdown"
+          },
+          "title": "",
+          "type": "text",
+          "transparent": true
+        }
+      ],
+      "title": "Reference Pricing ($ per 1M tokens) - Used for Cost Estimation",
+      "type": "row"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 4
+      },
+      "id": 100,
+      "panels": [],
+      "title": "Aggregated Token Usage (24h)",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 2,
+        "w": 24,
+        "x": 0,
+        "y": 5
+      },
+      "id": 200,
+      "options": {
+        "content": "24-hour summary of token consumption and request volumes for cost tracking and capacity planning.",
+        "mode": "markdown"
+      },
+      "title": "",
+      "type": "text",
+      "transparent": true
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 10000
+              },
+              {
+                "color": "orange",
+                "value": 50000
+              },
+              {
+                "color": "red",
+                "value": 100000
+              }
+            ]
+          },
+          "decimals": 0,
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 0,
+        "y": 7
+      },
+      "id": 1,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "description": "Combined input and output tokens processed in the last 24 hours.",
+      "title": "Total Tokens (24h)",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "sum(increase(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gateway=~\"$gateway\"}[24h]))",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 5000
+              },
+              {
+                "color": "orange",
+                "value": 25000
+              },
+              {
+                "color": "red",
+                "value": 50000
+              }
+            ]
+          },
+          "decimals": 0,
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 6,
+        "y": 7
+      },
+      "id": 2,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "description": "Tokens sent to LLM providers (prompts, context) in the last 24 hours.",
+      "title": "Input Tokens (24h)",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "sum(increase(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gateway=~\"$gateway\", gen_ai_token_type=\"input\"}[24h]))",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 5000
+              },
+              {
+                "color": "orange",
+                "value": 25000
+              },
+              {
+                "color": "red",
+                "value": 50000
+              }
+            ]
+          },
+          "decimals": 0,
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 12,
+        "y": 7
+      },
+      "id": 3,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "description": "Tokens received from LLM providers (responses) in the last 24 hours.",
+      "title": "Output Tokens (24h)",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "sum(increase(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gateway=~\"$gateway\", gen_ai_token_type=\"output\"}[24h]))",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 100
+              },
+              {
+                "color": "orange",
+                "value": 500
+              },
+              {
+                "color": "red",
+                "value": 1000
+              }
+            ]
+          },
+          "decimals": 0,
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 18,
+        "y": 7
+      },
+      "id": 4,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "description": "Total API calls made to LLM providers in the last 24 hours.",
+      "title": "Total Requests (24h)",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "sum(increase(agentgateway_requests_total{namespace=~\"$namespace\", gateway=~\"$gateway\"}[24h]))",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 12
+      },
+      "id": 500,
+      "panels": [],
+      "title": "Cost Estimation",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 6,
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 10
+              }
+            ]
+          },
+          "unit": "currencyUSD"
+        }
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 13
+      },
+      "id": 501,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "description": "Current cost rate based on token throughput and model pricing.",
+      "title": "Cost Rate ($/hour)",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "(\n  (sum(rate(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gen_ai_token_type=\"input\", gen_ai_request_model=~\"gpt-4o\"}[$__rate_interval])) or vector(0)) * $openai_4o_in +\n  (sum(rate(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gen_ai_token_type=\"output\", gen_ai_request_model=~\"gpt-4o\"}[$__rate_interval])) or vector(0)) * $openai_4o_out +\n  (sum(rate(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gen_ai_token_type=\"input\", gen_ai_request_model=~\"gpt-4o-mini\"}[$__rate_interval])) or vector(0)) * $openai_mini_in +\n  (sum(rate(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gen_ai_token_type=\"output\", gen_ai_request_model=~\"gpt-4o-mini\"}[$__rate_interval])) or vector(0)) * $openai_mini_out +\n  (sum(rate(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gen_ai_token_type=\"input\", gen_ai_request_model=~\"o1.*\"}[$__rate_interval])) or vector(0)) * $openai_o1_in +\n  (sum(rate(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gen_ai_token_type=\"output\", gen_ai_request_model=~\"o1.*\"}[$__rate_interval])) or vector(0)) * $openai_o1_out +\n  (sum(rate(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gen_ai_token_type=\"input\", gen_ai_request_model=~\"claude.*opus.*\"}[$__rate_interval])) or vector(0)) * $claude_opus_in +\n  (sum(rate(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gen_ai_token_type=\"output\", gen_ai_request_model=~\"claude.*opus.*\"}[$__rate_interval])) or vector(0)) * $claude_opus_out +\n  (sum(rate(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gen_ai_token_type=\"input\", gen_ai_request_model=~\"claude.*sonnet.*\"}[$__rate_interval])) or vector(0)) * $claude_sonnet_in +\n  (sum(rate(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gen_ai_token_type=\"output\", gen_ai_request_model=~\"claude.*sonnet.*\"}[$__rate_interval])) or vector(0)) * $claude_sonnet_out +\n  (sum(rate(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gen_ai_token_type=\"input\", gen_ai_request_model=~\"claude.*haiku.*\"}[$__rate_interval])) or vector(0)) * $claude_haiku_in +\n  (sum(rate(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gen_ai_token_type=\"output\", gen_ai_request_model=~\"claude.*haiku.*\"}[$__rate_interval])) or vector(0)) * $claude_haiku_out +\n  (sum(rate(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gen_ai_token_type=\"input\", gen_ai_request_model=~\"gemini.*pro.*\"}[$__rate_interval])) or vector(0)) * $gemini_pro_in +\n  (sum(rate(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gen_ai_token_type=\"output\", gen_ai_request_model=~\"gemini.*pro.*\"}[$__rate_interval])) or vector(0)) * $gemini_pro_out +\n  (sum(rate(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gen_ai_token_type=\"input\", gen_ai_request_model=~\"gemini.*flash.*\"}[$__rate_interval])) or vector(0)) * $gemini_flash_in +\n  (sum(rate(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gen_ai_token_type=\"output\", gen_ai_request_model=~\"gemini.*flash.*\"}[$__rate_interval])) or vector(0)) * $gemini_flash_out\n) / 1000000 * 3600",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 6,
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 10
+              },
+              {
+                "color": "red",
+                "value": 100
+              }
+            ]
+          },
+          "unit": "currencyUSD"
+        }
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 13
+      },
+      "id": 502,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "description": "Estimated total cost for the last 24 hours based on reference pricing.",
+      "title": "Cost (Last 24h)",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "(\n  (sum(increase(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gen_ai_token_type=\"input\", gen_ai_request_model=~\"gpt-4o\"}[24h])) or vector(0)) * $openai_4o_in +\n  (sum(increase(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gen_ai_token_type=\"output\", gen_ai_request_model=~\"gpt-4o\"}[24h])) or vector(0)) * $openai_4o_out +\n  (sum(increase(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gen_ai_token_type=\"input\", gen_ai_request_model=~\"gpt-4o-mini\"}[24h])) or vector(0)) * $openai_mini_in +\n  (sum(increase(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gen_ai_token_type=\"output\", gen_ai_request_model=~\"gpt-4o-mini\"}[24h])) or vector(0)) * $openai_mini_out +\n  (sum(increase(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gen_ai_token_type=\"input\", gen_ai_request_model=~\"o1.*\"}[24h])) or vector(0)) * $openai_o1_in +\n  (sum(increase(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gen_ai_token_type=\"output\", gen_ai_request_model=~\"o1.*\"}[24h])) or vector(0)) * $openai_o1_out +\n  (sum(increase(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gen_ai_token_type=\"input\", gen_ai_request_model=~\"claude.*opus.*\"}[24h])) or vector(0)) * $claude_opus_in +\n  (sum(increase(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gen_ai_token_type=\"output\", gen_ai_request_model=~\"claude.*opus.*\"}[24h])) or vector(0)) * $claude_opus_out +\n  (sum(increase(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gen_ai_token_type=\"input\", gen_ai_request_model=~\"claude.*sonnet.*\"}[24h])) or vector(0)) * $claude_sonnet_in +\n  (sum(increase(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gen_ai_token_type=\"output\", gen_ai_request_model=~\"claude.*sonnet.*\"}[24h])) or vector(0)) * $claude_sonnet_out +\n  (sum(increase(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gen_ai_token_type=\"input\", gen_ai_request_model=~\"claude.*haiku.*\"}[24h])) or vector(0)) * $claude_haiku_in +\n  (sum(increase(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gen_ai_token_type=\"output\", gen_ai_request_model=~\"claude.*haiku.*\"}[24h])) or vector(0)) * $claude_haiku_out +\n  (sum(increase(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gen_ai_token_type=\"input\", gen_ai_request_model=~\"gemini.*pro.*\"}[24h])) or vector(0)) * $gemini_pro_in +\n  (sum(increase(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gen_ai_token_type=\"output\", gen_ai_request_model=~\"gemini.*pro.*\"}[24h])) or vector(0)) * $gemini_pro_out +\n  (sum(increase(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gen_ai_token_type=\"input\", gen_ai_request_model=~\"gemini.*flash.*\"}[24h])) or vector(0)) * $gemini_flash_in +\n  (sum(increase(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gen_ai_token_type=\"output\", gen_ai_request_model=~\"gemini.*flash.*\"}[24h])) or vector(0)) * $gemini_flash_out\n) / 1000000",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 6,
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 500
+              },
+              {
+                "color": "red",
+                "value": 2000
+              }
+            ]
+          },
+          "unit": "currencyUSD"
+        }
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 13
+      },
+      "id": 503,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "description": "Projected monthly cost if current usage rate continues.",
+      "title": "Projected Monthly",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "(\n  (sum(rate(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gen_ai_token_type=\"input\", gen_ai_request_model=~\"gpt-4o\"}[24h])) or vector(0)) * $openai_4o_in +\n  (sum(rate(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gen_ai_token_type=\"output\", gen_ai_request_model=~\"gpt-4o\"}[24h])) or vector(0)) * $openai_4o_out +\n  (sum(rate(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gen_ai_token_type=\"input\", gen_ai_request_model=~\"gpt-4o-mini\"}[24h])) or vector(0)) * $openai_mini_in +\n  (sum(rate(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gen_ai_token_type=\"output\", gen_ai_request_model=~\"gpt-4o-mini\"}[24h])) or vector(0)) * $openai_mini_out +\n  (sum(rate(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gen_ai_token_type=\"input\", gen_ai_request_model=~\"o1.*\"}[24h])) or vector(0)) * $openai_o1_in +\n  (sum(rate(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gen_ai_token_type=\"output\", gen_ai_request_model=~\"o1.*\"}[24h])) or vector(0)) * $openai_o1_out +\n  (sum(rate(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gen_ai_token_type=\"input\", gen_ai_request_model=~\"claude.*opus.*\"}[24h])) or vector(0)) * $claude_opus_in +\n  (sum(rate(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gen_ai_token_type=\"output\", gen_ai_request_model=~\"claude.*opus.*\"}[24h])) or vector(0)) * $claude_opus_out +\n  (sum(rate(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gen_ai_token_type=\"input\", gen_ai_request_model=~\"claude.*sonnet.*\"}[24h])) or vector(0)) * $claude_sonnet_in +\n  (sum(rate(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gen_ai_token_type=\"output\", gen_ai_request_model=~\"claude.*sonnet.*\"}[24h])) or vector(0)) * $claude_sonnet_out +\n  (sum(rate(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gen_ai_token_type=\"input\", gen_ai_request_model=~\"claude.*haiku.*\"}[24h])) or vector(0)) * $claude_haiku_in +\n  (sum(rate(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gen_ai_token_type=\"output\", gen_ai_request_model=~\"claude.*haiku.*\"}[24h])) or vector(0)) * $claude_haiku_out +\n  (sum(rate(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gen_ai_token_type=\"input\", gen_ai_request_model=~\"gemini.*pro.*\"}[24h])) or vector(0)) * $gemini_pro_in +\n  (sum(rate(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gen_ai_token_type=\"output\", gen_ai_request_model=~\"gemini.*pro.*\"}[24h])) or vector(0)) * $gemini_pro_out +\n  (sum(rate(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gen_ai_token_type=\"input\", gen_ai_request_model=~\"gemini.*flash.*\"}[24h])) or vector(0)) * $gemini_flash_in +\n  (sum(rate(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gen_ai_token_type=\"output\", gen_ai_request_model=~\"gemini.*flash.*\"}[24h])) or vector(0)) * $gemini_flash_out\n) / 1000000 * 3600 * 24 * 30",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 4,
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "unit": "currencyUSD"
+        }
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 13
+      },
+      "id": 504,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "description": "Average cost per API request based on token usage and reference pricing. Shows the mean cost across all models.",
+      "title": "Avg Cost/Request",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "(\n  (sum(increase(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gen_ai_token_type=\"input\"}[1h])) or vector(0)) * 3 +\n  (sum(increase(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gen_ai_token_type=\"output\"}[1h])) or vector(0)) * 15\n) / 1000000 / clamp_min(sum(increase(agentgateway_requests_total{namespace=~\"$namespace\"}[1h])) or vector(0), 1)",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "showPoints": "never",
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            }
+          },
+          "unit": "currencyUSD",
+          "decimals": 6
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 17
+      },
+      "id": 505,
+      "options": {
+        "legend": {
+          "calcs": ["sum"],
+          "displayMode": "table",
+          "placement": "right"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "description": "Estimated hourly cost breakdown by model based on reference pricing.",
+      "title": "Cost by Model ($/hour)",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "((sum(rate(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gen_ai_token_type=\"input\", gen_ai_request_model=~\"gpt-4o\"}[$__rate_interval])) or vector(0)) * $openai_4o_in + (sum(rate(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gen_ai_token_type=\"output\", gen_ai_request_model=~\"gpt-4o\"}[$__rate_interval])) or vector(0)) * $openai_4o_out) / 1000000 * 3600",
+          "legendFormat": "GPT-4o",
+          "refId": "A"
+        },
+        {
+          "expr": "((sum(rate(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gen_ai_token_type=\"input\", gen_ai_request_model=~\"gpt-4o-mini\"}[$__rate_interval])) or vector(0)) * $openai_mini_in + (sum(rate(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gen_ai_token_type=\"output\", gen_ai_request_model=~\"gpt-4o-mini\"}[$__rate_interval])) or vector(0)) * $openai_mini_out) / 1000000 * 3600",
+          "legendFormat": "GPT-4o-mini",
+          "refId": "B"
+        },
+        {
+          "expr": "((sum(rate(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gen_ai_token_type=\"input\", gen_ai_request_model=~\"o1.*\"}[$__rate_interval])) or vector(0)) * $openai_o1_in + (sum(rate(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gen_ai_token_type=\"output\", gen_ai_request_model=~\"o1.*\"}[$__rate_interval])) or vector(0)) * $openai_o1_out) / 1000000 * 3600",
+          "legendFormat": "o1",
+          "refId": "C"
+        },
+        {
+          "expr": "((sum(rate(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gen_ai_token_type=\"input\", gen_ai_request_model=~\"claude.*opus.*\"}[$__rate_interval])) or vector(0)) * $claude_opus_in + (sum(rate(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gen_ai_token_type=\"output\", gen_ai_request_model=~\"claude.*opus.*\"}[$__rate_interval])) or vector(0)) * $claude_opus_out) / 1000000 * 3600",
+          "legendFormat": "Claude Opus",
+          "refId": "D"
+        },
+        {
+          "expr": "((sum(rate(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gen_ai_token_type=\"input\", gen_ai_request_model=~\"claude.*sonnet.*\"}[$__rate_interval])) or vector(0)) * $claude_sonnet_in + (sum(rate(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gen_ai_token_type=\"output\", gen_ai_request_model=~\"claude.*sonnet.*\"}[$__rate_interval])) or vector(0)) * $claude_sonnet_out) / 1000000 * 3600",
+          "legendFormat": "Claude Sonnet",
+          "refId": "E"
+        },
+        {
+          "expr": "((sum(rate(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gen_ai_token_type=\"input\", gen_ai_request_model=~\"claude.*haiku.*\"}[$__rate_interval])) or vector(0)) * $claude_haiku_in + (sum(rate(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gen_ai_token_type=\"output\", gen_ai_request_model=~\"claude.*haiku.*\"}[$__rate_interval])) or vector(0)) * $claude_haiku_out) / 1000000 * 3600",
+          "legendFormat": "Claude Haiku",
+          "refId": "F"
+        },
+        {
+          "expr": "((sum(rate(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gen_ai_token_type=\"input\", gen_ai_request_model=~\"gemini.*pro.*\"}[$__rate_interval])) or vector(0)) * $gemini_pro_in + (sum(rate(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gen_ai_token_type=\"output\", gen_ai_request_model=~\"gemini.*pro.*\"}[$__rate_interval])) or vector(0)) * $gemini_pro_out) / 1000000 * 3600",
+          "legendFormat": "Gemini Pro",
+          "refId": "G"
+        },
+        {
+          "expr": "((sum(rate(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gen_ai_token_type=\"input\", gen_ai_request_model=~\"gemini.*flash.*\"}[$__rate_interval])) or vector(0)) * $gemini_flash_in + (sum(rate(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gen_ai_token_type=\"output\", gen_ai_request_model=~\"gemini.*flash.*\"}[$__rate_interval])) or vector(0)) * $gemini_flash_out) / 1000000 * 3600",
+          "legendFormat": "Gemini Flash",
+          "refId": "H"
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 25
+      },
+      "id": 101,
+      "panels": [],
+      "title": "Token Usage Trends",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "drawStyle": "line",
+            "fillOpacity": 20,
+            "gradientMode": "opacity",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "showPoints": "never",
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            }
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 26
+      },
+      "id": 10,
+      "options": {
+        "legend": {
+          "calcs": ["sum", "mean"],
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "description": "Token consumption rate broken down by LLM model.",
+      "title": "Token Usage by Model",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum by (gen_ai_request_model) (rate(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gateway=~\"$gateway\"}[5m]))",
+          "legendFormat": "{{gen_ai_request_model}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "drawStyle": "line",
+            "fillOpacity": 20,
+            "gradientMode": "opacity",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "showPoints": "never",
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            }
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 26
+      },
+      "id": 11,
+      "options": {
+        "legend": {
+          "calcs": ["sum", "mean"],
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "description": "Token usage split by input (prompts) vs output (responses).",
+      "title": "Token Usage by Type",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum by (gen_ai_token_type) (rate(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gateway=~\"$gateway\"}[5m]))",
+          "legendFormat": "{{gen_ai_token_type}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 34
+      },
+      "id": 102,
+      "panels": [],
+      "title": "Usage by Provider",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "showPoints": "never",
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            }
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 35
+      },
+      "id": 20,
+      "options": {
+        "legend": {
+          "calcs": ["sum"],
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "description": "Number of API calls made to each provider. Each request counts as 1, regardless of token usage. Useful for understanding API call volume and rate limiting.",
+      "title": "Requests by Provider",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum by (provider) (label_replace(rate(agentgateway_requests_total{namespace=~\"$namespace\", gateway=~\"$gateway\", backend!=\"unknown\", backend!=\"\"}[5m]), \"provider\", \"$1\", \"backend\", \".*/(.+)\"))",
+          "legendFormat": "{{provider}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "showPoints": "never",
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            }
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 35
+      },
+      "id": 21,
+      "options": {
+        "legend": {
+          "calcs": ["sum"],
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "description": "Total tokens (input + output) processed by each provider. Token usage directly correlates to cost - a single request can use anywhere from 100 to 100,000+ tokens depending on prompt and response length.",
+      "title": "Tokens by Provider",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum by (gen_ai_system) (rate(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gateway=~\"$gateway\"}[5m]))",
+          "legendFormat": "{{gen_ai_system}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 43
+      },
+      "id": 110,
+      "panels": [],
+      "title": "Model Efficiency",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 2,
+        "w": 24,
+        "x": 0,
+        "y": 44
+      },
+      "id": 1101,
+      "options": {
+        "content": "Compare model performance: latency percentiles, token consumption per request, and input/output ratios to identify cost-efficient models.",
+        "mode": "markdown"
+      },
+      "title": "",
+      "type": "text",
+      "transparent": true
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "showPoints": "never",
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "unit": "s"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 46
+      },
+      "id": 111,
+      "options": {
+        "legend": {
+          "calcs": ["mean", "max"],
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "description": "Response latency percentiles by model. Higher latency models may also be more expensive due to longer processing.",
+      "title": "Latency by Model (p50/p95/p99)",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum by (le, gen_ai_request_model) (rate(agentgateway_gen_ai_server_request_duration_bucket{namespace=~\"$namespace\", gateway=~\"$gateway\"}[$__rate_interval])))",
+          "legendFormat": "p50 {{gen_ai_request_model}}",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, gen_ai_request_model) (rate(agentgateway_gen_ai_server_request_duration_bucket{namespace=~\"$namespace\", gateway=~\"$gateway\"}[$__rate_interval])))",
+          "legendFormat": "p95 {{gen_ai_request_model}}",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum by (le, gen_ai_request_model) (rate(agentgateway_gen_ai_server_request_duration_bucket{namespace=~\"$namespace\", gateway=~\"$gateway\"}[$__rate_interval])))",
+          "legendFormat": "p99 {{gen_ai_request_model}}",
+          "refId": "C"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "showPoints": "never",
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "decimals": 0,
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 46
+      },
+      "id": 112,
+      "options": {
+        "legend": {
+          "calcs": ["mean"],
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "description": "Average tokens consumed per request by model. Higher values indicate more expensive requests.",
+      "title": "Tokens per Request by Model",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum by (gen_ai_request_model) (rate(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gateway=~\"$gateway\"}[$__rate_interval])) / sum by (gen_ai_request_model) (rate(agentgateway_gen_ai_client_token_usage_count{namespace=~\"$namespace\", gateway=~\"$gateway\"}[$__rate_interval]))",
+          "legendFormat": "{{gen_ai_request_model}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "showPoints": "never",
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "decimals": 2,
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 54
+      },
+      "id": 113,
+      "options": {
+        "legend": {
+          "calcs": ["mean"],
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "description": "Ratio of input to output tokens by model. High ratio = verbose prompts with short responses. Low ratio = concise prompts with long responses.",
+      "title": "Input/Output Ratio by Model",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum by (gen_ai_request_model) (rate(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gateway=~\"$gateway\", gen_ai_token_type=\"input\"}[$__rate_interval])) / clamp_min(sum by (gen_ai_request_model) (rate(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gateway=~\"$gateway\", gen_ai_token_type=\"output\"}[$__rate_interval])), 0.001)",
+          "legendFormat": "{{gen_ai_request_model}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 62
+      },
+      "id": 120,
+      "panels": [],
+      "title": "Cost Attribution",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 2,
+        "w": 24,
+        "x": 0,
+        "y": 63
+      },
+      "id": 1201,
+      "options": {
+        "content": "Attribute token consumption to specific routes and operations to identify high-cost areas.",
+        "mode": "markdown"
+      },
+      "title": "",
+      "type": "text",
+      "transparent": true
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "showPoints": "never",
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            }
+          },
+          "decimals": 0,
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 65
+      },
+      "id": 121,
+      "options": {
+        "legend": {
+          "calcs": ["sum"],
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "description": "Token consumption by API route. Identifies which routes are consuming the most tokens.",
+      "title": "Tokens by Route",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum by (route) (rate(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gateway=~\"$gateway\", route!=\"\"}[$__rate_interval]))",
+          "legendFormat": "{{route}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "showPoints": "never",
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            }
+          },
+          "decimals": 0,
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 65
+      },
+      "id": 122,
+      "options": {
+        "legend": {
+          "calcs": ["sum"],
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "description": "Token consumption by operation type (e.g., chat, completion, embedding).",
+      "title": "Tokens by Operation",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum by (gen_ai_operation_name) (rate(agentgateway_gen_ai_client_token_usage_sum{namespace=~\"$namespace\", gateway=~\"$gateway\", gen_ai_operation_name!=\"\"}[$__rate_interval]))",
+          "legendFormat": "{{gen_ai_operation_name}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 73
+      },
+      "id": 130,
+      "panels": [],
+      "title": "Token Analysis",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 2,
+        "w": 24,
+        "x": 0,
+        "y": 74
+      },
+      "id": 1301,
+      "options": {
+        "content": "Analyze token distribution patterns and detect model mismatches between requested and actual models used.",
+        "mode": "markdown"
+      },
+      "title": "",
+      "type": "text",
+      "transparent": true
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "showPoints": "never",
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "decimals": 0,
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 76
+      },
+      "id": 131,
+      "options": {
+        "legend": {
+          "calcs": ["mean"],
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "description": "Token count distribution percentiles. Shows typical (p50), high (p90), and extreme (p99) token usage per request.",
+      "title": "Token Size Distribution (Percentiles)",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(agentgateway_gen_ai_client_token_usage_bucket{namespace=~\"$namespace\", gateway=~\"$gateway\"}[$__rate_interval])))",
+          "legendFormat": "p50 (typical)",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.90, sum by (le) (rate(agentgateway_gen_ai_client_token_usage_bucket{namespace=~\"$namespace\", gateway=~\"$gateway\"}[$__rate_interval])))",
+          "legendFormat": "p90 (high)",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(agentgateway_gen_ai_client_token_usage_bucket{namespace=~\"$namespace\", gateway=~\"$gateway\"}[$__rate_interval])))",
+          "legendFormat": "p99 (extreme)",
+          "refId": "C"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Mismatch %"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "mode": "gradient",
+                  "type": "gauge"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 5
+                    },
+                    {
+                      "color": "red",
+                      "value": 20
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "max",
+                "value": 100
+              },
+              {
+                "id": "unit",
+                "value": "percent"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Requests"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 76
+      },
+      "id": 132,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": ["sum"],
+          "show": false
+        },
+        "showHeader": true
+      },
+      "description": "Compares requested model vs actual response model. High mismatch may indicate model fallbacks or routing issues.",
+      "title": "Model Mismatch Analysis",
+      "type": "table",
+      "targets": [
+        {
+          "expr": "sum by (gen_ai_request_model, gen_ai_response_model) (increase(agentgateway_gen_ai_client_token_usage_count{namespace=~\"$namespace\", gateway=~\"$gateway\"}[1h]))",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "indexByName": {
+              "gen_ai_request_model": 0,
+              "gen_ai_response_model": 1,
+              "Value": 2
+            },
+            "renameByName": {
+              "Value": "Requests",
+              "gen_ai_request_model": "Requested Model",
+              "gen_ai_response_model": "Response Model"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": {},
+            "sort": [
+              {
+                "desc": true,
+                "field": "Requests"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 84
+      },
+      "id": 103,
+      "panels": [],
+      "title": "Token-based Rate Limiting",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 2,
+        "w": 24,
+        "x": 0,
+        "y": 85
+      },
+      "id": 1031,
+      "options": {
+        "content": "Track throttled requests and rate limit utilization for cost control.",
+        "mode": "markdown"
+      },
+      "title": "",
+      "type": "text",
+      "transparent": true
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "showPoints": "never",
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 87
+      },
+      "id": 30,
+      "options": {
+        "legend": {
+          "calcs": ["sum"],
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "description": "Failed requests (4xx/5xx) with status code and reason. DirectResponse means blocked at gateway, ResponseComplete means backend returned the error.",
+      "title": "Failed Requests",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum by (status, reason) (rate(agentgateway_requests_total{namespace=~\"$namespace\", gateway=~\"$gateway\", status=~\"4..|5..\"}[5m])) > 0",
+          "legendFormat": "{{status}} - {{reason}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "percentage",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 50
+              },
+              {
+                "color": "orange",
+                "value": 75
+              },
+              {
+                "color": "red",
+                "value": 90
+              }
+            ]
+          },
+          "max": 100,
+          "min": 0,
+          "unit": "percent"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 87
+      },
+      "id": 31,
+      "options": {
+        "minVizHeight": 75,
+        "minVizWidth": 75,
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true,
+        "sizing": "auto"
+      },
+      "description": "Percentage of rate limit capacity currently in use.",
+      "title": "Rate Limit Utilization",
+      "type": "gauge",
+      "targets": [
+        {
+          "expr": "100 * sum(rate(agentgateway_requests_total{namespace=~\"$namespace\", gateway=~\"$gateway\", status=\"429\"}[5m])) / sum(rate(agentgateway_requests_total{namespace=~\"$namespace\", gateway=~\"$gateway\"}[5m]))",
+          "refId": "A"
+        }
+      ]
+    }
+  ],
+  "refresh": "5s",
+  "schemaVersion": 39,
+  "tags": ["agentgateway", "cost", "estimation"],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "label_values(agentgateway_requests_total, namespace)",
+        "includeAll": true,
+        "multi": true,
+        "name": "namespace",
+        "query": "label_values(agentgateway_requests_total, namespace)",
+        "refresh": 2,
+        "type": "query"
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "label_values(agentgateway_requests_total{namespace=~\"$namespace\"}, gateway)",
+        "includeAll": true,
+        "multi": true,
+        "name": "gateway",
+        "query": "label_values(agentgateway_requests_total{namespace=~\"$namespace\"}, gateway)",
+        "refresh": 2,
+        "type": "query"
+      },
+      {
+        "current": { "text": "2.50", "value": "2.50" },
+        "description": "GPT-4o input price per 1M tokens",
+        "hide": 2,
+        "label": "4o In",
+        "name": "openai_4o_in",
+        "options": [
+          { "selected": false, "text": "1.50", "value": "1.50" },
+          { "selected": true, "text": "2.50", "value": "2.50" },
+          { "selected": false, "text": "3.50", "value": "3.50" },
+          { "selected": false, "text": "5.00", "value": "5.00" }
+        ],
+        "query": "1.50,2.50,3.50,5.00",
+        "type": "custom"
+      },
+      {
+        "current": { "text": "10.00", "value": "10.00" },
+        "description": "GPT-4o output price per 1M tokens",
+        "hide": 2,
+        "label": "4o Out",
+        "name": "openai_4o_out",
+        "options": [
+          { "selected": false, "text": "7.50", "value": "7.50" },
+          { "selected": true, "text": "10.00", "value": "10.00" },
+          { "selected": false, "text": "15.00", "value": "15.00" }
+        ],
+        "query": "7.50,10.00,15.00",
+        "type": "custom"
+      },
+      {
+        "current": { "text": "0.15", "value": "0.15" },
+        "description": "GPT-4o-mini input price per 1M tokens",
+        "hide": 2,
+        "label": "mini In",
+        "name": "openai_mini_in",
+        "options": [
+          { "selected": false, "text": "0.10", "value": "0.10" },
+          { "selected": true, "text": "0.15", "value": "0.15" },
+          { "selected": false, "text": "0.25", "value": "0.25" }
+        ],
+        "query": "0.10,0.15,0.25",
+        "type": "custom"
+      },
+      {
+        "current": { "text": "0.60", "value": "0.60" },
+        "description": "GPT-4o-mini output price per 1M tokens",
+        "hide": 2,
+        "label": "mini Out",
+        "name": "openai_mini_out",
+        "options": [
+          { "selected": false, "text": "0.40", "value": "0.40" },
+          { "selected": true, "text": "0.60", "value": "0.60" },
+          { "selected": false, "text": "1.00", "value": "1.00" }
+        ],
+        "query": "0.40,0.60,1.00",
+        "type": "custom"
+      },
+      {
+        "current": { "text": "15.00", "value": "15.00" },
+        "description": "o1 input price per 1M tokens",
+        "hide": 2,
+        "label": "o1 In",
+        "name": "openai_o1_in",
+        "options": [
+          { "selected": false, "text": "10.00", "value": "10.00" },
+          { "selected": true, "text": "15.00", "value": "15.00" },
+          { "selected": false, "text": "20.00", "value": "20.00" }
+        ],
+        "query": "10.00,15.00,20.00",
+        "type": "custom"
+      },
+      {
+        "current": { "text": "60.00", "value": "60.00" },
+        "description": "o1 output price per 1M tokens",
+        "hide": 2,
+        "label": "o1 Out",
+        "name": "openai_o1_out",
+        "options": [
+          { "selected": false, "text": "40.00", "value": "40.00" },
+          { "selected": true, "text": "60.00", "value": "60.00" },
+          { "selected": false, "text": "80.00", "value": "80.00" }
+        ],
+        "query": "40.00,60.00,80.00",
+        "type": "custom"
+      },
+      {
+        "current": { "text": "15.00", "value": "15.00" },
+        "description": "Claude Opus input price per 1M tokens",
+        "hide": 2,
+        "label": "Opus In",
+        "name": "claude_opus_in",
+        "options": [
+          { "selected": false, "text": "10.00", "value": "10.00" },
+          { "selected": true, "text": "15.00", "value": "15.00" },
+          { "selected": false, "text": "20.00", "value": "20.00" }
+        ],
+        "query": "10.00,15.00,20.00",
+        "type": "custom"
+      },
+      {
+        "current": { "text": "75.00", "value": "75.00" },
+        "description": "Claude Opus output price per 1M tokens",
+        "hide": 2,
+        "label": "Opus Out",
+        "name": "claude_opus_out",
+        "options": [
+          { "selected": false, "text": "50.00", "value": "50.00" },
+          { "selected": true, "text": "75.00", "value": "75.00" },
+          { "selected": false, "text": "100.00", "value": "100.00" }
+        ],
+        "query": "50.00,75.00,100.00",
+        "type": "custom"
+      },
+      {
+        "current": { "text": "3.00", "value": "3.00" },
+        "description": "Claude Sonnet input price per 1M tokens",
+        "hide": 2,
+        "label": "Sonnet In",
+        "name": "claude_sonnet_in",
+        "options": [
+          { "selected": false, "text": "2.00", "value": "2.00" },
+          { "selected": true, "text": "3.00", "value": "3.00" },
+          { "selected": false, "text": "5.00", "value": "5.00" }
+        ],
+        "query": "2.00,3.00,5.00",
+        "type": "custom"
+      },
+      {
+        "current": { "text": "15.00", "value": "15.00" },
+        "description": "Claude Sonnet output price per 1M tokens",
+        "hide": 2,
+        "label": "Sonnet Out",
+        "name": "claude_sonnet_out",
+        "options": [
+          { "selected": false, "text": "10.00", "value": "10.00" },
+          { "selected": true, "text": "15.00", "value": "15.00" },
+          { "selected": false, "text": "20.00", "value": "20.00" }
+        ],
+        "query": "10.00,15.00,20.00",
+        "type": "custom"
+      },
+      {
+        "current": { "text": "0.80", "value": "0.80" },
+        "description": "Claude Haiku input price per 1M tokens",
+        "hide": 2,
+        "label": "Haiku In",
+        "name": "claude_haiku_in",
+        "options": [
+          { "selected": false, "text": "0.50", "value": "0.50" },
+          { "selected": true, "text": "0.80", "value": "0.80" },
+          { "selected": false, "text": "1.00", "value": "1.00" }
+        ],
+        "query": "0.50,0.80,1.00",
+        "type": "custom"
+      },
+      {
+        "current": { "text": "4.00", "value": "4.00" },
+        "description": "Claude Haiku output price per 1M tokens",
+        "hide": 2,
+        "label": "Haiku Out",
+        "name": "claude_haiku_out",
+        "options": [
+          { "selected": false, "text": "2.00", "value": "2.00" },
+          { "selected": true, "text": "4.00", "value": "4.00" },
+          { "selected": false, "text": "5.00", "value": "5.00" }
+        ],
+        "query": "2.00,4.00,5.00",
+        "type": "custom"
+      },
+      {
+        "current": { "text": "1.25", "value": "1.25" },
+        "description": "Gemini Pro input price per 1M tokens",
+        "hide": 2,
+        "label": "Pro In",
+        "name": "gemini_pro_in",
+        "options": [
+          { "selected": false, "text": "0.75", "value": "0.75" },
+          { "selected": true, "text": "1.25", "value": "1.25" },
+          { "selected": false, "text": "2.00", "value": "2.00" }
+        ],
+        "query": "0.75,1.25,2.00",
+        "type": "custom"
+      },
+      {
+        "current": { "text": "5.00", "value": "5.00" },
+        "description": "Gemini Pro output price per 1M tokens",
+        "hide": 2,
+        "label": "Pro Out",
+        "name": "gemini_pro_out",
+        "options": [
+          { "selected": false, "text": "3.00", "value": "3.00" },
+          { "selected": true, "text": "5.00", "value": "5.00" },
+          { "selected": false, "text": "7.50", "value": "7.50" }
+        ],
+        "query": "3.00,5.00,7.50",
+        "type": "custom"
+      },
+      {
+        "current": { "text": "0.075", "value": "0.075" },
+        "description": "Gemini Flash input price per 1M tokens",
+        "hide": 2,
+        "label": "Flash In",
+        "name": "gemini_flash_in",
+        "options": [
+          { "selected": false, "text": "0.05", "value": "0.05" },
+          { "selected": true, "text": "0.075", "value": "0.075" },
+          { "selected": false, "text": "0.10", "value": "0.10" }
+        ],
+        "query": "0.05,0.075,0.10",
+        "type": "custom"
+      },
+      {
+        "current": { "text": "0.30", "value": "0.30" },
+        "description": "Gemini Flash output price per 1M tokens",
+        "hide": 2,
+        "label": "Flash Out",
+        "name": "gemini_flash_out",
+        "options": [
+          { "selected": false, "text": "0.20", "value": "0.20" },
+          { "selected": true, "text": "0.30", "value": "0.30" },
+          { "selected": false, "text": "0.50", "value": "0.50" }
+        ],
+        "query": "0.20,0.30,0.50",
+        "type": "custom"
+      },
+      {
+        "current": { "text": "0.035", "value": "0.035" },
+        "description": "Nova Micro input price per 1M tokens",
+        "hide": 2,
+        "label": "Nova Micro In",
+        "name": "nova_micro_in",
+        "options": [{ "selected": true, "text": "0.035", "value": "0.035" }],
+        "query": "0.035",
+        "type": "custom"
+      },
+      {
+        "current": { "text": "0.14", "value": "0.14" },
+        "description": "Nova Micro output price per 1M tokens",
+        "hide": 2,
+        "label": "Nova Micro Out",
+        "name": "nova_micro_out",
+        "options": [{ "selected": true, "text": "0.14", "value": "0.14" }],
+        "query": "0.14",
+        "type": "custom"
+      },
+      {
+        "current": { "text": "0.06", "value": "0.06" },
+        "description": "Nova Lite input price per 1M tokens",
+        "hide": 2,
+        "label": "Nova Lite In",
+        "name": "nova_lite_in",
+        "options": [{ "selected": true, "text": "0.06", "value": "0.06" }],
+        "query": "0.06",
+        "type": "custom"
+      },
+      {
+        "current": { "text": "0.24", "value": "0.24" },
+        "description": "Nova Lite output price per 1M tokens",
+        "hide": 2,
+        "label": "Nova Lite Out",
+        "name": "nova_lite_out",
+        "options": [{ "selected": true, "text": "0.24", "value": "0.24" }],
+        "query": "0.24",
+        "type": "custom"
+      },
+      {
+        "current": { "text": "0.80", "value": "0.80" },
+        "description": "Nova Pro input price per 1M tokens",
+        "hide": 2,
+        "label": "Nova Pro In",
+        "name": "nova_pro_in",
+        "options": [{ "selected": true, "text": "0.80", "value": "0.80" }],
+        "query": "0.80",
+        "type": "custom"
+      },
+      {
+        "current": { "text": "3.20", "value": "3.20" },
+        "description": "Nova Pro output price per 1M tokens",
+        "hide": 2,
+        "label": "Nova Pro Out",
+        "name": "nova_pro_out",
+        "options": [{ "selected": true, "text": "3.20", "value": "3.20" }],
+        "query": "3.20",
+        "type": "custom"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Agent Gateway Cost Estimation",
+  "uid": "agentgateway-cost",
+  "version": 1
+}

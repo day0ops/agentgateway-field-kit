@@ -1,0 +1,60 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: openai-audio-stt
+  description: |
+    OpenAI provider configured for speech-to-text via passthrough route.
+
+    - `/v1/audio/transcriptions` mapped as passthrough — forwarded as-is to OpenAI
+    - Single AgentgatewayBackend and HTTPRoute at `/openai`
+  docs: https://platform.openai.com/docs/api-reference/audio/createTranscription
+
+spec:
+  diagram: |
+    flowchart LR
+      Client -->|audio file| AGW[agentgateway]
+      AGW -->|passthrough| OpenAI[OpenAI Whisper]
+      OpenAI -->|transcription| AGW
+      AGW -->|JSON text| Client
+
+  features:
+    - name: providers
+      config:
+        providers:
+          - name: openai
+            providerName: openai
+            pathPrefix: /openai
+            pathRewrite: /
+            model: whisper-1
+            policies:
+              ai:
+                routes:
+                  '/v1/audio/transcriptions': 'Passthrough'
+
+  tests:
+    - name: test-stt-basic
+      description: Transcribe audio file to text
+      steps:
+        - action: send-audio-file-request
+          endpoint: /openai/v1/audio/transcriptions
+          file: what-is-kubernetes.wav
+          body:
+            model: whisper-1
+        - action: verify
+          expect:
+            status: 200
+            contains: 'kubernetes'
+
+    - name: test-stt-with-language
+      description: Transcribe audio with English language hint
+      steps:
+        - action: send-audio-file-request
+          endpoint: /openai/v1/audio/transcriptions
+          file: what-is-kubernetes.wav
+          body:
+            model: whisper-1
+            language: en
+        - action: verify
+          expect:
+            status: 200
+            contains: 'kubernetes'

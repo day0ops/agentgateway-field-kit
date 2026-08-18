@@ -1,0 +1,62 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: model-costs
+  description: |
+    Attach a native model cost catalog to the Gateway so agentgateway can price LLM requests in USD, using Solo's built-in "Model costs" capability - no custom ext-proc or database.
+
+    - model-costs: a JSON price catalog ConfigMap referenced by a Gateway-level EnterpriseAgentgatewayParameters.spec.modelCatalog, attached via spec.infrastructure.parametersRef
+    - After sending a request, check the agentgateway request logs for the `llm.cost` and `agw.ai.usage.cost.total` fields to see the computed spend for that request
+  docs: https://docs.solo.io/agentgateway/latest/llm/cost-controls/costs/
+
+spec:
+  diagram: |
+    flowchart LR
+      Client([Client]) --> AG[agentgateway]
+      AG -->|spec.infrastructure.parametersRef| Params[EnterpriseAgentgatewayParameters]
+      Params -->|modelCatalog.sources| Cat[(Model cost catalog<br/>ConfigMap)]
+      AG --> LLM[OpenAI gpt-4o-mini]
+      LLM --> AG --> Client
+
+      subgraph "Request log fields"
+        L1[llm.cost]
+        L2[agw.ai.usage.cost.total]
+      end
+
+  features:
+    - name: providers
+      config:
+        providers:
+          - name: openai
+            providerName: openai
+            pathPrefix: /openai
+            model: gpt-4o-mini
+
+    - name: model-costs
+      description: Attach a small inline price catalog for gpt-4o-mini to the Gateway
+      config:
+        catalog:
+          providers:
+            openai:
+              models:
+                gpt-4o-mini:
+                  rates:
+                    input: '0.15'
+                    output: '0.6'
+                    cacheRead: '0.075'
+                    cacheWrite: '0.0'
+                    reasoning: '0.0'
+                    inputAudio: '0.0'
+                    outputAudio: '0.0'
+
+  tests:
+    - name: priced-request-succeeds
+      description: |
+        A request against the priced gpt-4o-mini model succeeds. Inspect the agentgateway request logs for this request and confirm the `llm.cost` / `agw.ai.usage.cost.total` fields are populated using the attached catalog's rates.
+      steps:
+        - action: send-request
+          endpoint: /openai
+          prompt: 'What is 2+2? Reply with just the number.'
+        - action: verify
+          expect:
+            status: success

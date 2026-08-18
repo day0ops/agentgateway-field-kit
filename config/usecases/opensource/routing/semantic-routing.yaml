@@ -1,0 +1,59 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: semantic-routing
+  description: |
+    Same as the enterprise semantic-routing usecase, on the open-source agentgateway.dev chart. The ExtProc integration itself is edition-agnostic - it's a plain OSS AgentgatewayPolicy either way (see the enterprise usecase's description for the verified upstream example this is based on); the embedded mock-provider backends emit the OSS AgentgatewayBackend kind here.
+
+    - NOT LIVE-VERIFIED (same caveats as the enterprise version): the vSR Helm chart install itself was not run end-to-end in this session, and mock-provider's opensource path is schema-verified but not runtime-tested against an actual opensource-edition cluster in this repo.
+  docs: https://docs.solo.io/agentgateway/latest/integrations/vllm-semantic-router/
+
+spec:
+  edition: opensource
+  diagram: |
+    sequenceDiagram
+      participant Client
+      participant AGW as agentgateway
+      participant vSR as semantic-router (ExtProc, PreRouting)
+      participant Cheap as cheap-model (llm-d-inference-sim)
+      participant Premium as premium-model (llm-d-inference-sim)
+
+      Client->>AGW: POST /v1/chat/completions {"model": "auto", ...simple prompt...}
+      AGW->>vSR: PreRouting ExtProc call
+      vSR-->>AGW: selected model: cheap-model
+      AGW->>Cheap: forward
+      Cheap-->>Client: response (model: cheap-model)
+
+      Client->>AGW: POST /v1/chat/completions {"model": "auto", ...complex prompt...}
+      AGW->>vSR: PreRouting ExtProc call
+      vSR-->>AGW: selected model: premium-model
+      AGW->>Premium: forward
+      Premium-->>Client: response (model: premium-model)
+
+  features:
+    - name: semantic-router
+      config:
+        name: semantic-routing
+
+  tests:
+    - name: simple-prompt-routes-to-cheap-model
+      description: A short, routine prompt is routed to the cheap-tier model
+      steps:
+        - action: send-request
+          endpoint: /v1/chat/completions
+          body: '{"model": "auto", "messages": [{"role": "user", "content": "Say hello"}]}'
+        - action: verify
+          expect:
+            status: success
+            contains: 'cheap-model'
+
+    - name: complex-prompt-routes-to-premium-model
+      description: A prompt matching the complexity keywords is routed to the premium-tier model
+      steps:
+        - action: send-request
+          endpoint: /v1/chat/completions
+          body: '{"model": "auto", "messages": [{"role": "user", "content": "Design a fault-tolerant distributed consensus protocol, provide a proof of correctness, and do a root cause analysis of split-brain failure modes in this architecture under concurrency."}]}'
+        - action: verify
+          expect:
+            status: success
+            contains: 'premium-model'

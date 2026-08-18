@@ -1,0 +1,58 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: openai-model-aliasing
+  description: |
+    Map friendly alias names to real OpenAI model identifiers at the gateway layer.
+
+    - Clients send "model": "fast" or "model": "smart" without knowing real model names
+    - Gateway transparently substitutes the alias with the actual model before forwarding
+    - Model selection is centrally managed without changing client code
+  docs: https://docs.solo.io/agentgateway/latest/llm/alias/
+
+spec:
+  diagram: |
+    sequenceDiagram
+      participant Client
+      participant AGW as agentgateway
+      participant OAI as OpenAI
+      Client->>AGW: POST /model {"model": "fast", ...}
+      AGW->>AGW: resolve alias fast → gpt-4o-mini
+      AGW->>OAI: forward with model: gpt-4o-mini
+      OAI-->>AGW: response
+      AGW-->>Client: response
+
+  features:
+    - name: model-aliasing
+      description: Configure model aliases for OpenAI
+      config:
+        provider: openai
+        aliases:
+          fast: gpt-4o-mini
+          smart: gpt-4o
+          code: o3-mini
+
+  tests:
+    - name: alias-fast-resolves-to-mini
+      description: Verify "fast" alias routes to gpt-4o-mini
+      steps:
+        - action: send-request
+          endpoint: /model
+          body: '{"model": "fast", "messages": [{"role": "user", "content": "Say hello"}]}'
+        - action: verify
+          expect:
+            status: success
+            modelIn:
+              - gpt-4o-mini
+
+    - name: alias-smart-resolves-to-gpt4o
+      description: Verify "smart" alias routes to gpt-4o
+      steps:
+        - action: send-request
+          endpoint: /model
+          body: '{"model": "smart", "messages": [{"role": "user", "content": "Say hello"}]}'
+        - action: verify
+          expect:
+            status: success
+            modelIn:
+              - gpt-4o

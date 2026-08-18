@@ -1,0 +1,138 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: mcp-tool-access
+  description: |
+    Fine-grained MCP tool access control using CEL-based RBAC on the AgentgatewayBackend.
+
+    - Policies evaluate JWT claims (e.g. username) and the requested tool name
+    - Access can be granted or denied per-tool without modifying the MCP server
+    - Composable with route-level JWT authentication for layered enforcement
+  docs: https://agentgateway.dev/docs/kubernetes/latest/mcp/tool-access/
+
+spec:
+  diagram: |
+    sequenceDiagram
+      participant Client as MCP Client
+      participant AGW as agentgateway
+      participant KC as Keycloak
+      participant MCP as MCP Server
+      Client->>AGW: POST /mcp + Bearer JWT
+      AGW->>KC: validate JWT
+      KC-->>AGW: valid
+      AGW->>AGW: CEL RBAC (jwt.sub, mcp.tool.name)
+      AGW->>MCP: forward only if expression matches
+      MCP-->>Client: tools list / tool result (filtered)
+  steps:
+    - title: Deploy MCP server
+      description: |
+        Deploy the MCP stock server and create a static MCP backend and route.
+      features:
+        - name: mcp-server
+          config:
+            deployServer: true
+            image: '{{env.images.stock-server-mcp}}'
+            serverName: stock-server-mcp
+            serverPort: 8000
+            servicePort: 80
+            protocol: StreamableHTTP
+            mcpPath: /mcp
+            backendName: mcp-backend
+            routeName: mcp
+
+    - title: Enforce MCP auth
+      description: |
+        Protect the MCP backend with OAuth 2.0 via Keycloak so only authenticated clients with a valid JWT can reach the MCP server.
+      features:
+        - name: mcp-auth
+          config:
+            policyName: mcp-auth
+            backendName: mcp-backend
+            routeName: mcp
+            mcpPath: /mcp
+            keycloak:
+              realm: agw-dev
+              serviceName: keycloak
+              serviceNamespace: keycloak
+              servicePort: 443
+              externalUrl: '{{env.keycloak.scheme}}://{{env.domains.keycloak}}'
+              configureDynamicRegistration: true
+              grantAudienceToClients:
+                - agw-client
+            audiences:
+              - http://localhost:8080/mcp
+            resource: http://localhost:8080/mcp
+            scopesSupported:
+              - email
+            mode: Strict
+            provider: Keycloak
+
+    - title: Limit tool access by JWT
+      description: |
+        Apply an AgentgatewayPolicy targeting the MCP backend with CEL matchExpressions so only specific tools are allowed for specific JWT claims (e.g. user1 can access get_stock_price only).
+      features:
+        - name: mcp-tool-access
+          config:
+            policyName: mcp-tool-access
+            backendName: mcp-backend
+            action: Allow
+            matchExpressions:
+              - 'jwt.preferred_username == "user1" && mcp.tool.name == "get_stock_price"'
+
+  tests:
+    - name: test-unauthenticated-mcp-blocked
+      description: Unauthenticated MCP requests are rejected
+      steps:
+        - action: send-mcp-request
+          endpoint: /mcp
+          method: tools/list
+        - action: verify
+          expect:
+            status: error
+
+    - name: test-user1-sees-only-allowed-tool
+      description: user1 lists tools and sees only get_stock_price (RBAC filtered)
+      steps:
+        - action: get-token
+          keycloak:
+            realm: agw-dev
+            clientId: agw-client
+            clientSecret: agw-client-secret
+            grantType: password
+            username: user1
+            password: Password1!
+            hostname: '{{env.domains.keycloak}}'
+            scheme: '{{env.keycloak.scheme}}'
+        - action: send-mcp-request
+          endpoint: /mcp
+          method: tools/list
+          auth: bearer
+        - action: verify
+          expect:
+            status: success
+            contains: get_stock_price
+
+    - name: test-user1-can-call-get-stock-price
+      description: user1 can call the allowed get_stock_price tool
+      steps:
+        - action: get-token
+          keycloak:
+            realm: agw-dev
+            clientId: agw-client
+            clientSecret: agw-client-secret
+            grantType: password
+            username: user1
+            password: Password1!
+            hostname: '{{env.domains.keycloak}}'
+            scheme: '{{env.keycloak.scheme}}'
+        - action: send-mcp-request
+          endpoint: /mcp
+          method: tools/call
+          auth: bearer
+          params:
+            name: get_stock_price
+            arguments:
+              symbol: AAPL
+        - action: verify
+          expect:
+            status: success

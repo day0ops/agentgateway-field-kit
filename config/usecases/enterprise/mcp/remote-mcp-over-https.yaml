@@ -1,0 +1,55 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: remote-mcp-over-https
+  description: |
+    Connects agentgateway to a remote, internet-hosted MCP server over TLS, injecting a bearer token so the gateway can authenticate to it on the caller's behalf.
+  docs: https://docs.solo.io/agentgateway/2026.7.1/mcp/https/
+
+spec:
+  diagram: |
+    sequenceDiagram
+      participant Agent
+      participant AGW as agentgateway
+      participant GH as api.githubcopilot.com (TLS)
+      Agent->>AGW: MCP initialize (POST /mcp-github)
+      AGW->>AGW: TLS handshake (sni: api.githubcopilot.com)
+      AGW->>GH: forward + injected Authorization: Bearer <token>
+      GH-->>Agent: tools list
+      Agent->>AGW: MCP tools/call
+      AGW->>GH: forward (TLS)
+      GH-->>Agent: tool result
+  steps:
+    - title: Connect to the remote GitHub MCP server over HTTPS
+      description: |
+        Create a static AgentgatewayBackend target for api.githubcopilot.com, a backend TLS policy for the handshake, and a Secret-backed Bearer token so agentgateway can authenticate to it. Requires GITHUB_MCP_TOKEN (a GitHub personal access token) in the environment.
+      features:
+        - name: mcp-server
+          config:
+            deployServer: false
+            backendName: github-mcp-backend
+            targetName: github-mcp
+            routeName: mcp-github
+            pathPrefix: /mcp-github
+            targets:
+              - name: github-mcp
+                host: api.githubcopilot.com
+                port: 443
+                protocol: StreamableHTTP
+                path: /mcp/
+                secretRef:
+                  name: github-mcp-token
+                  envVar: GITHUB_MCP_TOKEN
+            tls:
+              sni: api.githubcopilot.com
+
+  tests:
+    - name: test-remote-tools-list
+      description: Verify tools are discoverable through agentgateway from the remote HTTPS MCP server
+      steps:
+        - action: send-mcp-request
+          endpoint: /mcp-github
+          method: tools/list
+        - action: verify
+          expect:
+            status: success

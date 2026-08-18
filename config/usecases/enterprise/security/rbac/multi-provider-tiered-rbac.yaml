@@ -1,0 +1,231 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: multi-provider-tiered-rbac
+  description: |
+    Two independent JWT issuers with different claim shapes - a corporate workforce IdP (role, department claims) and an external partner IdP (partner_tier, partner_id claims) - authenticate against one gateway endpoint. A deny-by-default CEL RBAC ruleset grants tiered read/write access per population and guarantees a token from one issuer can never satisfy the other issuer's rules.
+
+    - spec.traffic.jwtAuthentication.providers accepts both issuers on one policy
+    - One CEL expression ORs together every population's rule, and denies by default if none match
+    - jwt.iss gates every branch, so workforce and partner tokens are fully isolated from each other's grants
+  docs: https://docs.solo.io/agentgateway/latest/llm/rbac/
+
+spec:
+  diagram: |
+    sequenceDiagram
+      participant Workforce as Workforce user (role claim)
+      participant Partner as Partner user (partner_tier claim)
+      participant AGW as agentgateway
+      participant WKC as Keycloak (workforce-idp)
+      participant PKC as Keycloak (partner-idp)
+      participant Echo as Echo backend
+      Workforce->>WKC: password grant
+      WKC-->>Workforce: JWT (iss=workforce-idp, role)
+      Workforce->>AGW: request + Bearer JWT
+      AGW->>AGW: validate against matching provider by kid
+      AGW->>AGW: CEL RBAC - any Allow rule matching iss+role+method wins
+      AGW->>Echo: forward if allowed
+      Partner->>PKC: password grant
+      PKC-->>Partner: JWT (iss=partner-idp, partner_tier)
+      Partner->>AGW: request + Bearer JWT
+      AGW->>AGW: CEL RBAC - matched by iss+partner_tier+method
+      AGW->>Echo: forward if allowed
+      Note over AGW: No matching Allow rule -> 403 (deny-by-default)
+
+  features:
+    - name: multi-org-jwt-auth
+      config:
+        keycloakHost: '{{env.domains.keycloak}}'
+        injectOrgHeaders: false
+        routePath: /api/anything
+        rewritePath: /anything
+        orgRealms:
+          - realm: workforce-idp
+          - realm: partner-idp
+
+    - name: cel-based-rbac
+      description: |
+        Deny-by-default tiered RBAC across both issuers. matchExpressions entries are ANDed,
+        so each population's OR'd set of rules is nested as one CEL expression: workforce
+        admins get any method, managers get everything but DELETE, employees are read-only;
+        partner gold gets read+write, silver and bronze are read-only. jwt.iss gates every
+        branch, so a token from one issuer can never satisfy the other issuer's branches.
+      config:
+        action: Allow
+        expressions:
+          - >-
+            (jwt.iss == 'https://{{env.domains.keycloak}}/realms/workforce-idp' && jwt.role == 'admin') ||
+            (jwt.iss == 'https://{{env.domains.keycloak}}/realms/workforce-idp' && jwt.role == 'manager' && request.method != 'DELETE') ||
+            (jwt.iss == 'https://{{env.domains.keycloak}}/realms/workforce-idp' && jwt.role == 'employee' && request.method == 'GET') ||
+            (jwt.iss == 'https://{{env.domains.keycloak}}/realms/partner-idp' && jwt.partner_tier == 'gold' && request.method in ['GET', 'POST']) ||
+            (jwt.iss == 'https://{{env.domains.keycloak}}/realms/partner-idp' && jwt.partner_tier == 'silver' && request.method == 'GET') ||
+            (jwt.iss == 'https://{{env.domains.keycloak}}/realms/partner-idp' && jwt.partner_tier == 'bronze' && request.method == 'GET')
+        targetRefs:
+          - group: gateway.networking.k8s.io
+            kind: HTTPRoute
+            name: echo-backend
+
+  tests:
+    - name: workforce-admin-can-delete
+      description: Workforce admin (role=admin) can call DELETE - full access
+      steps:
+        - action: get-token
+          keycloak:
+            realm: workforce-idp
+            clientId: workforce-agent
+            clientSecret: workforce-agent-secret
+            grantType: password
+            username: alice-admin
+            password: Password1!
+            hostname: '{{env.domains.keycloak}}'
+            scheme: '{{env.keycloak.scheme}}'
+        - action: send-request
+          endpoint: /api/anything
+          method: DELETE
+          auth: bearer
+        - action: verify
+          expect:
+            status: success
+
+    - name: workforce-manager-can-write-but-not-delete
+      description: Workforce manager can POST but is denied DELETE
+      steps:
+        - action: get-token
+          keycloak:
+            realm: workforce-idp
+            clientId: workforce-agent
+            clientSecret: workforce-agent-secret
+            grantType: password
+            username: bob-manager
+            password: Password1!
+            hostname: '{{env.domains.keycloak}}'
+            scheme: '{{env.keycloak.scheme}}'
+        - action: send-request
+          endpoint: /api/anything
+          method: POST
+          auth: bearer
+        - action: verify
+          expect:
+            status: success
+        - action: send-request
+          endpoint: /api/anything
+          method: DELETE
+          auth: bearer
+        - action: verify
+          expect:
+            status: 403
+
+    - name: workforce-employee-read-only
+      description: Workforce employee can GET but is denied POST
+      steps:
+        - action: get-token
+          keycloak:
+            realm: workforce-idp
+            clientId: workforce-agent
+            clientSecret: workforce-agent-secret
+            grantType: password
+            username: carol-employee
+            password: Password1!
+            hostname: '{{env.domains.keycloak}}'
+            scheme: '{{env.keycloak.scheme}}'
+        - action: send-request
+          endpoint: /api/anything
+          method: GET
+          auth: bearer
+        - action: verify
+          expect:
+            status: success
+        - action: send-request
+          endpoint: /api/anything
+          method: POST
+          auth: bearer
+        - action: verify
+          expect:
+            status: 403
+
+    - name: partner-gold-can-write
+      description: Partner gold tier can POST
+      steps:
+        - action: get-token
+          keycloak:
+            realm: partner-idp
+            clientId: partner-agent
+            clientSecret: partner-agent-secret
+            grantType: password
+            username: acme-gold-user
+            password: Password1!
+            hostname: '{{env.domains.keycloak}}'
+            scheme: '{{env.keycloak.scheme}}'
+        - action: send-request
+          endpoint: /api/anything
+          method: POST
+          auth: bearer
+        - action: verify
+          expect:
+            status: success
+
+    - name: partner-silver-read-only
+      description: Partner silver tier can GET but is denied POST
+      steps:
+        - action: get-token
+          keycloak:
+            realm: partner-idp
+            clientId: partner-agent
+            clientSecret: partner-agent-secret
+            grantType: password
+            username: acme-silver-user
+            password: Password1!
+            hostname: '{{env.domains.keycloak}}'
+            scheme: '{{env.keycloak.scheme}}'
+        - action: send-request
+          endpoint: /api/anything
+          method: GET
+          auth: bearer
+        - action: verify
+          expect:
+            status: success
+        - action: send-request
+          endpoint: /api/anything
+          method: POST
+          auth: bearer
+        - action: verify
+          expect:
+            status: 403
+
+    - name: partner-bronze-denied-delete
+      description: Partner bronze tier (the lowest tier) is denied the most destructive verb
+      steps:
+        - action: get-token
+          keycloak:
+            realm: partner-idp
+            clientId: partner-agent
+            clientSecret: partner-agent-secret
+            grantType: password
+            username: acme-bronze-user
+            password: Password1!
+            hostname: '{{env.domains.keycloak}}'
+            scheme: '{{env.keycloak.scheme}}'
+        - action: send-request
+          endpoint: /api/anything
+          method: GET
+          auth: bearer
+        - action: verify
+          expect:
+            status: success
+        - action: send-request
+          endpoint: /api/anything
+          method: DELETE
+          auth: bearer
+        - action: verify
+          expect:
+            status: 403
+
+    - name: unauthenticated-request-denied
+      description: Requests without a JWT are rejected before RBAC even runs
+      steps:
+        - action: send-request
+          endpoint: /api/anything
+          method: GET
+        - action: verify
+          expect:
+            status: 401

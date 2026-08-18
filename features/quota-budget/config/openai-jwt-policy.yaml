@@ -1,0 +1,37 @@
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayPolicy
+metadata:
+  name: quota-budget-openai-jwt
+  namespace: agentgateway-system
+  labels:
+    app.kubernetes.io/managed-by: agentgateway-demo
+    agentgateway.dev/feature: quota-budget
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: agentgateway
+  traffic:
+    phase: PreRouting
+    jwtAuthentication:
+      mode: Strict
+      providers:
+        - issuer: https://keycloak.demo.kasunt.apac.fe.solo.io/realms/agw-dev
+          audiences:
+            - account
+          jwks:
+            remote:
+              jwksPath: realms/agw-dev/protocol/openid-connect/certs
+              cacheDuration: 5m
+              backendRef:
+                group: agentgateway.dev
+                kind: AgentgatewayBackend
+                name: keycloak-jwks
+                namespace: agentgateway-system
+    transformation:
+      request:
+        set:
+          - name: x-gw-org-id
+            value: "jwt['org_id']"
+          - name: x-gw-team-id
+            value: "jwt['team_id']"

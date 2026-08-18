@@ -1,0 +1,77 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: multi-model-failover
+  description: |
+    Automatic failover across multiple OpenAI models using priority groups.
+
+    - gpt-4o, gpt-4-turbo, gpt-3.5-turbo share the same priority tier and are load balanced
+    - When all models in a tier become unhealthy, the gateway fails over to the next tier
+    - No client-side retry logic required
+  docs: https://docs.solo.io/agentgateway/latest/llm/failover/
+
+spec:
+  diagram: |
+    sequenceDiagram
+      participant Client
+      participant AGW as agentgateway
+      participant Primary as gpt-4o / gpt-4-turbo / gpt-3.5
+      participant Fallback as Fallback Models
+      Client->>AGW: request
+      AGW->>Primary: try primary models (round-robin)
+      Primary-->>AGW: all models unhealthy
+      AGW->>Fallback: failover to fallback models
+      Fallback-->>Client: response
+
+  features:
+    - name: model-failover
+      description: Configure failover with priority groups
+      config:
+        pathPrefix: /model
+        providers:
+          # Priority 100 - Cheaper models (try first)
+          # Providers are looked up from the providers feature Backend resources
+          # You can override model and other settings as needed
+          # - name: vertex-ai
+          #   model: gemini/gemini-1.5-flash
+          #   location: us-central1
+          #   priority: 100
+          - name: openai-gpt-4o
+            providerName: openai
+            model: gpt-4o
+            priority: 100
+          - name: openai-gpt-4-turbo
+            providerName: openai
+            model: gpt-4-turbo
+            priority: 100
+          - name: openai-gpt-3.5-turbo
+            providerName: openai
+            model: gpt-3.5-turbo
+            priority: 100
+          # - name: openai
+          #   model: gpt-3.5-turbo
+          #   priority: 50
+
+  # Test scenarios
+
+  tests:
+    - name: test-failover-endpoint
+      description: Test model failover with automatic selection
+      steps:
+        - action: send-request
+          endpoint: /model
+          prompt: 'What is Kubernetes in one sentence?'
+        - action: verify
+          expect:
+            status: success
+            contains: 'Kubernetes'
+
+    - name: test-priority-selection
+      description: Test that cheaper models are used first
+      steps:
+        - action: send-request
+          endpoint: /model
+          prompt: 'Hello, how are you?'
+        - action: verify
+          expect:
+            status: success

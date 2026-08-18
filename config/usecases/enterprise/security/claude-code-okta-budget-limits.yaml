@@ -1,0 +1,126 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: claude-code-okta-budget-limits
+  description: |
+    Fronts Claude Code with Okta login and per-user/group budget limits, so teams share one Anthropic API key without giving up spend controls.
+  docs: https://docs.solo.io/agentgateway/latest/llm/cost-controls/budget-limits/
+
+spec:
+  deprecated:
+    reason: >-
+      Its "Configure Gateway with HTTPS and hostname" step uses the generic `gateway`
+      feature without a custom name, which defaults to the shared production Gateway
+      (agentgateway-gw) - deploying it replaces that Gateway's listeners with just this
+      usecase's single HTTPS one (dropping the shared :8080/:8443 listeners other
+      usecases depend on), and cleaning it up deletes the shared Gateway object
+      entirely. Needs to be rewritten to add its listener/cert via a merge onto the
+      existing Gateway (or an isolated one) before this is safe to deploy again -
+      see the "Gateway mutation risk" guidance this repo follows elsewhere (e.g.
+      frontend-mtls provisions its alternate TLS shape at the profile level instead
+      of overriding the shared Gateway).
+    replacedBy: security/claude-code-okta-budget-limits (once the Gateway-mutation bug above is fixed)
+  diagram: |
+    sequenceDiagram
+      participant CC as Claude Code
+      participant SC as okta-apikey-helper.sh
+      participant OK as Okta
+      participant GW as agentgateway
+      participant AN as api.anthropic.com
+
+      CC->>SC: invoke apiKeyHelper
+      SC->>OK: device flow (cached if valid)
+      OK-->>SC: access token (sub, group claims)
+      SC-->>CC: JWT token (used as API key)
+      CC->>GW: POST /v1/messages (Authorization: Bearer JWT)
+      GW->>GW: [PreRouting] validate JWT
+      GW->>GW: entBudgetEnforcement resolves user/group from jwt.sub / jwt.group
+      GW->>AN: forward request with gateway's X-Api-Key (within budget)
+      AN-->>CC: response
+
+  steps:
+    - title: Create TLS certificate
+      description: |
+        Create a TLS certificate for the agentgateway domain using cert-manager.
+      features:
+        - name: certificate
+          config:
+            name: agentgateway-tls
+            secretName: agentgateway-tls-secret
+            issuer: '{{env.tls.issuer}}'
+            dnsNames:
+              - '{{env.domains.agentgateway}}'
+
+    - title: Configure Gateway with HTTPS and hostname
+      description: |
+        Update the Gateway with HTTPS listener and hostname for external-dns. TLS termination using the cert-manager certificate.
+      features:
+        - name: gateway
+          config:
+            listeners:
+              - name: https
+                port: 443
+                protocol: HTTPS
+                hostname: '{{env.domains.agentgateway}}'
+                tls:
+                  mode: Terminate
+                  certificateRefs:
+                    - name: agentgateway-tls-secret
+                allowedRoutes:
+                  namespaces:
+                    from: All
+
+    - title: Configure Anthropic provider
+      description: |
+        Deploy the Anthropic LLM provider at path /. Gateway uses ANTHROPIC_API_KEY from secret to authenticate to Anthropic. Developers authenticate via Okta JWT only - no individual API keys needed.
+      features:
+        - name: providers
+          config:
+            providers:
+              - name: anthropic
+                providerName: anthropic
+                pathPrefix: /
+                hostname: '{{env.domains.agentgateway}}'
+                policies:
+                  ai:
+                    routes:
+                      /v1/messages: Messages
+                      '*': Passthrough
+
+    - title: Deploy Okta JWT authentication
+      description: |
+        Validate Okta JWTs at the gateway in strict mode. Requests without a valid Okta token are rejected with 401.
+      features:
+        - name: okta-jwt-auth
+          config:
+            oktaDomain: '{{env.okta.domain}}'
+            authServerId: default
+            audiences: ['api://default']
+
+    - title: Deploy budget-limits (native per-user/group budget enforcement)
+      description: |
+        Deploy an EnterpriseAgentgatewayBudget with:
+        - a per-user daily token cap (subject.user resolved from jwt.sub)
+        - a per-group monthly USD cap in Audit mode (subject.group resolved from jwt.group) No custom ext-proc, Postgres, or Helm changes required.
+      features:
+        - name: budget-limits
+          config:
+            budgets:
+              - name: per-user-daily-cap
+                subject:
+                  user: '*'
+                limit:
+                  unit: Tokens
+                  amount: 100000
+                window:
+                  unit: Day
+                onBudgetExceeded: Block
+              - name: per-group-monthly-cap
+                subject:
+                  group: '*'
+                limit:
+                  unit: USD
+                  amount: 500
+                window:
+                  unit: Month
+                onBudgetExceeded: Audit

@@ -1,0 +1,77 @@
+# Example use case that overrides the default Gateway with a local Ollama provider
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: ollama-with-custom-gateway
+  description: |
+    Deploy a local Ollama (Llama 3) provider with a custom Gateway resource override.
+
+    - Defines a custom Gateway with its own listener configuration
+    - Overrides the default Gateway installed by the profile
+    - Demonstrates decoupling a provider route from the platform-managed default Gateway
+
+spec:
+  diagram: |
+    flowchart LR
+      Client --> CG[Custom Gateway :8080]
+      CG --> Ollama[Ollama llama3 local]
+
+  features:
+    - name: gateway
+      config:
+        name: custom-gateway
+        listeners:
+          - name: http
+            port: 8080
+            protocol: HTTP
+            allowedRoutes:
+              namespaces:
+                from: All
+    - name: providers
+      config:
+        providers:
+          - name: ollama
+            providerName: openai-compatible
+            pathPrefix: /ollama
+            model: llama3
+            host: host.minikube.internal
+            port: 11434
+            path:
+              full: /v1/chat/completions
+
+  tests:
+    - name: test-custom-gateway-listener-config
+      description: Verify Gateway resource has correct listener configuration
+      steps:
+        - action: verify-resource
+          kind: Gateway
+          name: custom-gateway
+          expect:
+            - jsonpath: '{.spec.listeners[0].name}'
+              value: http
+            - jsonpath: '{.spec.listeners[0].port}'
+              value: '8080'
+            - jsonpath: '{.spec.listeners[0].protocol}'
+              value: HTTP
+            - jsonpath: '{.spec.listeners[0].allowedRoutes.namespaces.from}'
+              value: All
+
+    - name: test-custom-gateway-listener
+      description: Verify custom-gateway listener is active on port 8080
+      steps:
+        - action: send-request
+          endpoint: /nonexistent
+          method: GET
+        - action: verify
+          expect:
+            statusCode: 404
+
+    - name: test-custom-gateway-ollama
+      description: Test Ollama Llama 3 endpoint via custom gateway
+      steps:
+        - action: send-request
+          endpoint: /ollama
+          prompt: 'What is 2+2?'
+        - action: verify
+          expect:
+            status: success

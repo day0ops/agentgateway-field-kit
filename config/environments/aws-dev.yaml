@@ -1,0 +1,84 @@
+apiVersion: agentgateway.demo/v1
+kind: Environment
+metadata:
+  name: aws-dev
+  description: AWS environment
+
+spec:
+  # AWS configuration
+  aws:
+    region: ap-southeast-1
+
+  acme:
+    email: kasun.talwatta@solo.io
+
+  # DNS configuration for Route53
+  dns:
+    provider: route53
+    parentZone:
+      domain: kasunt.apac.fe.solo.io
+      hostedZoneId: Z08818701HDZ6PBD6LPXU
+    childZone: demo
+
+  tls:
+    issuer: letsencrypt-dns
+
+  internal:
+    # Service name matches EDITION_GATEWAY_NAME.enterprise (src/lib/editions.js) - the
+    # Gateway API controller auto-provisions a Service named after the Gateway object,
+    # not a bare "agentgateway" (that name doesn't exist on an enterprise-edition cluster).
+    agentgateway: http://agentgateway-gw.agentgateway-system.svc.cluster.local:8080
+    sts: http://enterprise-agentgateway.agentgateway-system.svc.cluster.local:7777/oauth2/token
+    stsIssuer: enterprise-agentgateway.agentgateway-system.svc.cluster.local:7777
+
+  keycloak:
+    scheme: https
+    loginTheme: keycloak-soloio-login-theme
+
+  # Custom demo images, built and pushed to this GAR repo. Each value is a full
+  # repo:tag reference - bump the tag here to roll every usecase forward at once.
+  images:
+    keycloak: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/keycloak:26.7.0
+    stock-agent: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/stock-agent:0.1.1
+    caller-agent: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/caller-agent:0.1.1
+    stock-server-mcp: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/stock-server-mcp:0.1.1
+    currency-server-mcp: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/currency-server-mcp:0.1.1
+    random-server-mcp: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/random-server-mcp:0.1.1
+    fd-server-mcp: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/fd-server-mcp:0.1.0
+    mcp-graph-me-tool: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/mcp-graph-me-tool:0.1.0
+    fd-agent: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/fd-agent:0.1.3
+    loan-agent: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/loan-agent:0.1.3
+    quota-budget-extproc: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/quota-budget-extproc:0.1.3
+    quota-management-ui: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/quota-management-ui:0.1.3
+    quota-ratelimit-extproc: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/quota-ratelimit-extproc:0.1.3
+    opik-guardrail-webhook: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/opik-guardrail-webhook:0.1.2
+    sidecar-agent: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/sidecar-agent:0.1.1
+    opa-ext-authz: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/opa-ext-authz:0.1.0
+    openfga-engine: openfga/openfga:v1.10.3
+    openfga-ext-authz: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/openfga-ext-authz:0.1.1
+    ext-mcp-guardrail: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/ext-mcp-guardrail:0.1.2
+    preissuance-ext-authz: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/preissuance-ext-authz:0.1.0
+
+  # Entra ID (Azure AD) tenant/app registration
+  entra:
+    tenantId: 5e7d8166-7876-4755-a1a4-b476d4a344f6
+    clientId: ec6d1b4e-8f16-4ee3-a906-8230a3e50328
+
+  # Okta tenant
+  okta:
+    domain: integrator-1335842.okta.com
+    # Native/public client with "Client authentication: None" (PKCE-only, no secret)
+    clientId: 0oa167n7cr4GS1bgL698
+
+  # Auth0 tenant
+  auth0:
+    domain: dev-35g28e7t10wuhl3i.us.auth0.com
+    audience: https://agentgateway.example.com/mcp
+
+  # Domain mappings - auto-generated pattern: <service>.<childZone>.<parentDomain>
+  domains:
+    keycloak: keycloak.demo.kasunt.apac.fe.solo.io
+    grafana: grafana.demo.kasunt.apac.fe.solo.io
+    quotaManagement: quota-management.demo.kasunt.apac.fe.solo.io
+    soloUI: soloui.demo.kasunt.apac.fe.solo.io
+    agentgateway: agentgateway.demo.kasunt.apac.fe.solo.io

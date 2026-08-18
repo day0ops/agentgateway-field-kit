@@ -1,0 +1,134 @@
+# Helm values for kube-prometheus-stack
+# https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack
+
+alertmanager:
+  enabled: false
+
+defaultRules:
+  create: false
+
+nodeExporter:
+  enabled: false
+
+kubeStateMetrics:
+  enabled: true
+
+# Disable built-in Kubernetes component scrapers
+kubernetesServiceMonitors:
+  enabled: false
+kubeApiServer:
+  enabled: false
+kubelet:
+  enabled: true
+  serviceMonitor:
+    cAdvisorRelabelings:
+      - sourceLabels: [__name__]
+        action: keep
+        regex: 'container_cpu_usage_seconds_total|container_memory_working_set_bytes|container_network_.*'
+kubeControllerManager:
+  enabled: false
+coreDns:
+  enabled: false
+kubeEtcd:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeProxy:
+  enabled: false
+
+prometheus:
+  service:
+    type: ClusterIP
+  prometheusSpec:
+    ruleSelectorNilUsesHelmValues: false
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    enableFeatures:
+      - native-histograms
+    enableRemoteWriteReceiver: true
+    # retention is set via TelemetryFeature config
+
+grafana:
+  enabled: true
+  defaultDashboardsEnabled: false
+  # service.type is set via TelemetryFeature config (grafanaServiceType)
+  imageRenderer:
+    enabled: true
+    replicas: 1
+    image:
+      repository: grafana/grafana-image-renderer
+      tag: latest
+    service:
+      enabled: true
+      port: 8081
+    resources:
+      limits:
+        memory: 500Mi
+      requests:
+        cpu: 50m
+        memory: 100Mi
+    env:
+      HTTP_HOST: '0.0.0.0'
+    # Use FQDN to avoid DNS resolution issues
+    serverURL: http://kube-prometheus-stack-grafana-image-renderer.telemetry.svc.cluster.local:8081/render
+    renderingCallbackURL: http://kube-prometheus-stack-grafana.telemetry.svc.cluster.local:80/
+  grafana.ini:
+    server:
+      root_url: http://kube-prometheus-stack-grafana.telemetry.svc.cluster.local:80/
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      labelValue: '1'
+      searchNamespace: ALL
+    datasources:
+      enabled: true
+      defaultDatasourceEnabled: false
+  additionalDataSources:
+    - name: Prometheus
+      type: prometheus
+      uid: prometheus
+      access: proxy
+      url: http://kube-prometheus-stack-prometheus.telemetry:9090
+      isDefault: true
+      editable: true
+      jsonData:
+        httpMethod: GET
+        exemplarTraceIdDestinations:
+          - name: trace_id
+            datasourceUid: tempo
+    - name: Tempo
+      type: tempo
+      uid: tempo
+      access: proxy
+      url: http://tempo-query-frontend.telemetry:3200
+      editable: true
+      jsonData:
+        tracesToLogsV2:
+          datasourceUid: loki
+          spanStartTimeShift: '-1h'
+          spanEndTimeShift: '1h'
+          filterByTraceID: true
+          filterBySpanID: false
+        tracesToMetrics:
+          datasourceUid: prometheus
+          spanStartTimeShift: '-1h'
+          spanEndTimeShift: '1h'
+        serviceMap:
+          datasourceUid: prometheus
+        nodeGraph:
+          enabled: true
+        lokiSearch:
+          datasourceUid: loki
+    - name: Loki
+      type: loki
+      uid: loki
+      access: proxy
+      url: http://loki.telemetry:3100
+      editable: true
+      jsonData:
+        derivedFields:
+          - datasourceUid: tempo
+            matcherRegex: '"trace_id":"([a-f0-9]+)"'
+            name: TraceID
+            url: '$${__value.raw}'

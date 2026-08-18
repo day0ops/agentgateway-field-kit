@@ -1,0 +1,55 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: openai-embeddings-provider
+  description: |
+    OpenAI provider configured for embeddings via the `policies.ai.routes` field.
+
+    - `/v1/embeddings` mapped as passthrough — forwarded as-is, no LLM processing
+    - Single AgentgatewayBackend and HTTPRoute at `/openai`
+  docs: https://agentgateway.dev/docs/kubernetes/main/llm/providers/multiple-endpoints/
+
+spec:
+  diagram: |
+    flowchart LR
+      Client -->|input text| AGW[agentgateway]
+      AGW -->|passthrough| OpenAI[OpenAI Embeddings]
+
+  features:
+    - name: providers
+      config:
+        providers:
+          - name: openai
+            providerName: openai
+            pathPrefix: /openai
+            pathRewrite: /
+            model: gpt-4o-mini
+            policies:
+              ai:
+                routes:
+                  '/v1/embeddings': 'Passthrough'
+
+  tests:
+    - name: test-openai-embeddings
+      description: Embeddings via passthrough route → forwarded as-is to OpenAI
+      steps:
+        - action: send-request
+          endpoint: /openai/v1/embeddings
+          model: text-embedding-ada-002
+          input: 'The food was delicious'
+        - action: verify
+          expect:
+            status: success
+
+    - name: test-openai-embeddings-batch
+      description: Batch embeddings with multiple inputs
+      steps:
+        - action: send-request
+          endpoint: /openai/v1/embeddings
+          model: text-embedding-3-small
+          input:
+            - 'What is Kubernetes?'
+            - 'What is machine learning?'
+        - action: verify
+          expect:
+            status: success

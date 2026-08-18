@@ -1,0 +1,85 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: mcp-request-rate-limiting
+  description: |
+    Request-based rate limiting scoped to a single MCP route instead of the whole Gateway.
+
+    - RateLimitConfig and EnterpriseAgentgatewayPolicy target the /mcp HTTPRoute directly
+    - Every MCP HTTP POST counts equally — initialize, tools/list, and tools/call are not distinguished, so a limit of N requests/unit is roughly N/3 to N/5 full tool-call sessions
+    - Requests beyond the configured limit receive 429 Too Many Requests
+  docs: https://docs.solo.io/agentgateway/2026.7.1/mcp/rate-limit/
+
+spec:
+  diagram: |
+    sequenceDiagram
+      participant Agent
+      participant AGW as agentgateway
+      participant RLS as Rate Limit Server
+      participant MCP as MCP Stock Server
+      Agent->>AGW: MCP initialize (POST /mcp)
+      AGW->>RLS: check request counter for /mcp route
+      RLS-->>AGW: within limit, increment
+      AGW->>MCP: forward
+      MCP-->>Agent: tools list
+      Agent->>AGW: MCP tools/call (POST /mcp)
+      AGW->>RLS: check request counter
+      RLS-->>AGW: limit exceeded (3/min)
+      AGW-->>Agent: 429 Too Many Requests
+  steps:
+    - title: Deploy MCP server
+      description: Deploy the MCP stock server workload behind a static AgentgatewayBackend.
+      features:
+        - name: mcp-server
+          config:
+            deployServer: true
+            image: '{{env.images.stock-server-mcp}}'
+            serverName: stock-server-mcp
+            serverPort: 8000
+            servicePort: 80
+            protocol: StreamableHTTP
+            backendName: mcp-backend
+            targetName: mcp-target
+            routeName: mcp
+
+    - title: Apply rate limit policy scoped to the /mcp route
+      description: |
+        Create a RateLimitConfig with a global counter (3 requests per minute) and attach it to the /mcp HTTPRoute (not the whole Gateway) via an EnterpriseAgentgatewayPolicy targetRefs override.
+      features:
+        - name: rate-limit
+          config:
+            mode: global
+            type: REQUEST
+            requestsPerUnit: 3
+            unit: MINUTE
+            targetRefs:
+              - name: mcp
+                kind: HTTPRoute
+
+  tests:
+    - name: allow-tools-list-within-limit
+      description: The first MCP request within the rate limit window should succeed
+      steps:
+        - action: send-mcp-request
+          endpoint: /mcp
+          method: tools/list
+        - action: verify
+          expect:
+            status: success
+            contains: get_stock_price
+
+    - name: rate-limited-after-threshold
+      description: Requests beyond the 3/minute cap on /mcp are rate limited (429)
+      steps:
+        - action: send-mcp-request
+          endpoint: /mcp
+          method: tools/list
+        - action: send-mcp-request
+          endpoint: /mcp
+          method: tools/list
+        - action: send-mcp-request
+          endpoint: /mcp
+          method: tools/list
+        - action: verify
+          expect:
+            statusCode: 429

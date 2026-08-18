@@ -1,0 +1,113 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: tool-mode-search
+  description: |
+    Collapses a federated MCP tool catalog into two meta-tools, get_tool (look up a tool) and invoke_tool (call it), instead of listing every tool individually.
+  docs: https://docs.solo.io/agentgateway/2026.7.1/mcp/tool-mode/
+
+spec:
+  diagram: |
+    sequenceDiagram
+      participant Agent
+      participant AGW as agentgateway (toolMode: Search)
+      participant Stock as Stock MCP Server
+      participant Currency as Currency MCP Server
+      Agent->>AGW: MCP tools/list
+      AGW-->>Agent: two tools: get_tool, invoke_tool
+      Agent->>AGW: MCP tools/call get_tool (name: get_stock_price)
+      AGW-->>Agent: tool description + input schema
+      Agent->>AGW: MCP tools/call invoke_tool (name: get_stock_price, arguments: {...})
+      AGW->>Stock: invoke get_stock_price
+      Stock-->>AGW: result
+      AGW-->>Agent: invoke_tool result
+  steps:
+    - title: Deploy the stock and currency MCP server workloads
+      description: |
+        Deploy both MCP server workloads. This step's own AgentgatewayBackend/HTTPRoute are not used by this demo - the entMcp backend below federates the same underlying Services via label selectors.
+      features:
+        - name: mcp-server
+          config:
+            backendName: mcp-workloads-backend
+            routeName: mcp-workloads
+            protocol: StreamableHTTP
+            mcpPath: /mcp
+            servers:
+              - name: stock-server-mcp
+                image: '{{env.images.stock-server-mcp}}'
+                serverPort: 8000
+                servicePort: 80
+              - name: currency-server-mcp
+                image: '{{env.images.currency-server-mcp}}'
+                serverPort: 8000
+                servicePort: 80
+            targets:
+              - name: stock-server-mcp
+                matchLabels:
+                  app: stock-server-mcp
+              - name: currency-server-mcp
+                matchLabels:
+                  app: currency-server-mcp
+
+    - title: Federate with toolMode Search
+      description: |
+        Create an EnterpriseAgentgatewayBackend federating both servers with toolMode: Search, collapsing the tool catalog into get_tool/invoke_tool.
+      features:
+        - name: mcp-enterprise
+          config:
+            backendName: mcp-search-backend
+            routeName: mcp-search
+            pathPrefix: /mcp-search
+            toolMode: Search
+            targets:
+              - name: stock-server-mcp
+                matchLabels:
+                  app: stock-server-mcp
+              - name: currency-server-mcp
+                matchLabels:
+                  app: currency-server-mcp
+
+  tests:
+    - name: test-search-meta-tools-exposed
+      description: toolMode Search collapses the federated catalog into get_tool/invoke_tool
+      steps:
+        - action: send-mcp-request
+          endpoint: /mcp-search
+          method: tools/list
+        - action: verify
+          expect:
+            status: success
+            contains:
+              - get_tool
+              - invoke_tool
+
+    - name: test-get-tool-lookup
+      description: get_tool looks up the stock price tool's description and input schema
+      steps:
+        - action: send-mcp-request
+          endpoint: /mcp-search
+          method: tools/call
+          params:
+            name: get_tool
+            arguments:
+              name: stock-server-mcp-80_get_stock_price
+        - action: verify
+          expect:
+            status: success
+            contains: stock-server-mcp-80_get_stock_price
+
+    - name: test-invoke-tool-call
+      description: invoke_tool calls the federated stock price tool by its prefixed name
+      steps:
+        - action: send-mcp-request
+          endpoint: /mcp-search
+          method: tools/call
+          params:
+            name: invoke_tool
+            arguments:
+              name: stock-server-mcp-80_get_stock_price
+              arguments:
+                symbol: AAPL
+        - action: verify
+          expect:
+            status: success

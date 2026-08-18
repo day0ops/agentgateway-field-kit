@@ -1,0 +1,16 @@
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayBackend
+metadata:
+  name: mcp-backend
+  namespace: agentgateway-system
+  labels:
+    app.kubernetes.io/managed-by: agentgateway-demo
+    agentgateway.dev/feature: mcp-server
+spec:
+  mcp:
+    targets:
+      - name: mcp-target
+        static:
+          host: mcp-stock-server.agentgateway-system.svc.cluster.local
+          port: 80
+          protocol: SSE

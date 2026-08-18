@@ -1,0 +1,55 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: multi-provider-round-robin
+  description: |
+    Two LLM providers deployed at separate path prefixes, each independently configured.
+
+    - /openai  → OpenAI (gpt-4) with its own auth and model config
+    - /bedrock → AWS Bedrock (global.amazon.nova-2-lite-v1:0) with its own auth
+    - Demonstrates registering multiple distinct provider backends side-by-side
+  docs: https://kgateway.dev/docs/latest/agentgateway/llm/providers/
+
+spec:
+  diagram: |
+    flowchart LR
+      Client --> AGW[agentgateway]
+      AGW -->|round-robin| OpenAI[OpenAI /openai]
+      AGW -->|round-robin| Bedrock[Bedrock /bedrock]
+
+  features:
+    - name: providers
+      config:
+        providers:
+          - name: openai
+            providerName: openai
+            pathPrefix: /openai
+            model: gpt-4
+
+          # AWS Bedrock
+          - name: bedrock
+            providerName: bedrock
+            pathPrefix: /bedrock
+            model: global.amazon.nova-2-lite-v1:0
+            region: us-east-1
+
+  tests:
+    - name: test-openai
+      description: Test OpenAI endpoint
+      steps:
+        - action: send-request
+          endpoint: /openai
+          prompt: 'What is 2+2?'
+        - action: verify
+          expect:
+            status: success
+
+    - name: test-bedrock
+      description: Test Bedrock endpoint
+      steps:
+        - action: send-request
+          endpoint: /bedrock
+          prompt: 'What is AI?'
+        - action: verify
+          expect:
+            status: success

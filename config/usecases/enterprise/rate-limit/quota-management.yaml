@@ -1,0 +1,102 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: quota-management
+  description: |
+    Deploy the quota management stack with budget enforcement and rate limiting.
+
+    - quota-budget: Cost-based budget limiting (PostRouting + Response phase)
+    - quota-ratelimit: Token/request rate limiting (PreRouting phase)
+    - PostgreSQL database (owned by quota-budget)
+    - Web UI with optional rate limit visibility
+
+spec:
+  deprecated:
+    reason: >-
+      Replaced by the native EnterpriseAgentgatewayBudget CRD - no custom ext-proc/Postgres
+      required.
+    replacedBy: cost-management/budget-and-spend-limits
+  diagram: |
+    flowchart LR
+      Browser([Browser]) --> AG[agentgateway<br/>:8443 TLS]
+      AG --> ExtAuth[ext-auth<br/>OIDC]
+      ExtAuth <--> KC[Keycloak]
+      AG -->|PreRouting| RL[quota-ratelimit-extproc<br/>:4444 gRPC]
+      RL <--> DB[(PostgreSQL<br/>TLS)]
+      RL -.->|metadata| RLS[Rate Limiter]
+      AG --> RLS
+      AG -->|PostRouting| BG[quota-budget-extproc<br/>:4444 gRPC]
+      BG <--> DB
+      AG --> UI[quota-management-ui<br/>:8080 HTTP]
+      UI <--> DB
+      AG --> LLM[OpenAI]
+
+      subgraph "UI Access"
+        U1[/quota/]
+      end
+
+  steps:
+    - title: Configure OpenAI provider
+      description: |
+        Set up the OpenAI LLM provider with the gpt-4o-mini model.
+      features:
+        - name: providers
+          config:
+            providers:
+              - name: openai
+                providerName: openai
+                pathPrefix: /openai
+                model: gpt-4o-mini
+
+    - title: Deploy Keycloak JWT authentication
+      description: |
+        Validate Keycloak JWTs at the gateway in strict mode. Extracts org_id and team_id JWT claims into x-gw-org-id and x-gw-team-id headers.
+      features:
+        - name: keycloak-jwt-auth
+          config:
+            keycloakHost: '{{env.domains.keycloak}}'
+
+    - title: Deploy quota-budget (infrastructure + budget ext-proc)
+      description: |
+        Deploy the budget management service with:
+        - PostgreSQL database
+        - Budget ext-proc (PostRouting phase)
+        - OIDC authentication via Keycloak
+        - TLS termination at the gateway
+        - TLS for PostgreSQL (verify-ca with cert-manager CA)
+        - Web UI accessible at /
+      features:
+        - name: quota-budget
+          config:
+            extprocImage: '{{env.images.quota-budget-extproc}}'
+            uiImage: '{{env.images.quota-management-ui}}'
+            uiPath: /
+            deployInfra: true
+            enableUIAuth: true
+            providerRoutes:
+              - openai
+            enableTLS: true
+            enablePostgresTLS: true
+            enableCORS: true
+            cors:
+              allowOrigins:
+                - 'https://{{env.domains.quotaManagement}}'
+            keycloakHost: '{{env.domains.keycloak}}'
+            tls:
+              hostname: '{{env.domains.quotaManagement}}'
+              issuer: '{{env.tls.issuer}}'
+            auth:
+              appUrl: 'https://{{env.domains.quotaManagement}}'
+              clientId: quota-management
+              callbackPath: /callback
+              logoutPath: /logout
+              sessionCacheHost: ext-cache-enterprise-agentgateway-custom:6379
+              extAuthBackend: ext-auth-service-enterprise-agentgateway-custom
+
+    - title: Deploy quota-ratelimit (rate limit ext-proc)
+      description: |
+        Deploy the rate limit ext-proc service (PreRouting phase). Requires quota-budget step to be deployed first (provides PostgreSQL).
+      features:
+        - name: quota-ratelimit
+          config:
+            image: '{{env.images.quota-ratelimit-extproc}}'

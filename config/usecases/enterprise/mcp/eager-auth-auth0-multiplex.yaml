@@ -1,0 +1,126 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: eager-auth-auth0-multiplex
+  description: |
+    Fronts a federated, multiplexed MCP backend (two separate server workloads merged behind one endpoint) with agentgateway's built-in Auth0 login adapter - one login protects every target behind the multiplexed backend, with no per-target auth config.
+  docs: https://docs.solo.io/agentgateway/latest/mcp/auth/setup/
+
+spec:
+  diagram: |
+    sequenceDiagram
+      participant Client as MCP Client
+      participant AGW as agentgateway
+      participant Auth0
+      participant Stock as Stock MCP Server
+      participant Currency as Currency MCP Server
+
+      Client->>AGW: POST /mcp (no token)
+      AGW-->>Client: 401 + OAuth metadata
+      Client->>AGW: dynamic client registration + Auth0 login (audience injected)
+      Auth0-->>Client: access token (JWT)
+      Client->>AGW: POST /mcp + Bearer JWT
+      AGW->>Auth0: validate JWT via JWKS
+      AGW->>Stock: forward (federated target)
+      AGW->>Currency: forward (federated target)
+      AGW-->>Client: merged tools from both targets
+
+  steps:
+    - title: Deploy multiplexed MCP servers
+      description: |
+        Deploy two MCP server workloads (stock-price and currency-exchange) and multiplex them behind a single AgentgatewayBackend using label selectors, so one MCP connection surfaces tools from both. Only Streamable HTTP is supported for label selectors.
+      features:
+        - name: mcp-server
+          config:
+            servers:
+              - name: stock-server-mcp
+                image: '{{env.images.stock-server-mcp}}'
+                serverPort: 8000
+                servicePort: 80
+              - name: currency-server-mcp
+                image: '{{env.images.currency-server-mcp}}'
+                serverPort: 8000
+                servicePort: 80
+            protocol: StreamableHTTP
+            mcpPath: /mcp
+            backendName: mcp-backend
+            targets:
+              - name: stock-server-mcp
+                matchLabels:
+                  app: stock-server-mcp
+              - name: currency-server-mcp
+                matchLabels:
+                  app: currency-server-mcp
+            # Browser-based clients (e.g. the MCP inspector) send a CORS preflight before
+            # the real request - without this, the Strict MCP auth policy 401s the
+            # preflight with no CORS headers and the browser blocks the real request.
+            cors:
+              enabled: true
+            routeName: mcp
+
+    - title: Front the multiplexed backend with Auth0 eager-auth
+      description: |
+        Enable agentgateway's built-in Auth0 login adapter on the shared MCP route. One login protects the entire federated backend - no per-target auth policy is needed.
+      features:
+        - name: mcp-eager-auth-auth0
+          config:
+            auth0Domain: '{{env.auth0.domain}}'
+            audience: '{{env.auth0.audience}}'
+            resource: 'http://{{env.domains.agentgateway}}:8080/mcp'
+
+  tests:
+    - name: unauthenticated-mcp-request-rejected
+      description: An MCP request without a token is rejected before reaching either federated target
+      steps:
+        - action: send-mcp-request
+          endpoint: /mcp
+          method: tools/list
+        - action: verify
+          expect:
+            statusCode: 401
+            headers:
+              www-authenticate: '*'
+
+    - name: protected-resource-metadata-discoverable
+      description: MCP clients can discover the protected-resource metadata endpoint
+      steps:
+        - action: send-request
+          endpoint: /.well-known/oauth-protected-resource/mcp
+        - action: verify
+          expect:
+            status: success
+            contains: resource
+
+    - name: authorization-server-metadata-discoverable
+      description: MCP clients can discover Auth0's authorization server metadata, proxied through the gateway
+      steps:
+        - action: send-request
+          endpoint: /.well-known/oauth-authorization-server/mcp
+        - action: verify
+          expect:
+            status: success
+            contains: registration_endpoint
+
+    - name: dynamic-client-registration
+      description: A client can dynamically register directly against Auth0 via the gateway's discovered registration endpoint
+      steps:
+        - action: register-client
+          discoveryEndpoint: /.well-known/oauth-authorization-server/mcp
+
+    - name: authenticated-mcp-tools-list-shows-both-targets-via-browser-login
+      description: |
+        Registers a fresh client via real DCR, opens a real browser for an interactive Auth0 login (no controller involved), then calls MCP tools with the resulting genuine Auth0 JWT - one login surfaces tools from both federated targets. Not part of `--no-prompt` CI runs - requires a human to complete the login (live-verified manually).
+      steps:
+        - action: get-token
+          auth0:
+            discoveryUrl: 'http://{{env.domains.agentgateway}}:8080/.well-known/oauth-authorization-server/mcp'
+        - action: send-mcp-request
+          endpoint: /mcp
+          method: tools/list
+          auth: bearer
+        - action: verify
+          expect:
+            status: success
+            contains:
+              - get_stock_price
+              - get_exchange_rate

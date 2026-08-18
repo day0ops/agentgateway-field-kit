@@ -1,0 +1,22 @@
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayPolicy
+metadata:
+  name: quota-management-auth
+  namespace: agentgateway-system
+  labels:
+    app.kubernetes.io/managed-by: agentgateway-demo
+    agentgateway.dev/feature: quota-budget
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: quota-management-ui
+  traffic:
+    entExtAuth:
+      authConfigRef:
+        name: quota-management-auth
+        namespace: agentgateway-system
+      backendRef:
+        name: ext-auth-service-enterprise-agentgateway
+        namespace: agentgateway-system
+        port: 8083

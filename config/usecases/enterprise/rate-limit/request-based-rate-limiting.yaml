@@ -1,0 +1,84 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: request-based-rate-limiting
+  description: |
+    Global request-based rate limiting enforced across all users via a shared counter.
+
+    - OpenAI backend deployed via the providers feature
+    - RateLimitConfig and EnterpriseAgentgatewayPolicy enforce a per-time-unit request cap
+    - Requests beyond the configured limit receive 429 Too Many Requests
+  docs: https://docs.solo.io/agentgateway/latest/security/rate-limit-http/
+
+spec:
+  diagram: |
+    sequenceDiagram
+      participant Client
+      participant AGW as agentgateway
+      participant RLS as Rate Limit Server
+      participant LLM as OpenAI
+      Client->>AGW: request
+      AGW->>RLS: check request counter
+      RLS-->>AGW: limit exceeded (5/min)
+      AGW-->>Client: 429 Too Many Requests
+      RLS-->>AGW: within limit, increment
+      AGW->>LLM: forward request
+      LLM-->>Client: response
+  steps:
+    - title: Add provider
+      description: Configure the OpenAI LLM provider backend and route.
+      features:
+        - name: providers
+          config:
+            providers:
+              - name: openai
+                providerName: openai
+                pathPrefix: /openai
+                model: gpt-4o-mini
+
+    - title: Apply rate limit policy
+      description: |
+        Create a RateLimitConfig with a global counter (5 requests per minute) and attach it to the Gateway via an EnterpriseAgentgatewayPolicy.
+      features:
+        - name: rate-limit
+          config:
+            mode: global
+            type: REQUEST
+            requestsPerUnit: 5
+            unit: MINUTE
+
+  tests:
+    - name: allow-request-within-limit
+      description: Requests within the rate limit window should succeed
+      steps:
+        - action: send-request
+          endpoint: /openai
+          prompt: 'What is your favorite poem?'
+        - action: verify
+          expect:
+            status: success
+
+    - name: rate-limited-after-threshold
+      description: The 6th request within the window should be rate limited (429)
+      steps:
+        - action: send-request
+          endpoint: /openai
+          prompt: 'Hello'
+        - action: send-request
+          endpoint: /openai
+          prompt: 'Hello'
+        - action: send-request
+          endpoint: /openai
+          prompt: 'Hello'
+        - action: send-request
+          endpoint: /openai
+          prompt: 'Hello'
+        - action: send-request
+          endpoint: /openai
+          prompt: 'Hello'
+        - action: send-request
+          endpoint: /openai
+          prompt: 'Hello'
+        - action: verify
+          expect:
+            statusCode: 429

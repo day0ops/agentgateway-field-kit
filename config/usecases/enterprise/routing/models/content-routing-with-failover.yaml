@@ -1,0 +1,126 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: content-routing-with-failover
+  description: |
+    Serve a single endpoint that content-routes to multiple real frontier models across different providers, with automatic cross-provider failover for one of them - the AgentgatewayModel-native equivalent of routing/body-routing/body-routing-with-failover (which routes a single /chat endpoint to Vertex AI and Ollama by body content, but never actually wires up failover - it's aspirational only, per that use case's own description).
+
+    - Requires the experimental AgentgatewayModel CRD/API enabled (`agentgatewayModels.enabled=true` Helm value on the control plane chart, `installAgentgatewayModelCRD=true` on the CRD chart)
+    - `gpt-4o-mini` and `claude-sonnet-5` are Public concrete models on different real providers (OpenAI, Anthropic) - the client picks either directly by name in the request body, routed by AgentgatewayModel's built-in content-based routing (no custom EnterpriseAgentgatewayPolicy/HTTPRoute regex needed)
+    - `internal-openai-primary` (OpenAI gpt-4o) sets `policies.health.unhealthyCondition: 'true'` so its first response is always marked unhealthy and evicted - demonstrating failover without needing a broken backend
+    - `resilient-chat` is a public virtual model with failover: priority 0 = `internal-openai-primary` (OpenAI), priority 1 = `internal-anthropic-fallback` (Anthropic) - a genuinely cross-provider failover pair, unlike routing/models/virtual-failover-resilience.yaml which only fails over between two OpenAI model variants
+  docs: https://docs.solo.io/agentgateway/latest/llm/models/virtual/
+
+spec:
+  diagram: |
+    flowchart LR
+      Client -->|"POST /v1/chat/completions model=gpt-4o-mini"| MG[models-gateway]
+      Client -->|"POST /v1/chat/completions model=claude-sonnet-5"| MG
+      Client -->|"POST /v1/chat/completions model=resilient-chat"| MG
+      MG --> A["AgentgatewayModel gpt-4o-mini"] --> OpenAI[OpenAI]
+      MG --> B["AgentgatewayModel claude-sonnet-5"] --> Anthropic[Anthropic]
+      MG --> VM["AgentgatewayModel resilient-chat (virtual, failover)"]
+      VM -->|priority 0, evicted after 1st response| Primary["internal-openai-primary (gpt-4o)"]
+      VM -->|priority 1, fallback| Fallback["internal-anthropic-fallback (claude-sonnet-5)"]
+      Primary --> OpenAI
+      Fallback --> Anthropic
+
+  features:
+    - name: gateway
+      config:
+        name: models-gateway
+        listeners:
+          - name: http
+            port: 8080
+            protocol: HTTP
+            allowedRoutes:
+              namespaces:
+                from: All
+              kinds:
+                - group: gateway.networking.k8s.io
+                  kind: HTTPRoute
+                - group: agentgateway.dev
+                  kind: AgentgatewayModel
+
+    - name: agentgateway-model
+      description: Two directly-requestable models on different providers, plus one cross-provider failover virtual model
+      config:
+        sectionName: http
+        models:
+          - name: gpt-4o-mini
+            provider: openai
+          - name: claude-sonnet-5
+            provider: anthropic
+          - name: internal-openai-primary
+            provider: openai
+            visibility: Internal
+            transformations:
+              - field: model
+                expression: '"gpt-4o"'
+            health:
+              unhealthyCondition: 'true'
+              eviction:
+                consecutiveFailures: 1
+          - name: internal-anthropic-fallback
+            provider: anthropic
+            visibility: Internal
+            transformations:
+              - field: model
+                expression: '"claude-sonnet-5"'
+          - name: resilient-chat
+            virtualModel:
+              failover:
+                targets:
+                  - name: internal-openai-primary
+                    priority: 0
+                  - name: internal-anthropic-fallback
+                    priority: 1
+
+  tests:
+    - name: test-direct-openai-model
+      description: Client requests gpt-4o-mini directly - content-routed straight to OpenAI
+      steps:
+        - action: send-request
+          endpoint: /v1/chat/completions
+          model: gpt-4o-mini
+          prompt: 'What is 2+2?'
+        - action: verify
+          expect:
+            status: success
+
+    - name: test-direct-anthropic-model
+      description: Client requests claude-sonnet-5 directly - content-routed straight to Anthropic
+      steps:
+        - action: send-request
+          endpoint: /v1/chat/completions
+          model: claude-sonnet-5
+          prompt: 'What is 2+2?'
+        - action: verify
+          expect:
+            status: success
+
+    - name: test-resilient-first-request-hits-openai-primary
+      description: The first request is served by the priority-0 (OpenAI) target before it gets evicted
+      steps:
+        - action: send-request
+          endpoint: /v1/chat/completions
+          model: resilient-chat
+          prompt: 'What is 2+2?'
+        - action: verify
+          expect:
+            status: success
+            modelIn:
+              - gpt-4o
+
+    - name: test-resilient-second-request-fails-over-to-anthropic
+      description: The OpenAI target is now evicted, so the Anthropic fallback target serves this request
+      steps:
+        - action: send-request
+          endpoint: /v1/chat/completions
+          model: resilient-chat
+          prompt: 'What is 2+2?'
+        - action: verify
+          expect:
+            status: success
+            modelIn:
+              - claude-sonnet-5

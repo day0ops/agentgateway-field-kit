@@ -1,0 +1,335 @@
+// addons/keycloak/runbook.js
+import { readFile } from 'fs/promises';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+const KEYCLOAK_VERSION = '26.7.0';
+const POSTGRES_VERSION = '18.2-alpine';
+
+function _renderTemplate(template, vars) {
+  return Object.entries(vars).reduce((t, [k, v]) => t.replaceAll(`{{${k}}}`, v), template);
+}
+
+function _generateStandardRealmCurls(realm) {
+  const lines = [];
+  const realmName = realm.realm;
+  lines.push(`# Create realm: ${realmName}`);
+  lines.push(`curl -sk -X POST "\${KEYCLOAK_SCHEME}://\${KEYCLOAK_HOST}/admin/realms" \\`);
+  lines.push(`  -H "Authorization: Bearer $KEYCLOAK_TOKEN" \\`);
+  lines.push(`  -H "Content-Type: application/json" \\`);
+  lines.push(`  -d '{"realm":"${realmName}","enabled":true,"loginWithEmailAllowed":true}'`);
+
+  for (const client of realm.clients || []) {
+    const isPublic = client.type === 'public';
+    const flows = client.flows || [];
+    const serviceAccountsEnabled = !isPublic && flows.includes('service-account');
+    const standardFlowEnabled = flows.includes('authorization-code');
+    lines.push('');
+    lines.push(`# Client: ${client.clientId} (${client.type})`);
+    lines.push(
+      `curl -sk -X POST "\${KEYCLOAK_SCHEME}://\${KEYCLOAK_HOST}/admin/realms/${realmName}/clients" \\`
+    );
+    lines.push(`  -H "Authorization: Bearer $KEYCLOAK_TOKEN" \\`);
+    lines.push(`  -H "Content-Type: application/json" \\`);
+    const clientPayload = {
+      clientId: client.clientId,
+      publicClient: isPublic,
+      serviceAccountsEnabled,
+      standardFlowEnabled,
+    };
+    if (!isPublic && client.clientSecret) {
+      clientPayload.secret = client.clientSecret;
+    }
+    lines.push(`  -d '${JSON.stringify(clientPayload)}'`);
+  }
+
+  for (const user of realm.users || []) {
+    const attrs = {};
+    for (const [k, v] of Object.entries(user.attributes || {})) {
+      attrs[k] = [v];
+    }
+    const userPayload = {
+      username: user.username,
+      email: user.email,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      enabled: true,
+      credentials: [
+        { type: 'password', value: realm.defaultPassword || 'Password1!', temporary: false },
+      ],
+      attributes: attrs,
+    };
+    lines.push('');
+    lines.push(`# User: ${user.username}`);
+    lines.push(
+      `curl -sk -X POST "\${KEYCLOAK_SCHEME}://\${KEYCLOAK_HOST}/admin/realms/${realmName}/users" \\`
+    );
+    lines.push(`  -H "Authorization: Bearer $KEYCLOAK_TOKEN" \\`);
+    lines.push(`  -H "Content-Type: application/json" \\`);
+    lines.push(`  -d '${JSON.stringify(userPayload)}'`);
+  }
+
+  return lines.join('\n');
+}
+
+function _generateOrgRealmCurls(realm) {
+  const lines = [];
+  const realmName = realm.realm;
+  lines.push(`# Create realm: ${realmName}`);
+  lines.push(`curl -sk -X POST "\${KEYCLOAK_SCHEME}://\${KEYCLOAK_HOST}/admin/realms" \\`);
+  lines.push(`  -H "Authorization: Bearer $KEYCLOAK_TOKEN" \\`);
+  lines.push(`  -H "Content-Type: application/json" \\`);
+  lines.push(`  -d '{"realm":"${realmName}","enabled":true}'`);
+
+  for (const team of realm.teams || []) {
+    lines.push('');
+    lines.push(`# Team client: ${team.clientId}`);
+    lines.push(
+      `curl -sk -X POST "\${KEYCLOAK_SCHEME}://\${KEYCLOAK_HOST}/admin/realms/${realmName}/clients" \\`
+    );
+    lines.push(`  -H "Authorization: Bearer $KEYCLOAK_TOKEN" \\`);
+    lines.push(`  -H "Content-Type: application/json" \\`);
+    const teamClientPayload = {
+      clientId: team.clientId,
+      secret: team.clientSecret,
+      publicClient: false,
+      serviceAccountsEnabled: true,
+    };
+    lines.push(`  -d '${JSON.stringify(teamClientPayload)}'`);
+
+    for (const user of team.users || []) {
+      const attrs = {};
+      for (const [k, v] of Object.entries(user.attributes || {})) {
+        attrs[k] = [v];
+      }
+      const userPayload = {
+        username: user.username,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        enabled: true,
+        credentials: [
+          { type: 'password', value: realm.defaultPassword || 'Password1!', temporary: false },
+        ],
+        attributes: attrs,
+      };
+      lines.push('');
+      lines.push(`# User: ${user.username}`);
+      lines.push(
+        `curl -sk -X POST "\${KEYCLOAK_SCHEME}://\${KEYCLOAK_HOST}/admin/realms/${realmName}/users" \\`
+      );
+      lines.push(`  -H "Authorization: Bearer $KEYCLOAK_TOKEN" \\`);
+      lines.push(`  -H "Content-Type: application/json" \\`);
+      lines.push(`  -d '${JSON.stringify(userPayload)}'`);
+    }
+  }
+  return lines.join('\n');
+}
+
+export function envVarsFor(_cfg) {
+  return [
+    {
+      name: 'KEYCLOAK_ADMIN_USERNAME',
+      required: true,
+      description: 'Keycloak master realm bootstrap admin username',
+    },
+    {
+      name: 'KEYCLOAK_ADMIN_PASSWORD',
+      required: true,
+      description: 'Keycloak master realm bootstrap admin password',
+    },
+    {
+      name: 'KEYCLOAK_POSTGRES_USER',
+      required: true,
+      description: "Postgres superuser backing Keycloak's DB",
+    },
+    {
+      name: 'KEYCLOAK_POSTGRES_PASSWORD',
+      required: true,
+      description: 'Postgres superuser password',
+    },
+  ];
+}
+
+export function envExportsFor(cfg) {
+  const c = cfg || {};
+  return [
+    { key: 'KEYCLOAK_VERSION', value: c.keycloakVersion || KEYCLOAK_VERSION, group: 'versions' },
+    { key: 'POSTGRES_VERSION', value: c.postgresVersion || POSTGRES_VERSION, group: 'versions' },
+    { key: 'KC_NAMESPACE', value: c.keycloakNamespace || 'keycloak', group: 'settings' },
+    { key: 'KEYCLOAK_HOST', value: c.hostname || '<KEYCLOAK_HOST>', group: 'endpoints' },
+    { key: 'KEYCLOAK_SCHEME', value: c.protocol || 'https', group: 'endpoints' },
+  ];
+}
+
+export async function generate(_subIndex, profileAddonConfig) {
+  const cfg = profileAddonConfig || {};
+  const tlsSecretName = cfg.tls?.secretName || 'keycloak-tls';
+  const storageClass = cfg.storageClass || '';
+
+  const postgresTemplate = await readFile(join(__dirname, 'config', 'postgres.yaml'), 'utf8');
+  const keycloakTemplate = await readFile(join(__dirname, 'config', 'keycloak.yaml'), 'utf8');
+
+  let postgresRendered = _renderTemplate(postgresTemplate, {
+    NAMESPACE: '$KC_NAMESPACE',
+    POSTGRES_VERSION: '$POSTGRES_VERSION',
+    STORAGE_CLASS_NAME: storageClass,
+    POSTGRES_USER: '$KEYCLOAK_POSTGRES_USER',
+    POSTGRES_PASSWORD: '$KEYCLOAK_POSTGRES_PASSWORD',
+  });
+  postgresRendered = postgresRendered.replace(/\n\s*storageClassName: ''\n/, '\n');
+
+  // cfg.keycloakImage may be a bare repo (append $KEYCLOAK_VERSION) or already a full
+  // repo:tag reference - mirrors the same detection in addons/keycloak/index.js.
+  const keycloakImageBase = cfg.keycloakImage || 'quay.io/keycloak/keycloak';
+  const keycloakImageHasTag = /:[^/]+$/.test(cfg.keycloakImage || '');
+  const keycloakRendered = _renderTemplate(keycloakTemplate, {
+    NAMESPACE: '$KC_NAMESPACE',
+    HOSTNAME: '$KEYCLOAK_HOST',
+    KEYCLOAK_IMAGE: keycloakImageHasTag
+      ? keycloakImageBase
+      : `${keycloakImageBase}:$KEYCLOAK_VERSION`,
+    TLS_SECRET_NAME: tlsSecretName,
+    ADMIN_USERNAME: '$KEYCLOAK_ADMIN_USERNAME',
+    ADMIN_PASSWORD: '$KEYCLOAK_ADMIN_PASSWORD',
+  });
+
+  const lines = [];
+  lines.push('### Install Keycloak');
+  lines.push('');
+  lines.push('Deploys Keycloak identity provider with PostgreSQL backend.');
+  lines.push('');
+  lines.push('#### Create namespace');
+  lines.push('');
+  lines.push('```bash');
+  lines.push(
+    'kubectl create namespace ${KC_NAMESPACE} --dry-run=client -o yaml | kubectl apply -f -'
+  );
+  lines.push('```');
+  lines.push('');
+  lines.push('#### Deploy PostgreSQL');
+  lines.push('');
+  lines.push('```bash');
+  lines.push('kubectl apply -f - <<EOF');
+  lines.push(postgresRendered.trimEnd());
+  lines.push('EOF');
+  lines.push('```');
+  lines.push('');
+  lines.push('#### Wait for PostgreSQL to be ready');
+  lines.push('');
+  lines.push('```bash');
+  lines.push('kubectl rollout status deployment/postgres -n ${KC_NAMESPACE} --timeout=120s');
+  lines.push('```');
+  lines.push('');
+  lines.push('#### Deploy Keycloak');
+  lines.push('');
+  lines.push('```bash');
+  lines.push('kubectl apply -f - <<EOF');
+  lines.push(keycloakRendered.trimEnd());
+  lines.push('EOF');
+  lines.push('```');
+  lines.push('');
+  lines.push('#### Wait for Keycloak to be ready');
+  lines.push('');
+  lines.push('```bash');
+  lines.push('kubectl rollout status deployment/keycloak -n ${KC_NAMESPACE} --timeout=600s');
+  lines.push('```');
+  lines.push('');
+  lines.push('#### Configure Keycloak via Admin API');
+  lines.push('');
+  lines.push('```bash');
+  lines.push('# Get admin token');
+  lines.push('KEYCLOAK_TOKEN=$(curl -sk -X POST \\');
+  lines.push(
+    '  "${KEYCLOAK_SCHEME}://${KEYCLOAK_HOST}/realms/master/protocol/openid-connect/token" \\'
+  );
+  lines.push(
+    '  -d "client_id=admin-cli&grant_type=password&username=${KEYCLOAK_ADMIN_USERNAME}&password=${KEYCLOAK_ADMIN_PASSWORD}" | jq -r \'.access_token\')'
+  );
+
+  const realms = cfg.realms || [];
+  for (const realm of realms) {
+    lines.push('');
+    if (realm.teams) {
+      lines.push(_generateOrgRealmCurls(realm));
+    } else {
+      lines.push(_generateStandardRealmCurls(realm));
+    }
+  }
+
+  const workloadClients = cfg.workloadClients || [];
+  if (workloadClients.length > 0) {
+    lines.push('');
+    lines.push('# Create workload client Kubernetes secrets');
+    for (const wc of workloadClients) {
+      lines.push('');
+      lines.push(`kubectl create secret generic ${wc.k8sSecretName} \\`);
+      lines.push(`  -n \${AGW_NAMESPACE} \\`);
+      lines.push(`  --from-literal=clientId=${wc.clientId} \\`);
+      lines.push(`  --from-literal=clientSecret=${wc.clientSecret} \\`);
+      lines.push(`  --from-literal=audience=${wc.audience} \\`);
+      lines.push('  --dry-run=client -o yaml | kubectl apply -f -');
+    }
+  }
+
+  const soloUIClients = cfg.soloUIClients;
+  if (soloUIClients?.enabled) {
+    const suiRealm = soloUIClients.realm || 'solo-ui';
+    lines.push('');
+    lines.push(`# Create Solo UI realm: ${suiRealm}`);
+    lines.push(`curl -sk -X POST "\${KEYCLOAK_SCHEME}://\${KEYCLOAK_HOST}/admin/realms" \\`);
+    lines.push(`  -H "Authorization: Bearer $KEYCLOAK_TOKEN" \\`);
+    lines.push(`  -H "Content-Type: application/json" \\`);
+    lines.push(`  -d '{"realm":"${suiRealm}","enabled":true}'`);
+
+    if (soloUIClients.backendClientId) {
+      const backendPayload = {
+        clientId: soloUIClients.backendClientId,
+        secret: soloUIClients.backendClientSecret,
+        publicClient: false,
+        serviceAccountsEnabled: false,
+        standardFlowEnabled: true,
+      };
+      lines.push('');
+      lines.push(`# Backend client (confidential): ${soloUIClients.backendClientId}`);
+      lines.push(
+        `curl -sk -X POST "\${KEYCLOAK_SCHEME}://\${KEYCLOAK_HOST}/admin/realms/${suiRealm}/clients" \\`
+      );
+      lines.push(`  -H "Authorization: Bearer $KEYCLOAK_TOKEN" \\`);
+      lines.push(`  -H "Content-Type: application/json" \\`);
+      lines.push(`  -d '${JSON.stringify(backendPayload)}'`);
+    }
+
+    if (soloUIClients.frontendClientId) {
+      const frontendPayload = {
+        clientId: soloUIClients.frontendClientId,
+        publicClient: true,
+        serviceAccountsEnabled: false,
+        standardFlowEnabled: true,
+      };
+      lines.push('');
+      lines.push(`# Frontend client (public): ${soloUIClients.frontendClientId}`);
+      lines.push(
+        `curl -sk -X POST "\${KEYCLOAK_SCHEME}://\${KEYCLOAK_HOST}/admin/realms/${suiRealm}/clients" \\`
+      );
+      lines.push(`  -H "Authorization: Bearer $KEYCLOAK_TOKEN" \\`);
+      lines.push(`  -H "Content-Type: application/json" \\`);
+      lines.push(`  -d '${JSON.stringify(frontendPayload)}'`);
+    }
+  }
+
+  lines.push('```');
+  return lines.join('\n');
+}
+
+export function cleanup(_cfg) {
+  return [
+    '```bash',
+    'kubectl delete all --all -n ${KC_NAMESPACE}',
+    'kubectl delete namespace ${KC_NAMESPACE} --ignore-not-found',
+    '```',
+  ].join('\n');
+}

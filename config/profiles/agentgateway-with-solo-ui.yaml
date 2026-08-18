@@ -1,0 +1,21 @@
+apiVersion: agentgateway.demo/v1
+kind: Profile
+metadata:
+  name: agentgateway-with-solo-ui
+  description: |
+    Agentgateway profile with Solo UI and telemetry stack
+spec:
+  environment: local
+
+  helmValues: {}
+
+  addons:
+    - name: solo-ui
+      description: Solo Enterprise UI for agentgateway
+      namespace: agentgateway-system
+
+    - name: telemetry
+      description: OpenTelemetry observability stack (Prometheus, Grafana, Loki, Tempo)
+      namespace: telemetry
+      config:
+        enableTraces: false

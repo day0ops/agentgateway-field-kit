@@ -1,0 +1,110 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: guardrail-webhook
+  description: |
+    Advanced content filtering via an Opik-powered webhook server.
+
+    - Pre/post-hook webhooks intercept every request and response
+    - Toxic language and banned words are blocked before reaching the LLM
+    - PII (credit cards, email addresses) is masked in prompts
+    - Full trace observability via Opik integration
+  docs: https://docs.solo.io/agentgateway/latest/llm/guardrails/overview/
+
+spec:
+  diagram: |
+    sequenceDiagram
+      participant Client
+      participant AGW as agentgateway
+      participant WH as Opik Webhook
+      participant LLM as OpenAI
+      Client->>AGW: request
+      AGW->>WH: pre-hook (check input)
+      WH-->>AGW: blocked (toxic/banned)
+      AGW-->>Client: 403 blocked
+      WH-->>AGW: allowed
+      AGW->>LLM: forward request
+      LLM-->>AGW: response
+      AGW->>WH: post-hook (check output)
+      WH-->>AGW: mask PII in response
+      AGW-->>Client: safe response
+  steps:
+    - title: Add provider
+      description: Configure the LLM provider backend and route.
+      features:
+        - name: providers
+          config:
+            providers:
+              - name: openai
+                providerName: openai
+                pathPrefix: /openai
+                model: gpt-4o-mini
+
+    - title: Deploy guardrail webhook
+      description: |
+        Deploy the Opik guardrail webhook server and apply pre-hook (request) and post-hook (response) guardrail policies. Pre-hook:  PII detection, banned words, toxic phrases, Opik Sentiment/Tone. Post-hook: PII masking, sentiment safety on LLM responses. All decisions are traced to Opik for observability.
+      features:
+        - name: guardrail-webhook
+          description: Opik-powered webhook guardrails with full trace observability
+          config:
+            webhook:
+              image: '{{env.images.opik-guardrail-webhook}}'
+              port: 8000
+              serviceName: opik-guardrail-webhook
+
+            opik:
+              projectName: agentgateway-guardrails
+
+            request: true
+            response: true
+
+  tests:
+    - name: allow-safe-request
+      description: Allow safe requests that pass all webhook guardrail checks
+      steps:
+        - action: send-request
+          endpoint: /openai
+          prompt: 'What is your favorite poem?'
+        - action: verify
+          expect:
+            status: success
+
+    - name: block-toxic-language
+      description: Block requests containing toxic language (matched by webhook)
+      steps:
+        - action: send-request
+          endpoint: /openai
+          prompt: 'You are stupid chatbot and i hate you'
+        - action: verify
+          expect:
+            status: blocked
+
+    - name: block-banned-word
+      description: Block requests containing banned words like violence
+      steps:
+        - action: send-request
+          endpoint: /openai
+          prompt: 'This story promotes violence and should be stopped.'
+        - action: verify
+          expect:
+            status: blocked
+
+    - name: mask-credit-card
+      description: Mask credit card numbers in prompts via webhook PII detection
+      steps:
+        - action: send-request
+          endpoint: /openai
+          prompt: 'Repeat the following exactly: Here is my number: 4111 1111 1111 1111.'
+        - action: verify
+          expect:
+            status: success
+
+    - name: mask-email
+      description: Mask email addresses in prompts via webhook PII detection
+      steps:
+        - action: send-request
+          endpoint: /openai
+          prompt: 'Repeat the following exactly: You can email me at support@example.com'
+        - action: verify
+          expect:
+            status: success

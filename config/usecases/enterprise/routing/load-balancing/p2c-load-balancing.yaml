@@ -1,0 +1,65 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: p2c-load-balancing
+  description: |
+    Distribute requests across OpenAI and Vertex AI using Power of Two Choices (P2C).
+
+    - All providers placed in a single group with no priority — P2C activates automatically
+    - P2C picks 2 backends at random, selects the one with fewer pending requests / better health
+    - No client changes needed; gateway handles distribution transparently
+    - Contrast with model-failover where providers have different priorities
+  docs: https://docs.solo.io/agentgateway/latest/llm/load-balancing/
+
+spec:
+  diagram: |
+    sequenceDiagram
+      participant Client
+      participant AGW as agentgateway (P2C)
+      participant OAI as OpenAI gpt-4o-mini
+      participant VAI as Vertex Gemini Flash
+      Client->>AGW: POST /model
+      AGW->>AGW: P2C: pick 2, select best
+      alt backend selected: OpenAI
+        AGW->>OAI: forward request
+        OAI-->>Client: response
+      else backend selected: Vertex AI
+        AGW->>VAI: forward request
+        VAI-->>Client: response
+      end
+
+  features:
+    - name: load-balancing
+      description: P2C load balancing across OpenAI and Vertex AI
+      config:
+        pathPrefix: /model
+        providers:
+          - name: openai
+            model: gpt-4o-mini
+          - name: vertex-ai
+            model: google/gemini-2.5-flash
+            location: us-east5
+
+  tests:
+    - name: requests-distributed-across-providers
+      description: Multiple requests should be distributed across both providers
+      steps:
+        - action: send-request
+          endpoint: /model
+          prompt: 'What is 2+2?'
+        - action: verify
+          expect:
+            status: success
+            modelIn:
+              - gpt-4o-mini
+              - gemini-2.5-flash
+
+    - name: gateway-selects-healthy-backend
+      description: P2C selects backend with fewer pending requests
+      steps:
+        - action: send-request
+          endpoint: /model
+          prompt: 'Hello'
+        - action: verify
+          expect:
+            status: success

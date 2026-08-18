@@ -1,0 +1,88 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: cost-based-priority
+  description: |
+    Cost-optimized failover mixing OpenAI and Vertex AI providers.
+
+    - Priority 100 (cheap, load balanced):  gpt-4o-mini, Gemini Flash
+    - Priority 50  (premium, fallback only): gpt-4o, Gemini Pro
+    - Premium models only receive traffic when all cheaper options are unavailable
+  docs: https://docs.solo.io/agentgateway/latest/llm/failover/
+
+spec:
+  diagram: |
+    sequenceDiagram
+      participant Client
+      participant AGW as agentgateway
+      participant Cheap as gpt-4o-mini / Gemini Flash
+      participant Premium as gpt-4o / Gemini Pro
+      Client->>AGW: request
+      AGW->>Cheap: route to cheap models (priority 100)
+      Cheap-->>AGW: upstream error (5xx/timeout)
+      AGW->>Premium: failover to premium models
+      Premium-->>Client: response
+
+  features:
+    - name: model-failover
+      description: Configure cost-based priority with cheaper models first, premium fallback
+      config:
+        pathPrefix: /model
+        providers:
+          # Priority 100 - Cheaper models (load balanced, tried first)
+          - name: openai
+            model: gpt-4o-mini
+            priority: 100
+          - name: vertex-ai
+            model: google/gemini-2.5-flash
+            location: us-east5
+            priority: 100
+
+          # Priority 50 - Premium models (fallback only)
+          - name: openai
+            model: gpt-4o
+            priority: 50
+          - name: vertex-ai
+            model: google/gemini-2.5-pro
+            location: us-east5
+            priority: 50
+
+  tests:
+    - name: test-cheaper-models-first
+      description: Verify that cheaper models (priority 100) are used first
+      steps:
+        - action: send-request
+          endpoint: /model
+          prompt: 'What is machine learning?'
+        - action: verify
+          expect:
+            status: success
+            modelIn:
+              - gpt-4o-mini
+              - gemini-2.5-flash
+
+    - name: test-load-balancing
+      description: Verify load balancing across cheaper models
+      steps:
+        - action: send-request
+          endpoint: /model
+          prompt: 'Explain AI in simple terms'
+        - action: verify
+          expect:
+            status: success
+            modelIn:
+              - gpt-4o-mini
+              - gemini-2.5-flash
+
+    - name: test-cost-optimization
+      description: Verify cost optimization by checking cheaper models are preferred
+      steps:
+        - action: send-request
+          endpoint: /model
+          prompt: 'Hello, how are you?'
+        - action: verify
+          expect:
+            status: success
+            modelIn:
+              - gpt-4o-mini
+              - gemini-2.5-flash

@@ -1,0 +1,23 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: quota-management-https
+  namespace: agentgateway-system
+  labels:
+    app.kubernetes.io/managed-by: agentgateway-demo
+    agentgateway.dev/feature: quota-budget
+spec:
+  gatewayClassName: enterprise-agentgateway
+  listeners:
+    - name: https
+      port: 443
+      protocol: HTTPS
+      hostname: example.com
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: quota-management-tls-secret
+            kind: Secret
+      allowedRoutes:
+        namespaces:
+          from: All

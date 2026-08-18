@@ -1,0 +1,75 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: dynamic-mcp-server
+  description: |
+    Discovers the MCP server automatically via a Kubernetes label selector instead of a fixed address, so the backend can be redeployed or scaled without updating the route.
+  docs: https://docs.solo.io/agentgateway/latest/mcp/dynamic-mcp/
+
+spec:
+  diagram: |
+    sequenceDiagram
+      participant Agent
+      participant AGW as agentgateway
+      participant K8s as K8s Controller
+      participant MCP as MCP Stock Server
+      K8s->>AGW: watch label selector, push endpoints
+      Agent->>AGW: MCP initialize
+      AGW->>MCP: forward (resolved endpoint)
+      MCP-->>Agent: tools list
+      Agent->>AGW: MCP tools/call
+      AGW->>MCP: forward tool call
+      MCP-->>Agent: tool result
+  steps:
+    - title: Deploy LLM provider and MCP server with dynamic backend
+      description: |
+        Deploy an OpenAI LLM provider and the MCP stock server workload. Create an AgentgatewayBackend that uses a Kubernetes label selector to discover the MCP service dynamically. Unlike a static backend, the backing MCP server can be updated without changing the Backend resource. The Service uses appProtocol kgateway.dev/mcp so agentgateway speaks the MCP protocol to the upstream. Note: only Streamable HTTP is supported for label selectors.
+      features:
+        - name: providers
+          config:
+            providers:
+              - name: openai
+                providerName: openai
+                pathPrefix: /openai
+                model: gpt-4o-mini
+
+        - name: mcp-server
+          config:
+            deployServer: true
+            image: '{{env.images.stock-server-mcp}}'
+            serverName: stock-server-mcp
+            serverPort: 8000
+            servicePort: 80
+            protocol: StreamableHTTP
+            mcpPath: /mcp
+            backendName: mcp-backend
+            targetName: stock-server-mcp
+            matchLabels:
+              app: stock-server-mcp
+            routeName: mcp
+
+  tests:
+    - name: test-mcp-tools-list
+      description: Verify the MCP server tools are discoverable through agentgateway via dynamic backend
+      steps:
+        - action: send-mcp-request
+          endpoint: /mcp
+          method: tools/list
+        - action: verify
+          expect:
+            status: success
+            contains: get_stock_price
+
+    - name: test-mcp-tool-call
+      description: Call the get_stock_price tool through agentgateway via dynamic backend
+      steps:
+        - action: send-mcp-request
+          endpoint: /mcp
+          method: tools/call
+          params:
+            name: get_stock_price
+            arguments:
+              symbol: AAPL
+        - action: verify
+          expect:
+            status: success

@@ -1,0 +1,152 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: elicitation-oauth-flow
+  description: |
+    Handles the case where an agent needs to act on a user's behalf against an external API (like GitHub) but has no stored credential yet.
+
+    - The gateway pauses the request and returns a link for the user to complete an OAuth login
+    - Once the user approves, the token is stored and the request goes through automatically next time
+  docs: https://docs.solo.io/agentgateway/latest/mcp/token-exchange/elicitations/
+
+spec:
+  diagram: |
+    sequenceDiagram
+      participant Agent
+      participant AGW as agentgateway
+      participant STS as STS :7777
+      participant UI as Solo UI
+      participant GitHub as External OAuth (GitHub)
+      participant API as External API
+      Agent->>AGW: Request to /api/user (needs GitHub token)
+      AGW->>STS: Check for upstream token
+      STS-->>AGW: No token, elicitation required
+      AGW-->>Agent: 202 + elicitation_url (PENDING)
+      Note over Agent: Agent pauses, waits for user
+      Agent->>UI: Notify user: "Authorization needed"
+      Note over UI: User opens Solo UI
+      UI->>GitHub: OAuth authorize redirect
+      Note over UI,GitHub: User authenticates with GitHub
+      GitHub-->>UI: Authorization code
+      UI->>STS: Exchange code for token
+      STS->>GitHub: Token exchange
+      GitHub-->>STS: Access token
+      STS-->>UI: Elicitation COMPLETED
+      Note over Agent: Agent retries
+      Agent->>AGW: Retry request to /api/user
+      AGW->>STS: Check for upstream token
+      STS-->>AGW: Token found
+      AGW->>API: Forward request + Bearer token
+      API-->>Agent: Success response
+  steps:
+    - title: Deploy Postgres for the token exchange service
+      description: |
+        Deploy a dedicated Postgres instance for this usecase's own STS database - required because token-exchange's Helm upgrades never clear a previous usecase's database.postgres.url, only ever set it.
+      features:
+        - name: postgres
+          config:
+            name: elicitation-oauth-flow-postgres
+
+    - title: Set up token exchange service
+      description: |
+        Enable the Security Token Service (STS) on the agentgateway control plane (port 7777) via Helm upgrade. The STS manages elicitation state and stores OAuth tokens for the out-of-band consent flow.
+      features:
+        - name: token-exchange
+          config:
+            keycloak:
+              realm: agw-dev
+              serviceName: keycloak
+              serviceNamespace: keycloak
+            tokenExpiration: 24h
+            callbackUrl: http://localhost:4000/age/elicitations
+            database:
+              postgres:
+                url: postgres://tokenexchange:tokenexchange@elicitation-oauth-flow-postgres.agentgateway-system.svc.cluster.local:5432/tokenexchange?sslmode=disable
+
+    - title: Create elicitation secret
+      description: |
+        Create a Kubernetes secret holding the external OAuth provider's client secret (GitHub in this example). The rest of the OAuth client config (client ID, authorize/access-token URLs, scopes, redirect URI) is literal config on the elicitation-backend step below, not secret data.
+      features:
+        - name: elicitation-secret
+          config:
+            secretName: elicitation-github
+            provider: github
+            clientSecretEnvVar: GITHUB_ISSUER_CLIENT_SECRET
+
+    - title: Configure elicitation backend
+      description: |
+        Create an AgentgatewayBackend for the external API (GitHub API) and configure an EnterpriseAgentgatewayPolicy with backend.entElicitation. When requests arrive without an upstream token: 1. STS returns an elicitation URL with PENDING status 2. User completes OAuth in Solo UI 3. STS stores the token with COMPLETED status 4. Subsequent requests have the token injected automatically (Authorization header)
+      features:
+        - name: elicitation-backend
+          config:
+            backendName: github-api
+            policyName: github-elicitation
+            routeName: github-api
+            pathPrefix: /github
+            secretName: elicitation-github
+            provider: github
+            clientIdEnvVar: GITHUB_ISSUER_CLIENT_ID
+            scopes: ['read:user', 'repo']
+            redirectUri: http://localhost:4000/age/elicitations
+            upstream:
+              host: api.github.com
+              port: 443
+              tls: true
+
+  tests:
+    - name: test-request-without-token-returns-elicitation
+      description: Verify request without upstream token returns elicitation URL
+      steps:
+        - action: get-token
+          keycloak:
+            realm: agw-dev
+            clientId: agw-client-public
+            hostname: '{{env.domains.keycloak}}'
+            scheme: '{{env.keycloak.scheme}}'
+        - action: send-request
+          endpoint: /github/user
+          method: GET
+          auth: bearer
+        - action: verify
+          expect:
+            status: 500
+            contains: '"url"'
+
+    - name: test-elicitation-status-pending
+      description: Verify the elicitation stays pending on a repeat request, instead of being re-created or erroring differently
+      steps:
+        - action: get-token
+          keycloak:
+            realm: agw-dev
+            clientId: agw-client-public
+            hostname: '{{env.domains.keycloak}}'
+            scheme: '{{env.keycloak.scheme}}'
+        - action: send-request
+          endpoint: /github/user
+          method: GET
+          auth: bearer
+        - action: verify
+          expect:
+            status: 500
+            contains: '"url"'
+
+    - name: test-elicitation-visible-in-ui
+      description: Verify pending elicitation is visible in Solo UI (manual verification)
+      manual: true
+      steps:
+        - action: note
+          text: >
+            Open http://localhost:4000 in a browser.
+            Navigate to Elicitations section.
+            Verify pending elicitation for GitHub is visible.
+            Click to complete OAuth authorization.
+
+    - name: test-after-authorization-success
+      description: Verify requests succeed after user completes authorization (manual verification)
+      manual: true
+      steps:
+        - action: note
+          text: >
+            After completing OAuth in Solo UI, retry the API request.
+            The token should be automatically injected.
+            Response should contain GitHub user data.

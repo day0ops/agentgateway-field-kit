@@ -1,0 +1,60 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: wildcard-model-family
+  description: |
+    Serve a family of OpenAI models behind a single wildcard AgentgatewayModel, stripping the client-facing prefix before the request reaches the provider.
+
+    - Requires the experimental AgentgatewayModel CRD/API enabled (`agentgatewayModels.enabled=true` Helm value on the control plane chart, `installAgentgatewayModelCRD=true` on the CRD chart)
+    - `match.model: openai/*` matches any client-facing name starting with `openai/`
+    - A `model` transformation strips the `openai/` prefix before the request is forwarded
+  docs: https://docs.solo.io/agentgateway/latest/llm/models/serve/
+
+spec:
+  diagram: |
+    flowchart LR
+      Client -->|"POST model=openai/gpt-4o-mini"| MG[models-gateway]
+      MG --> Model["AgentgatewayModel openai-models match=openai/*"]
+      Model -->|strip prefix -> gpt-4o-mini| OpenAI[OpenAI]
+
+  features:
+    - name: gateway
+      config:
+        name: models-gateway
+        listeners:
+          - name: http
+            port: 8080
+            protocol: HTTP
+            allowedRoutes:
+              namespaces:
+                from: All
+              kinds:
+                - group: gateway.networking.k8s.io
+                  kind: HTTPRoute
+                - group: agentgateway.dev
+                  kind: AgentgatewayModel
+
+    - name: agentgateway-model
+      description: Wildcard AgentgatewayModel for the openai/* family with a stripPrefix transformation
+      config:
+        sectionName: http
+        models:
+          - name: openai-models
+            match: 'openai/*'
+            provider: openai
+            visibility: Public
+            transformations:
+              - field: model
+                expression: 'llmRequest.model.stripPrefix("openai/")'
+
+  tests:
+    - name: test-wildcard-model-family-prefix-stripped
+      description: Client sends the openai/-prefixed name; gateway strips it before forwarding to OpenAI
+      steps:
+        - action: send-request
+          endpoint: /v1/chat/completions
+          model: openai/gpt-4o-mini
+          prompt: 'What is 2+2?'
+        - action: verify
+          expect:
+            status: success

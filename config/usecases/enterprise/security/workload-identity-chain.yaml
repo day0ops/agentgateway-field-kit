@@ -1,0 +1,166 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: workload-identity-chain
+  description: |
+    Two-hop workload identity chain using Kubernetes ServiceAccount token exchange.
+
+    - Each agent independently exchanges its auto-mounted K8s SA JWT for a Keycloak token via grant_type=token-exchange — no long-lived secrets stored
+    - JWT policies enforced at BOTH /agent and /mcp (unlike agent-workload-identity)
+    - The MCP server sees stock-agent's identity, not caller-agent's
+  docs: https://docs.solo.io/agentgateway/latest/security/
+
+spec:
+  diagram: |
+    sequenceDiagram
+      participant CA as Caller Agent
+      participant KC as Keycloak
+      participant AGW as agentgateway
+      participant SA as Stock Agent
+      participant MCP as MCP Server
+      Note over CA: Autonomous workload
+      Note over CA: USE_KEYCLOAK_EXCHANGE=true
+      CA->>KC: token-exchange (SA JWT, client_id=chain-caller-agent)
+      KC-->>CA: access_token aud=agentgateway, azp=chain-caller-agent
+      CA->>AGW: POST /agent/run + Bearer token
+      Note over AGW: JWT policy on /agent
+      Note over AGW: validates aud=agentgateway
+      AGW->>SA: forward (header stripped)
+      Note over SA: MCP_AUTH_MODE=workload
+      Note over SA: USE_KEYCLOAK_EXCHANGE=true
+      SA->>KC: token-exchange (SA JWT, client_id=chain-stock-agent)
+      KC-->>SA: access_token aud=agentgateway, azp=chain-stock-agent
+      SA->>AGW: POST /openai (LLM call)
+      AGW-->>SA: answer
+      SA->>AGW: POST /mcp + Bearer token
+      Note over AGW: JWT policy on /mcp
+      Note over AGW: CEL RBAC azp=chain-stock-agent
+      AGW->>MCP: forward authenticated request
+      MCP-->>SA: tool result
+      SA-->>CA: final answer
+
+  steps:
+    - title: Deploy LLM provider
+      description: |
+        Expose an OpenAI LLM provider at /openai so the stock agent can route completions through the gateway.
+      features:
+        - name: providers
+          config:
+            providers:
+              - name: openai
+                providerName: openai
+                pathPrefix: /openai
+
+    - title: Deploy MCP stock server
+      description: |
+        Deploy the MCP stock price server and expose it through agentgateway at /mcp. This is the tool backend the stock agent authenticates to using its own workload identity in this use case.
+      features:
+        - name: mcp-server
+          config:
+            deployServer: true
+            image: '{{env.images.stock-server-mcp}}'
+            serverName: stock-server-mcp
+            serverPort: 8000
+            servicePort: 80
+            protocol: StreamableHTTP
+            env:
+              MCP_TRANSPORT: streamable-http
+            mcpPath: /mcp
+            pathPrefix: /mcp
+            backendName: mcp-backend
+            routeName: mcp
+
+    - title: Apply JWT auth policy on the stock-agent route
+      description: |
+        Protect the stock-agent HTTPRoute with a JWT policy in Strict mode. Only the caller-agent's workload token (aud=agentgateway) is admitted. The Authorization header is stripped before forwarding to the stock agent — the stock agent authenticates to MCP independently.
+      features:
+        - name: obo-token-exchange
+          config:
+            policyName: chain-stock-agent-jwt-policy
+            issuer: 'http://{{env.domains.keycloak}}:8080/realms/agw-dev'
+            jwksPath: realms/agw-dev/protocol/openid-connect/certs
+            audiences:
+              - agentgateway
+            jwtMode: Strict
+            targetRefs:
+              - group: gateway.networking.k8s.io
+                kind: HTTPRoute
+                name: stock-agent
+
+    - title: Apply JWT auth policy on the MCP route
+      description: |
+        Protect the MCP HTTPRoute with a JWT policy in Strict mode. Only the stock-agent's own workload token (aud=agentgateway, azp=stock-agent) is admitted. This is a second independent enforcement point — the MCP server has no knowledge of the caller-agent.
+      features:
+        - name: obo-token-exchange
+          config:
+            policyName: chain-mcp-jwt-policy
+            issuer: 'http://{{env.domains.keycloak}}:8080/realms/agw-dev'
+            jwksPath: realms/agw-dev/protocol/openid-connect/certs
+            audiences:
+              - agentgateway
+            jwtMode: Strict
+            targetRefs:
+              - group: gateway.networking.k8s.io
+                kind: HTTPRoute
+                name: mcp
+
+    - title: Restrict MCP tool access to chain-stock-agent identity
+      description: |
+        Apply CEL-based RBAC on the mcp-backend AgentgatewayBackend. Only the chain-stock-agent workload (jwt.azp=chain-stock-agent) may call get_stock_price. Two-layer enforcement: JWT auth validates the token, RBAC restricts which tools this specific workload identity may invoke.
+      features:
+        - name: mcp-tool-access
+          config:
+            policyName: chain-mcp-tool-access
+            backendName: mcp-backend
+            action: Allow
+            matchExpressions:
+              - 'jwt.azp == "chain-stock-agent" && mcp.tool.name == "get_stock_price"'
+
+    - title: Deploy stock ADK agent with workload identity
+      description: |
+        Deploy the stock ADK agent with MCP_AUTH_MODE=workload and USE_KEYCLOAK_EXCHANGE=true. Instead of propagating an incoming Authorization header, the agent exchanges its auto-mounted K8s ServiceAccount JWT for a Keycloak access token (azp=chain-stock-agent) via WorkloadMCPTokenProvider and injects it into every MCP call. No long-lived client secret is required.
+      features:
+        - name: workload-agent
+          config:
+            agentName: stock-agent
+            image: '{{env.images.stock-agent}}'
+            pathPrefix: /agent
+            routeName: stock-agent
+            clientId: chain-stock-agent
+            clientSecretName: chain-stock-agent-credentials
+            audience: agentgateway
+            llmBaseUrl: '{{env.internal.agentgateway}}/openai'
+            mcpUrl: '{{env.internal.agentgateway}}/mcp'
+            model: gpt-4o-mini
+            mcpAuthMode: workload
+            useTokenExchange: true
+
+    - title: Deploy caller agent
+      description: |
+        Deploy the caller agent (extras/caller-agent/) at /caller-agent with USE_KEYCLOAK_EXCHANGE=true. It exchanges its auto-mounted K8s ServiceAccount JWT for a Keycloak access token (azp=chain-caller-agent) and calls the stock agent through the gateway. Only the chain-caller-agent identity is visible to the stock-agent route policy; the MCP route policy sees only the chain-stock-agent identity.
+      features:
+        - name: workload-agent
+          config:
+            agentName: caller-agent
+            image: '{{env.images.caller-agent}}'
+            pathPrefix: /caller-agent
+            routeName: caller-agent
+            clientId: chain-caller-agent
+            clientSecretName: chain-caller-agent-credentials
+            audience: agentgateway
+            useTokenExchange: true
+
+  tests:
+    - name: test-chain-caller-to-stock-to-mcp
+      description: |
+        Caller agent authenticates as caller-agent to reach the stock agent. Stock agent independently authenticates as stock-agent to reach MCP. Both hops are separately enforced through agentgateway.
+      steps:
+        - action: call-agent
+          endpoint: /caller-agent
+          path: /run
+          query: 'What is the current stock price of AAPL?'
+          timeout: 90s
+        - action: verify
+          expect:
+            status: success
+            contains: AAPL

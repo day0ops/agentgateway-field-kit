@@ -1,0 +1,4 @@
+# Function calling doesn't require a TrafficPolicy
+# Tools are passed directly in the request body using OpenAI-compatible format
+# See README.md for usage examples
+
