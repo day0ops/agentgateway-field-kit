@@ -673,6 +673,20 @@ export class UseCaseManager {
 
       let usecase = await this.parse(filePath);
 
+      // Validate feature/edition compatibility on the raw parsed use case, before
+      // resolving the environment (which auto-detects via kubectl context - slow, and
+      // occasionally hangs long enough to blow a test timeout in CI). Edition and
+      // feature names are plain literals, never templated, so this check doesn't need
+      // the environment resolved first, and can genuinely fail fast when it fails.
+      const earlyFeatures = this.getSteps(usecase.spec).flatMap(s => s.features);
+      if (earlyFeatures.length > 0) {
+        this.validateFeatureEditions(
+          usecase.metadata.name,
+          resolveEdition(usecase.spec.edition),
+          earlyFeatures
+        );
+      }
+
       const envName = environment || (await EnvironmentManager.resolveActive());
       const env = await EnvironmentManager.load(envName);
       usecase = EnvironmentManager.resolveAllTemplates(usecase, env);
@@ -699,7 +713,6 @@ export class UseCaseManager {
       }
 
       const edition = resolveEdition(spec.edition);
-      this.validateFeatureEditions(metadata.name, edition, allFeatures);
 
       const specForPreprocess = { ...spec, features: allFeatures };
       this.preprocessFeatures(specForPreprocess);
