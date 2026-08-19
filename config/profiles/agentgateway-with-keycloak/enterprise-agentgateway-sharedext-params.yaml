@@ -1,0 +1,28 @@
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayParameters
+metadata:
+  name: enterprise-agentgateway-sharedext-params
+  namespace: agentgateway-system
+spec:
+  sharedExtensions:
+    extCache:
+      enabled: true
+    ratelimiter:
+      enabled: true
+    extauth:
+      enabled: true
+      deployment:
+        spec:
+          template:
+            spec:
+              volumes:
+                - name: custom-ca-cert
+                  secret:
+                    secretName: keycloak-ca
+              containers:
+                - name: ext-auth-service
+                  volumeMounts:
+                    - name: custom-ca-cert
+                      mountPath: /etc/ssl/certs/keycloak-ca.crt
+                      subPath: ca.crt
+                      readOnly: true

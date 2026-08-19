@@ -3,7 +3,7 @@ kind: UseCase
 metadata:
   name: auth-only-mcp-preissuance
   description: |
-    Adds a pre-issuance gate in front of the controller's own OAuth issuer: before a token is ever minted, an ext_authz check decides whether the controller is even allowed to issue one for this caller. 
+    Adds a pre-issuance gate in front of the controller's own OAuth issuer: before a token is ever minted, an ext_authz check decides whether the controller is even allowed to issue one for this caller.
     - Only user1 is on the allowlist - user2's login should be denied before a token exists.
   docs: https://docs.solo.io/agentgateway/latest/mcp/token-exchange/auth-only/
 
