@@ -2222,6 +2222,9 @@ export class UseCaseTestRunner {
 
       // Debug: log captured headers
       const headerKeys = Object.keys(responseHeaders);
+      Logger.debug(
+        `TEMP DEBUG connectionFailed=${connectionFailed} status=${httpStatus} stdout=${JSON.stringify(result.stdout)} stderr=${JSON.stringify(result.stderr)} shortMessage=${JSON.stringify(result.shortMessage)}`
+      );
       if (headerKeys.length > 0) {
         Logger.debug(`Captured response headers: ${headerKeys.join(', ')}`);
       } else {
