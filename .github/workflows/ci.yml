@@ -66,5 +66,3 @@ jobs:
 
       - name: Run unit tests
         run: bun run test
-        env:
-          DEBUG: 'true'
