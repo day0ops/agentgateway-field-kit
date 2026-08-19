@@ -2104,6 +2104,36 @@ export class UseCaseTestRunner {
   /**
    * Send an HTTP request to the gateway
    */
+  /**
+   * Run curl, capturing response headers via a temp file rather than `-D /dev/stderr`.
+   * curl reopens /dev/stderr as a fresh file handle, which fails with exit 23
+   * ("Failed writing received data") when the process's real stderr is a pipe -
+   * reliably the case on Linux CI runners, even though it usually works on macOS.
+   */
+  static async runCurl(curlArgs, options = {}) {
+    const headerFile = join(tmpdir(), `usecase-test-headers-${randomBytes(8).toString('hex')}.txt`);
+    try {
+      const result = await CommandRunner.run('curl', [...curlArgs, '-D', headerFile], {
+        ignoreError: true,
+        ...options,
+      });
+      let headerFileContent = '';
+      try {
+        headerFileContent = await readFile(headerFile, 'utf8');
+      } catch {
+        // curl may not have written the file if the connection failed before any response
+      }
+      const responseHeaders = {};
+      for (const line of headerFileContent.split(/\r?\n/)) {
+        const match = line.replace(/\r$/, '').match(/^([^:]+):\s*(.+)$/);
+        if (match) responseHeaders[match[1].toLowerCase()] = match[2].trim();
+      }
+      return { result, responseHeaders };
+    } finally {
+      await unlink(headerFile).catch(() => {});
+    }
+  }
+
   static async sendHttpRequest(gateway, step, spinner, timeout = 15000, port = 8080) {
     const endpoint = step.endpoint || '/openai/v1/chat/completions';
     const method = step.method || 'POST';
@@ -2170,8 +2200,6 @@ export class UseCaseTestRunner {
         ...(methodAllowsBody ? ['-d', body] : []),
         '-w',
         '\n%{http_code}',
-        '-D',
-        '/dev/stderr',
       ];
 
       if (scheme === 'https') {
@@ -2200,25 +2228,13 @@ export class UseCaseTestRunner {
 
       Logger.debug(`curl command: curl ${curlArgs.join(' ')}`);
 
-      const result = await CommandRunner.run('curl', curlArgs, { ignoreError: true });
+      const { result, responseHeaders } = await this.runCurl(curlArgs);
       const connectionFailed = result.failed === true;
 
       const raw = (result.stdout || '').trim();
       const lines = raw.split('\n');
       const httpStatus = parseInt(lines[lines.length - 1], 10);
       const responseBody = lines.slice(0, -1).join('\n').trim();
-
-      const responseHeaders = {};
-      // Split by \r\n or \n to handle HTTP headers properly
-      const stderrLines = (result.stderr || '').split(/\r?\n/);
-      for (const line of stderrLines) {
-        // Remove any trailing \r and match header pattern
-        const cleanLine = line.replace(/\r$/, '');
-        const match = cleanLine.match(/^([^:]+):\s*(.+)$/);
-        if (match) {
-          responseHeaders[match[1].toLowerCase()] = match[2].trim();
-        }
-      }
 
       // Debug: log captured headers
       const headerKeys = Object.keys(responseHeaders);
@@ -2280,29 +2296,17 @@ export class UseCaseTestRunner {
       body,
       '-w',
       '%{http_code}|%{content_type}',
-      '-D',
-      '/dev/stderr',
       '-o',
       tempFile,
     ];
 
     Logger.debug(`curl TTS command: curl ${curlArgs.join(' ')}`);
 
-    const result = await CommandRunner.run('curl', curlArgs, { ignoreError: true });
+    const { result, responseHeaders } = await this.runCurl(curlArgs);
 
     const stdout = (result.stdout || '').trim();
     const [httpStatusStr, contentType] = stdout.split('|');
     const httpStatus = parseInt(httpStatusStr || '0', 10);
-
-    const responseHeaders = {};
-    const stderrLines = (result.stderr || '').split(/\r?\n/);
-    for (const line of stderrLines) {
-      const cleanLine = line.replace(/\r$/, '');
-      const match = cleanLine.match(/^([^:]+):\s*(.+)$/);
-      if (match) {
-        responseHeaders[match[1].toLowerCase()] = match[2].trim();
-      }
-    }
 
     const isAudio = (contentType || '').startsWith('audio/');
     const bodyLength = parseInt(responseHeaders['content-length'] || '0', 10);
@@ -2362,26 +2366,16 @@ export class UseCaseTestRunner {
       curlArgs.push('-H', `${k}: ${v}`);
     }
 
-    curlArgs.push('-w', '\n%{http_code}', '-D', '/dev/stderr');
+    curlArgs.push('-w', '\n%{http_code}');
 
     Logger.debug(`curl audio file command: curl ${curlArgs.join(' ')}`);
 
-    const result = await CommandRunner.run('curl', curlArgs, { ignoreError: true });
+    const { result, responseHeaders } = await this.runCurl(curlArgs);
 
     const raw = (result.stdout || '').trim();
     const lines = raw.split('\n');
     const httpStatus = parseInt(lines[lines.length - 1], 10);
     const responseBody = lines.slice(0, -1).join('\n').trim();
-
-    const responseHeaders = {};
-    const stderrLines = (result.stderr || '').split(/\r?\n/);
-    for (const line of stderrLines) {
-      const cleanLine = line.replace(/\r$/, '');
-      const match = cleanLine.match(/^([^:]+):\s*(.+)$/);
-      if (match) {
-        responseHeaders[match[1].toLowerCase()] = match[2].trim();
-      }
-    }
 
     return {
       status: httpStatus,
@@ -2429,26 +2423,16 @@ export class UseCaseTestRunner {
       curlArgs.push('-H', `${k}: ${v}`);
     }
 
-    curlArgs.push('-w', '\n%{http_code}', '-D', '/dev/stderr');
+    curlArgs.push('-w', '\n%{http_code}');
 
     Logger.debug(`curl file upload command: curl ${curlArgs.join(' ')}`);
 
-    const result = await CommandRunner.run('curl', curlArgs, { ignoreError: true });
+    const { result, responseHeaders } = await this.runCurl(curlArgs);
 
     const raw = (result.stdout || '').trim();
     const lines = raw.split('\n');
     const httpStatus = parseInt(lines[lines.length - 1], 10);
     const responseBody = lines.slice(0, -1).join('\n').trim();
-
-    const responseHeaders = {};
-    const stderrLines = (result.stderr || '').split(/\r?\n/);
-    for (const line of stderrLines) {
-      const cleanLine = line.replace(/\r$/, '');
-      const match = cleanLine.match(/^([^:]+):\s*(.+)$/);
-      if (match) {
-        responseHeaders[match[1].toLowerCase()] = match[2].trim();
-      }
-    }
 
     return {
       status: httpStatus,
@@ -2500,17 +2484,6 @@ export class UseCaseTestRunner {
       return { status, body };
     };
 
-    // Helper: parse response headers from curl stderr (-D /dev/stderr format)
-    const parseHeaders = stderr => {
-      const result = {};
-      for (const line of (stderr || '').split(/\r?\n/)) {
-        const clean = line.replace(/\r$/, '');
-        const m = clean.match(/^([^:]+):\s*(.+)$/);
-        if (m) result[m[1].toLowerCase()] = m[2].trim();
-      }
-      return result;
-    };
-
     // --- Step 1: initialize ---
     const initRequest = {
       jsonrpc: '2.0',
@@ -2523,28 +2496,21 @@ export class UseCaseTestRunner {
       },
     };
 
-    const initResult = await CommandRunner.run(
-      'curl',
-      [
-        '-s',
-        '--max-time',
-        '15',
-        '-X',
-        'POST',
-        url,
-        ...authHeaderArgs,
-        '-d',
-        JSON.stringify(initRequest),
-        '-w',
-        '\n%{http_code}',
-        '-D',
-        '/dev/stderr',
-      ],
-      { ignoreError: true }
-    );
+    const { result: initResult, responseHeaders: initHeaders } = await this.runCurl([
+      '-s',
+      '--max-time',
+      '15',
+      '-X',
+      'POST',
+      url,
+      ...authHeaderArgs,
+      '-d',
+      JSON.stringify(initRequest),
+      '-w',
+      '\n%{http_code}',
+    ]);
 
     const { status: initStatus, body: initBodyRaw } = parseCurlOutput(initResult.stdout);
-    const initHeaders = parseHeaders(initResult.stderr);
 
     Logger.debug(
       `MCP initialize status: ${initStatus}, session: ${initHeaders['mcp-session-id'] ? 'obtained' : 'none'}`
@@ -2598,16 +2564,13 @@ export class UseCaseTestRunner {
       JSON.stringify(mcpRequest),
       '-w',
       '\n%{http_code}',
-      '-D',
-      '/dev/stderr',
     ];
 
     Logger.debug(`MCP curl command: curl ${curlArgs.join(' ')}`);
 
-    const result = await CommandRunner.run('curl', curlArgs, { ignoreError: true });
+    const { result, responseHeaders } = await this.runCurl(curlArgs);
 
     const { status: httpStatus, body: responseBodyRaw } = parseCurlOutput(result.stdout);
-    const responseHeaders = parseHeaders(result.stderr);
 
     Logger.debug(`MCP ${method} status: ${httpStatus}`);
 

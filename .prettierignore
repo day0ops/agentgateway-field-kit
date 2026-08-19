@@ -2,13 +2,7 @@
 node_modules/
 **/node_modules/
 
-# Archived / generated
-._archived/
-.claude/
-.superpowers/
-
 # Sub-projects with their own configs
-agw-tester/
 cloud-provisioner/
 
 # Images / casts

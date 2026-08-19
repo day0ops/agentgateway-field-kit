@@ -3,7 +3,7 @@ kind: Profile
 metadata:
   name: eks-enterprise-agentgateway-complete
   description: |
-    Complete enterprise agentgateway demo on EKS 
+    Complete enterprise agentgateway demo on EKS
     - Keycloak integration
     - Full observability
     - OpenFGA integration for ReBAC
