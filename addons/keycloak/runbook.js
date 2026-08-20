@@ -16,6 +16,7 @@ function _renderTemplate(template, vars) {
 function _generateStandardRealmCurls(realm) {
   const lines = [];
   const realmName = realm.realm;
+  const isGrafanaRealm = realmName === 'grafana';
   lines.push(`# Create realm: ${realmName}`);
   lines.push(`curl -sk -X POST "\${KEYCLOAK_SCHEME}://\${KEYCLOAK_HOST}/admin/realms" \\`);
   lines.push(`  -H "Authorization: Bearer $KEYCLOAK_TOKEN" \\`);
@@ -51,25 +52,34 @@ function _generateStandardRealmCurls(realm) {
     for (const [k, v] of Object.entries(user.attributes || {})) {
       attrs[k] = [v];
     }
-    const userPayload = {
-      username: user.username,
-      email: user.email,
-      firstName: user.firstName,
-      lastName: user.lastName,
-      enabled: true,
-      credentials: [
-        { type: 'password', value: realm.defaultPassword || 'Password1!', temporary: false },
-      ],
-      attributes: attrs,
-    };
     lines.push('');
-    lines.push(`# User: ${user.username}`);
+    lines.push(`# User: ${isGrafanaRealm ? '$GRAFANA_REALM_ADMIN_USERNAME' : user.username}`);
     lines.push(
       `curl -sk -X POST "\${KEYCLOAK_SCHEME}://\${KEYCLOAK_HOST}/admin/realms/${realmName}/users" \\`
     );
     lines.push(`  -H "Authorization: Bearer $KEYCLOAK_TOKEN" \\`);
     lines.push(`  -H "Content-Type: application/json" \\`);
-    lines.push(`  -d '${JSON.stringify(userPayload)}'`);
+    if (isGrafanaRealm) {
+      // Credentials render as shell variable references (with a bash default-value
+      // expansion for the username) so they're read from the operator's environment
+      // instead of being baked into this generated doc.
+      lines.push(
+        `  -d '{"username":"'"\${GRAFANA_REALM_ADMIN_USERNAME:-grafana-admin}"'","email":"${user.email || ''}","firstName":"${user.firstName || ''}","lastName":"${user.lastName || ''}","enabled":true,"credentials":[{"type":"password","value":"'"$GRAFANA_REALM_ADMIN_PASSWORD"'","temporary":false}],"attributes":${JSON.stringify(attrs)}}'`
+      );
+    } else {
+      const userPayload = {
+        username: user.username,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        enabled: true,
+        credentials: [
+          { type: 'password', value: realm.defaultPassword || 'Password1!', temporary: false },
+        ],
+        attributes: attrs,
+      };
+      lines.push(`  -d '${JSON.stringify(userPayload)}'`);
+    }
   }
 
   return lines.join('\n');
@@ -158,6 +168,20 @@ export function envVarsFor(cfg) {
       required: true,
       description: 'Solo UI demo bootstrap password (solo-admin/solo-reader/solo-writer)',
     });
+  }
+  if ((cfg?.realms || []).some(r => r.realm === 'grafana')) {
+    vars.push(
+      {
+        name: 'GRAFANA_REALM_ADMIN_USERNAME',
+        required: false,
+        description: "Grafana OIDC demo admin username (default: 'grafana-admin')",
+      },
+      {
+        name: 'GRAFANA_REALM_ADMIN_PASSWORD',
+        required: true,
+        description: 'Grafana OIDC demo admin password',
+      }
+    );
   }
   return vars;
 }

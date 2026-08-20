@@ -47,6 +47,8 @@ export KEYCLOAK_ADMIN_PASSWORD=        # required by the keycloak addon, no defa
 export KEYCLOAK_POSTGRES_USER=         # required by the keycloak addon, no default
 export KEYCLOAK_POSTGRES_PASSWORD=     # required by the keycloak addon, no default
 export SOLO_UI_DEFAULT_PASSWORD=       # required only when soloUIClients.enabled, no default
+export GRAFANA_REALM_ADMIN_USERNAME=   # optional, only used when a 'grafana' realm is configured (default: 'grafana-admin')
+export GRAFANA_REALM_ADMIN_PASSWORD=   # required only when a 'grafana' realm is configured, no default
 export GRAFANA_ADMIN_USERNAME=         # required by the telemetry addon, no default
 export GRAFANA_ADMIN_PASSWORD=         # required by the telemetry addon, no default
 ```
