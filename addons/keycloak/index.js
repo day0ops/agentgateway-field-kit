@@ -34,6 +34,8 @@ const POSTGRES_VERSION = '18.2-alpine';
  *   KEYCLOAK_ADMIN_PASSWORD    - Keycloak master realm bootstrap admin password
  *   KEYCLOAK_POSTGRES_USER     - Postgres superuser backing Keycloak's DB
  *   KEYCLOAK_POSTGRES_PASSWORD - Postgres superuser password
+ *   SOLO_UI_DEFAULT_PASSWORD   - solo-admin/solo-reader/solo-writer bootstrap password
+ *                                (only required when soloUIClients.enabled is true)
  */
 export class KeycloakFeature extends Feature {
   constructor(name, config) {
@@ -68,6 +70,7 @@ export class KeycloakFeature extends Feature {
     this.adminPassword = process.env.KEYCLOAK_ADMIN_PASSWORD || '';
     this.postgresUser = process.env.KEYCLOAK_POSTGRES_USER || '';
     this.postgresPassword = process.env.KEYCLOAK_POSTGRES_PASSWORD || '';
+    this.soloUiDefaultPassword = process.env.SOLO_UI_DEFAULT_PASSWORD || '';
   }
 
   validate() {
@@ -76,6 +79,7 @@ export class KeycloakFeature extends Feature {
       !this.adminPassword && 'KEYCLOAK_ADMIN_PASSWORD',
       !this.postgresUser && 'KEYCLOAK_POSTGRES_USER',
       !this.postgresPassword && 'KEYCLOAK_POSTGRES_PASSWORD',
+      this.soloUIClients?.enabled && !this.soloUiDefaultPassword && 'SOLO_UI_DEFAULT_PASSWORD',
     ].filter(Boolean);
     if (missing.length > 0) {
       throw new Error(
@@ -84,7 +88,8 @@ export class KeycloakFeature extends Feature {
           '  export KEYCLOAK_ADMIN_USERNAME="admin"\n' +
           '  export KEYCLOAK_ADMIN_PASSWORD="<your-password>"\n' +
           '  export KEYCLOAK_POSTGRES_USER="postgres"\n' +
-          '  export KEYCLOAK_POSTGRES_PASSWORD="<your-password>"'
+          '  export KEYCLOAK_POSTGRES_PASSWORD="<your-password>"\n' +
+          '  export SOLO_UI_DEFAULT_PASSWORD="<your-password>"'
       );
     }
     return true;
@@ -832,20 +837,14 @@ export class KeycloakFeature extends Feature {
       },
     ];
 
+    const password = this.soloUiDefaultPassword;
     for (const user of users) {
       this.log(`Creating Solo UI user '${user.username}'...`, 'info');
-      await this.createOrUpdateUser(
-        baseUrl,
-        token,
-        {
-          username: user.username,
-          email: user.email,
-          firstName: user.firstName,
-          lastName: user.lastName,
-          attributes: {},
-        },
-        realm
-      );
+      await this.createOrUpdateUserWithPassword(baseUrl, token, user.username, realm, {}, password, {
+        firstName: user.firstName,
+        lastName: user.lastName,
+        email: user.email,
+      });
 
       const userId = await this.lookupUserId(baseUrl, token, user.username, realm);
       const groupId = groupIds[user.group];

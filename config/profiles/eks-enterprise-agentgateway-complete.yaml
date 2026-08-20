@@ -129,7 +129,6 @@ spec:
           backendClientId: solo-ui-backend
           backendClientSecret: solo-ui-backend-secret
           frontendClientId: solo-ui-frontend
-          defaultPassword: Passwd00
         realms:
           - realm: agw-dev
             defaultPassword: Password1!

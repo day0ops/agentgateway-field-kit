@@ -30,6 +30,8 @@ export KEYCLOAK_ADMIN_USERNAME=admin
 export KEYCLOAK_ADMIN_PASSWORD=
 export KEYCLOAK_POSTGRES_USER=postgres
 export KEYCLOAK_POSTGRES_PASSWORD=
+# only when the profile's keycloak config sets soloUIClients.enabled
+export SOLO_UI_DEFAULT_PASSWORD=
 
 # telemetry addon (Grafana)
 export GRAFANA_ADMIN_USERNAME=admin

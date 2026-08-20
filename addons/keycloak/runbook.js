@@ -129,8 +129,8 @@ function _generateOrgRealmCurls(realm) {
   return lines.join('\n');
 }
 
-export function envVarsFor(_cfg) {
-  return [
+export function envVarsFor(cfg) {
+  const vars = [
     {
       name: 'KEYCLOAK_ADMIN_USERNAME',
       required: true,
@@ -152,6 +152,14 @@ export function envVarsFor(_cfg) {
       description: 'Postgres superuser password',
     },
   ];
+  if (cfg?.soloUIClients?.enabled) {
+    vars.push({
+      name: 'SOLO_UI_DEFAULT_PASSWORD',
+      required: true,
+      description: 'Solo UI demo bootstrap password (solo-admin/solo-reader/solo-writer)',
+    });
+  }
+  return vars;
 }
 
 export function envExportsFor(cfg) {
