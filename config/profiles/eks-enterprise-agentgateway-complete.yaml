@@ -432,6 +432,29 @@ spec:
                   partner_tier: bronze
                   partner_id: acme-partner
 
+          - realm: grafana
+            groups:
+              - grafana-admins
+            clients:
+              - clientId: grafana
+                type: confidential
+                clientSecret: grafana-client-secret
+                flows:
+                  - authorization-code
+                groupMembership: true
+                redirectUris:
+                  - 'https://{{env.domains.grafana}}/login/generic_oauth'
+                postLogoutRedirectUris:
+                  - 'https://{{env.domains.grafana}}'
+            users:
+              # username/password sourced from GRAFANA_REALM_ADMIN_USERNAME (default:
+              # grafana-admin) and GRAFANA_REALM_ADMIN_PASSWORD, not this profile
+              - email: grafana-admin@example.com
+                firstName: Grafana
+                lastName: Admin
+                memberOf:
+                  - grafana-admins
+
         workloadClients:
           - clientId: caller-agent
             clientSecret: caller-agent-secret
@@ -504,5 +527,14 @@ spec:
           storageClass: gp3
           storageSize: 100Gi
         retention: 120h
-        grafanaServiceType: LoadBalancer
         grafanaHostname: '{{env.domains.grafana}}'
+        grafanaTls:
+          enabled: true
+          secretName: grafana-tls
+          issuer: letsencrypt-dns
+        grafanaOidc:
+          enabled: true
+          issuerUrl: 'https://{{env.domains.keycloak}}/realms/grafana'
+          clientId: grafana
+          clientSecret: grafana-client-secret
+          adminGroup: grafana-admins
