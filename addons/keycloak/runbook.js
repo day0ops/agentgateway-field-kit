@@ -6,7 +6,7 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const KEYCLOAK_VERSION = '26.7.0';
+const KEYCLOAK_VERSION = '26.6.2';
 const POSTGRES_VERSION = '18.2-alpine';
 
 function _renderTemplate(template, vars) {
@@ -200,7 +200,8 @@ export function envExportsFor(cfg) {
 export async function generate(_subIndex, profileAddonConfig) {
   const cfg = profileAddonConfig || {};
   const tlsSecretName = cfg.tls?.secretName || 'keycloak-tls';
-  const storageClass = cfg.storageClass || '';
+  const storageClass = cfg.postgres?.persistentVolume?.storageClass || '';
+  const postgresPvcSize = cfg.postgres?.persistentVolume?.size || '5Gi';
 
   const postgresTemplate = await readFile(join(__dirname, 'config', 'postgres.yaml'), 'utf8');
   const keycloakTemplate = await readFile(join(__dirname, 'config', 'keycloak.yaml'), 'utf8');
@@ -209,6 +210,7 @@ export async function generate(_subIndex, profileAddonConfig) {
     NAMESPACE: '$KC_NAMESPACE',
     POSTGRES_VERSION: '$POSTGRES_VERSION',
     STORAGE_CLASS_NAME: storageClass,
+    POSTGRES_PVC_SIZE: postgresPvcSize,
     POSTGRES_USER: '$KEYCLOAK_POSTGRES_USER',
     POSTGRES_PASSWORD: '$KEYCLOAK_POSTGRES_PASSWORD',
   });

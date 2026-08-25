@@ -15,6 +15,40 @@ import { ProfileSchema } from './profile-schema.js';
 import { mergeAddonConfig } from './addons.js';
 
 /**
+ * Slugify heading text into a URL anchor.
+ * @param {string} text
+ * @returns {string}
+ */
+export function slugify(text) {
+  return text
+    .toLowerCase()
+    .replace(/[^\w\s-]/g, '')
+    .replace(/ /g, '-');
+}
+
+/**
+ * Scan markdown for h2/h3/h4 headings and return anchor entries.
+ * @param {string} content
+ * @returns {Array<{level: number, text: string, anchor: string}>}
+ */
+export function scanHeadings(content) {
+  const entries = [];
+  for (const line of content.split('\n')) {
+    const h2 = line.match(/^## (.+)$/);
+    const h3 = line.match(/^### (.+)$/);
+    const h4 = line.match(/^#### (.+)$/);
+    if (h2) {
+      entries.push({ level: 2, text: h2[1], anchor: slugify(h2[1]) });
+    } else if (h3) {
+      entries.push({ level: 3, text: h3[1], anchor: slugify(h3[1]) });
+    } else if (h4) {
+      entries.push({ level: 4, text: h4[1], anchor: slugify(h4[1]) });
+    }
+  }
+  return entries;
+}
+
+/**
  * RunbookBuilder
  *
  * Assembles a single runbook.md from a RunbookSelection.
@@ -41,6 +75,42 @@ export class RunbookBuilder {
    * @returns {Promise<string>}
    */
   async build() {
+    return this._assembleMarkdown();
+  }
+
+  /**
+   * Render the runbook as a standalone HTML page.
+   * @returns {Promise<string>}
+   */
+  async buildHtml() {
+    const markdown = await this._assembleMarkdown();
+    const usecases = await this._resolveHeroUsecases();
+    const { HtmlRenderer } = await import('./runbook-html.js');
+    return new HtmlRenderer().render(markdown, { ...this.selection, usecases });
+  }
+
+  /**
+   * Resolve the single use case featured in the HTML hero, if exactly one was
+   * selected. Returns [] otherwise, which suppresses the hero.
+   * @returns {Promise<Array<object>>}
+   */
+  async _resolveHeroUsecases() {
+    const usecaseLabs = (this.selection.labs || []).filter(l => l.type === 'usecase');
+    if (usecaseLabs.length !== 1) return [];
+    try {
+      const { UseCaseManager } = await import('./usecase.js');
+      const meta = await UseCaseManager.get(usecaseLabs[0].name, this.projectRoot);
+      return [await UseCaseManager.parse(meta.file)];
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Assemble the full runbook markdown document.
+   * @returns {Promise<string>}
+   */
+  async _assembleMarkdown() {
     const {
       title = 'Agentgateway Runbook',
       addons = [],

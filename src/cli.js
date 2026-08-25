@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { Command } from 'commander';
+import { Command, Option } from 'commander';
 import { basename, join, resolve } from 'path';
 import chalk from 'chalk';
 import figlet from 'figlet';
@@ -1062,6 +1062,9 @@ runbook
   .description('Interactively generate a runbook runbook markdown file')
   .option('-o, --output <file>', 'Output file path', './runbook.md')
   .option('-t, --title <title>', 'Runbook title (skips title prompt)')
+  .addOption(
+    new Option('--format <fmt>', 'Output format').choices(['md', 'html', 'both']).default('md')
+  )
   .action(async options => {
     try {
       const selection = await RunbookPicker.prompt();
@@ -1069,12 +1072,24 @@ runbook
 
       Logger.info('Generating runbook document...');
       const builder = new RunbookBuilder(selection);
-      const markdown = await builder.build();
 
-      const outputPath = resolve(options.output);
-      await writeFile(outputPath, markdown, 'utf8');
+      const basePath = resolve(options.output).replace(/\.(md|html)$/i, '');
+      const written = [];
 
-      Logger.success(`Runbook document written to: ${outputPath}`);
+      if (options.format === 'md' || options.format === 'both') {
+        const markdown = await builder.build();
+        const mdPath = `${basePath}.md`;
+        await writeFile(mdPath, markdown, 'utf8');
+        written.push(mdPath);
+      }
+      if (options.format === 'html' || options.format === 'both') {
+        const html = await builder.buildHtml();
+        const htmlPath = `${basePath}.html`;
+        await writeFile(htmlPath, html, 'utf8');
+        written.push(htmlPath);
+      }
+
+      Logger.success(`Runbook document written to: ${written.join(', ')}`);
       Logger.info(
         `Labs included: ${1 + (selection.providers.length > 0 ? 1 : 0) + selection.labs.length}`
       );

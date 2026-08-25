@@ -41,6 +41,7 @@ export async function generate(_subIndex, _cfg) {
   lines.push('helm upgrade -i kube-prometheus-stack prometheus-community/kube-prometheus-stack \\');
   lines.push('  -n ${TELEMETRY_NAMESPACE} \\');
   lines.push('  --version ${PROMETHEUS_STACK_VERSION} \\');
+  lines.push('  -f addons/telemetry/config/prometheus-values.yaml \\');
   lines.push('  --set-string grafana.adminUser=${GRAFANA_ADMIN_USERNAME} \\');
   lines.push('  --set-string grafana.adminPassword=${GRAFANA_ADMIN_PASSWORD} \\');
   lines.push('  --create-namespace \\');
@@ -53,6 +54,7 @@ export async function generate(_subIndex, _cfg) {
   lines.push('helm upgrade -i tempo grafana/tempo-distributed \\');
   lines.push('  -n ${TELEMETRY_NAMESPACE} \\');
   lines.push('  --version ${TEMPO_VERSION} \\');
+  lines.push('  -f addons/telemetry/config/tempo-values.yaml \\');
   lines.push('  --create-namespace \\');
   lines.push('  --wait');
   lines.push('```');
@@ -63,6 +65,7 @@ export async function generate(_subIndex, _cfg) {
   lines.push('helm upgrade -i loki grafana/loki \\');
   lines.push('  -n ${TELEMETRY_NAMESPACE} \\');
   lines.push('  --version ${LOKI_VERSION} \\');
+  lines.push('  -f addons/telemetry/config/loki-values.yaml \\');
   lines.push('  --create-namespace \\');
   lines.push('  --wait');
   lines.push('```');
@@ -73,6 +76,7 @@ export async function generate(_subIndex, _cfg) {
   lines.push('helm upgrade -i alloy grafana/alloy \\');
   lines.push('  -n ${TELEMETRY_NAMESPACE} \\');
   lines.push('  --version ${ALLOY_VERSION} \\');
+  lines.push('  -f addons/telemetry/config/alloy-values.yaml \\');
   lines.push('  --create-namespace \\');
   lines.push('  --wait');
   lines.push('```');

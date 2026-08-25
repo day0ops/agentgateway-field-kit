@@ -66,7 +66,7 @@ Vertex AI access tokens expire in ~1 hour - regenerate before each deploy.
 
 Features live in `features/<name>/index.js` (one capability per directory), addons in `addons/<name>/`. Both extend the `Feature` base class (`deploy()`/`cleanup()`/`validate()`) and register in their `index.js`.
 
-`agw runbook generate` builds a Markdown runbook from profiles/addons/providers/use cases.
+`agw runbook generate` builds a Markdown runbook from profiles/addons/providers/use cases. Each addon's `runbook.js` hand-reconstructs its install/cleanup commands rather than executing the real code, so it silently drifts if not updated alongside the addon. Update it in the same change whenever an addon's install/cleanup logic changes.
 
 ### Editions
 

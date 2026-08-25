@@ -202,6 +202,35 @@ export class CertManagerFeature extends Feature {
     this.log('cert-manager is ready', 'info');
   }
 
+  /**
+   * Apply a resource that cert-manager's webhook must admission-review (e.g. a
+   * ClusterIssuer). The webhook Deployment can report Ready via its own liveness/
+   * readiness probe before cainjector finishes provisioning its serving certificate
+   * and the webhook is actually reachable, so the very first apply right after
+   * waitForCertManager() passes can still fail with "failed calling webhook ...
+   * context deadline exceeded". Retrying with a short delay clears this reliably.
+   */
+  async #applyWithWebhookRetry(resource, { retries = 5, delayMs = 5000 } = {}) {
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      try {
+        await this.applyResource(resource);
+        return;
+      } catch (error) {
+        const isWebhookNotReady = /failed calling webhook|context deadline exceeded/i.test(
+          error.message
+        );
+        if (!isWebhookNotReady || attempt === retries) {
+          throw error;
+        }
+        this.log(
+          `cert-manager webhook not ready yet, retrying (${attempt}/${retries})...`,
+          'warn'
+        );
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+      }
+    }
+  }
+
   async createSelfSignedIssuer() {
     this.log('Creating self-signed ClusterIssuer...', 'info');
 
@@ -213,7 +242,7 @@ export class CertManagerFeature extends Feature {
     };
 
     try {
-      await this.applyResource(issuer);
+      await this.#applyWithWebhookRetry(issuer);
       this.log('Self-signed ClusterIssuer created', 'info');
     } catch (error) {
       throw new Error(`Failed to create self-signed ClusterIssuer: ${error.message}`);
@@ -259,7 +288,7 @@ export class CertManagerFeature extends Feature {
     };
 
     try {
-      await this.applyResource(issuer);
+      await this.#applyWithWebhookRetry(issuer);
       this.log(`Let's Encrypt DNS-01 ClusterIssuer created${envLabel}`, 'info');
     } catch (error) {
       throw new Error(`Failed to create Let's Encrypt ClusterIssuer: ${error.message}`);

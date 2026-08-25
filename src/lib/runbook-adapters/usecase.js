@@ -90,6 +90,18 @@ export const UseCaseAdapter = {
   },
 };
 
+/**
+ * Human-readable title for a use case: first line of the description (sans
+ * trailing period), falling back to the formatted metadata name.
+ * @param {{ metadata?: { name?: string, description?: string } }} usecase
+ * @returns {string}
+ */
+export function usecaseTitle(usecase) {
+  return usecase.metadata?.description
+    ? usecase.metadata.description.split('\n')[0].trim().replace(/\.$/, '')
+    : _formatTitle(usecase.metadata?.name || '');
+}
+
 async function _getFeatureYaml(featureName, config, projectRoot) {
   // Check for runbook.md sidecar
   const sidecarPath = join(projectRoot, 'features', featureName, 'runbook.md');
