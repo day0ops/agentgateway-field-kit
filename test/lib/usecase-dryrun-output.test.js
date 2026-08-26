@@ -35,7 +35,11 @@ describe('UseCaseManager.dryRun -o/--output', () => {
     await writeFile(usecaseFile, usecaseYaml);
     const outFile = join(tmpRoot, 'out.yaml');
 
-    await expect(UseCaseManager.dryRun(usecaseFile, { output: outFile })).resolves.toBeUndefined();
+    // Pin the environment to skip kubectl-context auto-detection (EnvironmentManager.resolveActive),
+    // which is irrelevant to this test and occasionally hangs long enough to blow the CI test timeout.
+    await expect(
+      UseCaseManager.dryRun(usecaseFile, { output: outFile, environment: 'local' })
+    ).resolves.toBeUndefined();
 
     const written = await readFile(outFile, 'utf8');
     expect(written).toContain('Generated YAML for use case: dryrun-output-test');

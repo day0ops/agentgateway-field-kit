@@ -58,14 +58,16 @@ describe('UseCaseManager edition validation', () => {
     const file = join(tmpRoot, 'uc-both.yaml');
     await writeFile(file, usecaseYaml({ edition: 'opensource', featureName: '__test-uc-both' }));
 
-    await expect(UseCaseManager.dryRun(file)).resolves.toBeUndefined();
+    // Pin the environment to skip kubectl-context auto-detection (EnvironmentManager.resolveActive),
+    // which is irrelevant to this test and occasionally hangs long enough to blow the CI test timeout.
+    await expect(UseCaseManager.dryRun(file, { environment: 'local' })).resolves.toBeUndefined();
   });
 
   test('dryRun() succeeds for an enterprise-only feature when edition is omitted (defaults to enterprise)', async () => {
     const file = join(tmpRoot, 'uc-default.yaml');
     await writeFile(file, usecaseYaml({ featureName: '__test-uc-enterprise-only' }));
 
-    await expect(UseCaseManager.dryRun(file)).resolves.toBeUndefined();
+    await expect(UseCaseManager.dryRun(file, { environment: 'local' })).resolves.toBeUndefined();
   });
 
   test('validateFeatureEditions() throws with the offending feature name and supported list', () => {
