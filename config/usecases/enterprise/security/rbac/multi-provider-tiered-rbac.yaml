@@ -45,11 +45,7 @@ spec:
 
     - name: cel-based-rbac
       description: |
-        Deny-by-default tiered RBAC across both issuers. matchExpressions entries are ANDed,
-        so each population's OR'd set of rules is nested as one CEL expression: workforce
-        admins get any method, managers get everything but DELETE, employees are read-only;
-        partner gold gets read+write, silver and bronze are read-only. jwt.iss gates every
-        branch, so a token from one issuer can never satisfy the other issuer's branches.
+        Deny-by-default tiered RBAC across both issuers. matchExpressions entries are ANDed, so each population's OR'd set of rules is nested as one CEL expression: workforce admins get any method, managers get everything but DELETE, employees are read-only; partner gold gets read+write, silver and bronze are read-only. jwt.iss gates every branch, so a token from one issuer can never satisfy the other issuer's branches.
       config:
         action: Allow
         expressions:

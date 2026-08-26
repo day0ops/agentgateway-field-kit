@@ -490,6 +490,12 @@ export class AgentGatewayManager {
    * @returns {Promise<string|null>} The installed release name, or null if none is found
    */
   static async detectInstalledRelease() {
+    if (!(await KubernetesHelper.isClusterAccessible())) {
+      throw new Error(
+        'Cannot reach the Kubernetes API — check your kubeconfig/credentials before continuing.'
+      );
+    }
+
     try {
       const result = await KubernetesHelper.helm(
         ['list', '-n', AGENTGATEWAY_NAMESPACE, '-o', 'json'],
@@ -881,8 +887,7 @@ export class AgentGatewayManager {
     Logger.info('Uninstalling agentgateway...');
 
     // Check if we can connect to the cluster first
-    const clusterCheck = await KubernetesHelper.kubectl(['cluster-info'], { ignoreError: true });
-    if (clusterCheck?.exitCode !== 0) {
+    if (!(await KubernetesHelper.isClusterAccessible())) {
       Logger.info('No cluster connection available, nothing to clean up');
       return;
     }

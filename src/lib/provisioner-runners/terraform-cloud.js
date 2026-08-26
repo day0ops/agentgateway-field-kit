@@ -701,26 +701,10 @@ export class TerraformCloudRunner extends BaseProvisionerRunner {
     if (additionalVars.length > 0) {
       this.appendEnvVars(additionalVars);
     }
-
-    const contexts = results.map(r => r.context).filter(Boolean);
-    if (contexts.length > 0) {
-      const defaultContext = contexts[Math.floor(Math.random() * contexts.length)];
-      this.appendShellCommand(
-        `kubectl config use-context "${defaultContext.replace(/"/g, '\\"')}"`
-      );
-    }
   }
 
   appendEnvVar(key, value) {
     this.appendEnvVars([{ key, value }]);
-  }
-
-  appendShellCommand(command) {
-    const envShPath = join(this.outputDir, 'env.sh');
-    if (existsSync(envShPath)) {
-      const existing = readFileSync(envShPath, 'utf8');
-      writeFileSync(envShPath, existing + command + '\n');
-    }
   }
 
   appendEnvVars(vars) {

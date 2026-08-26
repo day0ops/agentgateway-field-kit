@@ -590,8 +590,11 @@ base
 
       await AgentGatewayManager.recordInstallState({ profileName });
 
+      const addonsInstalled =
+        !options.skipAddons && (preGateway.length > 0 || postGateway.length > 0);
+      const installedWhat = addonsInstalled ? 'Gateway and all addons' : 'Gateway';
       Logger.success(
-        `Gateway and all addons installed successfully in (${formatDuration(Date.now() - startTime)})`
+        `${installedWhat} installed successfully in (${formatDuration(Date.now() - startTime)})`
       );
     } catch (error) {
       Logger.error('Failed to install gateway');

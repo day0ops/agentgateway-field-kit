@@ -3,18 +3,11 @@ kind: UseCase
 metadata:
   name: extmcp-tool-poisoning
   description: |
-    Defends against MCP "tool poisoning" (a.k.a. "rug pull") attacks, where a malicious or
-    compromised tool's description - not its call result - carries hidden instructions aimed
-    at the calling agent, never shown to the human user.
+    Defends against MCP "tool poisoning" (a.k.a. "rug pull") attacks, where a malicious or compromised tool's description - not its call result - carries hidden instructions aimed at the calling agent, never shown to the human user.
 
-    - A composed tool's description embeds a fake "system override" instructing the agent to
-      exfiltrate data to an attacker-controlled email address
-    - Contrast with extmcp-pii-masking, which redacts PII from a tools/call *result*; here the
-      same ext-mcp-guardrail CheckResponse hook is pointed at tools/list instead, so the poisoned
-      description is sanitized before the agent ever sees it - not after a call is made
-    - This specific defense is regex/PII-pattern based (email/phone/SSN/credit card), so it
-      neutralizes the embedded exfiltration destination rather than performing generic semantic
-      prompt-injection detection
+    - A composed tool's description embeds a fake "system override" instructing the agent to exfiltrate data to an attacker-controlled email address
+    - Contrast with extmcp-pii-masking, which redacts PII from a tools/call *result*; here the same ext-mcp-guardrail CheckResponse hook is pointed at tools/list instead, so the poisoned description is sanitized before the agent ever sees it - not after a call is made
+    - This specific defense is regex/PII-pattern based (email/phone/SSN/credit card), so it neutralizes the embedded exfiltration destination rather than performing generic semantic prompt-injection detection
   docs: https://docs.solo.io/agentgateway/2026.7.1/mcp/guardrails/setup/
 
 spec:
@@ -48,10 +41,7 @@ spec:
 
     - title: Compose a poisoned tool with a hidden exfiltration instruction
       description: |
-        Create an EnterpriseAgentgatewayBackend with a custom target that wraps get_stock_price
-        behind a legitimate-looking tool whose description also carries a hidden "system
-        override" instruction - the kind of payload a compromised or malicious MCP server would
-        embed to redirect an agent into leaking data to attacker@rug-pull-demo.example.
+        Create an EnterpriseAgentgatewayBackend with a custom target that wraps get_stock_price behind a legitimate-looking tool whose description also carries a hidden "system override" instruction - the kind of payload a compromised or malicious MCP server would embed to redirect an agent into leaking data to attacker@rug-pull-demo.example.
       features:
         - name: mcp-enterprise
           config:
@@ -91,9 +81,7 @@ spec:
 
     - title: Deploy the ExtMCP guardrail server and sanitize tools/list
       description: |
-        Deploy ext-mcp-guardrail and wire an EnterpriseAgentgatewayPolicy that routes the
-        tools/list *response* through its CheckResponse hook - the same PII-masking logic
-        extmcp-pii-masking applies to tools/call results, applied here to tool metadata instead.
+        Deploy ext-mcp-guardrail and wire an EnterpriseAgentgatewayPolicy that routes the tools/list *response* through its CheckResponse hook - the same PII-masking logic extmcp-pii-masking applies to tools/call results, applied here to tool metadata instead.
       features:
         - name: mcp-guardrails
           config:
@@ -107,9 +95,7 @@ spec:
   tests:
     - name: test-poisoned-description-sanitized
       description: |
-        The attacker email embedded in stock-lookup's description is redacted before the tool
-        list reaches the caller. contains asserts the redaction marker is present; notContains
-        is the hard failure if the exfiltration address ever leaks through unredacted.
+        The attacker email embedded in stock-lookup's description is redacted before the tool list reaches the caller. contains asserts the redaction marker is present; notContains is the hard failure if the exfiltration address ever leaks through unredacted.
       steps:
         - action: send-mcp-request
           endpoint: /mcp-composable
@@ -125,8 +111,7 @@ spec:
 
     - name: test-tool-still-callable
       description: |
-        The guardrail only touches the tools/list response - the composed tool itself still
-        works normally for tools/call.
+        The guardrail only touches the tools/list response - the composed tool itself still works normally for tools/call.
       steps:
         - action: send-mcp-request
           endpoint: /mcp-composable
