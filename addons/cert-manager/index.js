@@ -222,10 +222,7 @@ export class CertManagerFeature extends Feature {
         if (!isWebhookNotReady || attempt === retries) {
           throw error;
         }
-        this.log(
-          `cert-manager webhook not ready yet, retrying (${attempt}/${retries})...`,
-          'warn'
-        );
+        this.log(`cert-manager webhook not ready yet, retrying (${attempt}/${retries})...`, 'warn');
         await new Promise(resolve => setTimeout(resolve, delayMs));
       }
     }

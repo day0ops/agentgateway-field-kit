@@ -70,16 +70,14 @@ export async function generate(_subIndex, profileAddonConfig) {
   lines.push('#### Wait for external-dns to be ready');
   lines.push('');
   lines.push('```bash');
-  lines.push('kubectl rollout status deployment/external-dns -n ${EXTERNAL_DNS_NAMESPACE} --timeout=120s');
+  lines.push(
+    'kubectl rollout status deployment/external-dns -n ${EXTERNAL_DNS_NAMESPACE} --timeout=120s'
+  );
   lines.push('```');
 
   return lines.join('\n');
 }
 
 export function cleanup(_cfg) {
-  return [
-    '```bash',
-    'helm uninstall external-dns -n ${EXTERNAL_DNS_NAMESPACE}',
-    '```',
-  ].join('\n');
+  return ['```bash', 'helm uninstall external-dns -n ${EXTERNAL_DNS_NAMESPACE}', '```'].join('\n');
 }

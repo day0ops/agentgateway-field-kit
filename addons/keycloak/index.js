@@ -849,11 +849,19 @@ export class KeycloakFeature extends Feature {
     const password = this.soloUiDefaultPassword;
     for (const user of users) {
       this.log(`Creating Solo UI user '${user.username}'...`, 'info');
-      await this.createOrUpdateUserWithPassword(baseUrl, token, user.username, realm, {}, password, {
-        firstName: user.firstName,
-        lastName: user.lastName,
-        email: user.email,
-      });
+      await this.createOrUpdateUserWithPassword(
+        baseUrl,
+        token,
+        user.username,
+        realm,
+        {},
+        password,
+        {
+          firstName: user.firstName,
+          lastName: user.lastName,
+          email: user.email,
+        }
+      );
 
       const userId = await this.lookupUserId(baseUrl, token, user.username, realm);
       const groupId = groupIds[user.group];
