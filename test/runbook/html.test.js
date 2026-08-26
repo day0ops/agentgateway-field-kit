@@ -71,7 +71,9 @@ describe('HtmlRenderer', () => {
   test('render() shows a hero titled from the use case description for a single use case', () => {
     const html = new HtmlRenderer().render(SAMPLE_MD, {
       title: 'T',
-      usecases: [{ metadata: { name: 'my-uc', description: 'Do a thing.\nmore detail' }, spec: {} }],
+      usecases: [
+        { metadata: { name: 'my-uc', description: 'Do a thing.\nmore detail' }, spec: {} },
+      ],
     });
     expect(html).toContain('class="hero"');
     expect(html).toContain('Do a thing');
@@ -90,7 +92,12 @@ describe('RunbookBuilder.buildHtml', () => {
   });
 
   test('build() and buildHtml() reuse the same assembled markdown', async () => {
-    const builder = new RunbookBuilder({ title: 'Reuse Test', addons: [], providers: [], labs: [] });
+    const builder = new RunbookBuilder({
+      title: 'Reuse Test',
+      addons: [],
+      providers: [],
+      labs: [],
+    });
     const md = await builder.build();
     const html = await builder.buildHtml();
     expect(md.startsWith('# Reuse Test')).toBe(true);
