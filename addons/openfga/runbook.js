@@ -97,6 +97,7 @@ export async function generate(_subIndex, profileAddonConfig) {
   lines.push('kubectl create configmap openfga-bootstrap -n ${OPENFGA_NAMESPACE} \\');
   lines.push('  --from-literal=storeId=${STORE_ID} \\');
   lines.push('  --from-literal=modelId=${MODEL_ID} \\');
+  lines.push('  --from-literal=storeName=${OPENFGA_STORE_NAME} \\');
   lines.push('  --dry-run=client -o yaml | kubectl apply -f -');
   lines.push('');
   lines.push('kill $PF_PID');

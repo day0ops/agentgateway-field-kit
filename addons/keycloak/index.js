@@ -30,10 +30,16 @@ const POSTGRES_VERSION = '18.2-alpine';
  *
  * Requires the following environment variables (no defaults - deploy fails
  * cleanly via validate() if any are unset):
- *   KEYCLOAK_ADMIN_USERNAME    - Keycloak master realm bootstrap admin username
- *   KEYCLOAK_ADMIN_PASSWORD    - Keycloak master realm bootstrap admin password
- *   KEYCLOAK_POSTGRES_USER     - Postgres superuser backing Keycloak's DB
- *   KEYCLOAK_POSTGRES_PASSWORD - Postgres superuser password
+ *   KEYCLOAK_ADMIN_USERNAME       - Keycloak master realm bootstrap admin username
+ *   KEYCLOAK_ADMIN_PASSWORD       - Keycloak master realm bootstrap admin password
+ *   KEYCLOAK_POSTGRES_USER        - Postgres superuser backing Keycloak's DB
+ *   KEYCLOAK_POSTGRES_PASSWORD    - Postgres superuser password
+ *   SOLO_UI_DEFAULT_PASSWORD      - solo-admin/solo-reader/solo-writer bootstrap password
+ *                                   (only required when soloUIClients.enabled is true)
+ *   GRAFANA_REALM_ADMIN_USERNAME  - Grafana OIDC demo admin username (default: 'grafana-admin';
+ *                                   only used when a 'grafana' realm is configured)
+ *   GRAFANA_REALM_ADMIN_PASSWORD  - Grafana OIDC demo admin password (only required when a
+ *                                   'grafana' realm is configured)
  */
 export class KeycloakFeature extends Feature {
   constructor(name, config) {
@@ -68,6 +74,10 @@ export class KeycloakFeature extends Feature {
     this.adminPassword = process.env.KEYCLOAK_ADMIN_PASSWORD || '';
     this.postgresUser = process.env.KEYCLOAK_POSTGRES_USER || '';
     this.postgresPassword = process.env.KEYCLOAK_POSTGRES_PASSWORD || '';
+    this.soloUiDefaultPassword = process.env.SOLO_UI_DEFAULT_PASSWORD || '';
+    this.grafanaAdminUsername = process.env.GRAFANA_REALM_ADMIN_USERNAME || 'grafana-admin';
+    this.grafanaAdminPassword = process.env.GRAFANA_REALM_ADMIN_PASSWORD || '';
+    this.hasGrafanaRealm = (config.realms || []).some(r => r.realm === 'grafana');
   }
 
   validate() {
@@ -76,6 +86,8 @@ export class KeycloakFeature extends Feature {
       !this.adminPassword && 'KEYCLOAK_ADMIN_PASSWORD',
       !this.postgresUser && 'KEYCLOAK_POSTGRES_USER',
       !this.postgresPassword && 'KEYCLOAK_POSTGRES_PASSWORD',
+      this.soloUIClients?.enabled && !this.soloUiDefaultPassword && 'SOLO_UI_DEFAULT_PASSWORD',
+      this.hasGrafanaRealm && !this.grafanaAdminPassword && 'GRAFANA_REALM_ADMIN_PASSWORD',
     ].filter(Boolean);
     if (missing.length > 0) {
       throw new Error(
@@ -84,7 +96,9 @@ export class KeycloakFeature extends Feature {
           '  export KEYCLOAK_ADMIN_USERNAME="admin"\n' +
           '  export KEYCLOAK_ADMIN_PASSWORD="<your-password>"\n' +
           '  export KEYCLOAK_POSTGRES_USER="postgres"\n' +
-          '  export KEYCLOAK_POSTGRES_PASSWORD="<your-password>"'
+          '  export KEYCLOAK_POSTGRES_PASSWORD="<your-password>"\n' +
+          '  export SOLO_UI_DEFAULT_PASSWORD="<your-password>"\n' +
+          '  export GRAFANA_REALM_ADMIN_PASSWORD="<your-password>"'
       );
     }
     return true;
@@ -832,19 +846,21 @@ export class KeycloakFeature extends Feature {
       },
     ];
 
+    const password = this.soloUiDefaultPassword;
     for (const user of users) {
       this.log(`Creating Solo UI user '${user.username}'...`, 'info');
-      await this.createOrUpdateUser(
+      await this.createOrUpdateUserWithPassword(
         baseUrl,
         token,
+        user.username,
+        realm,
+        {},
+        password,
         {
-          username: user.username,
-          email: user.email,
           firstName: user.firstName,
           lastName: user.lastName,
-          attributes: {},
-        },
-        realm
+          email: user.email,
+        }
       );
 
       const userId = await this.lookupUserId(baseUrl, token, user.username, realm);
@@ -1406,19 +1422,21 @@ export class KeycloakFeature extends Feature {
       }
     }
 
-    const defaultPassword = realm.defaultPassword;
+    const isGrafanaRealm = realm.realm === 'grafana';
+    const defaultPassword = isGrafanaRealm ? this.grafanaAdminPassword : realm.defaultPassword;
     for (const user of realm.users || []) {
       token = await this.getAdminToken(baseUrl);
+      const username = isGrafanaRealm ? this.grafanaAdminUsername : user.username;
       const password = user.password || defaultPassword;
       if (!password) {
         throw new Error(
-          `No password for user '${user.username}' in realm '${realm.realm}'. Set defaultPassword or per-user password.`
+          `No password for user '${username}' in realm '${realm.realm}'. Set defaultPassword or per-user password.`
         );
       }
       await this.createOrUpdateUserWithPassword(
         baseUrl,
         token,
-        user.username,
+        username,
         realm.realm,
         user.attributes || {},
         password,

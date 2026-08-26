@@ -6,7 +6,7 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const KEYCLOAK_VERSION = '26.7.0';
+const KEYCLOAK_VERSION = '26.6.2';
 const POSTGRES_VERSION = '18.2-alpine';
 
 function _renderTemplate(template, vars) {
@@ -16,6 +16,7 @@ function _renderTemplate(template, vars) {
 function _generateStandardRealmCurls(realm) {
   const lines = [];
   const realmName = realm.realm;
+  const isGrafanaRealm = realmName === 'grafana';
   lines.push(`# Create realm: ${realmName}`);
   lines.push(`curl -sk -X POST "\${KEYCLOAK_SCHEME}://\${KEYCLOAK_HOST}/admin/realms" \\`);
   lines.push(`  -H "Authorization: Bearer $KEYCLOAK_TOKEN" \\`);
@@ -51,25 +52,34 @@ function _generateStandardRealmCurls(realm) {
     for (const [k, v] of Object.entries(user.attributes || {})) {
       attrs[k] = [v];
     }
-    const userPayload = {
-      username: user.username,
-      email: user.email,
-      firstName: user.firstName,
-      lastName: user.lastName,
-      enabled: true,
-      credentials: [
-        { type: 'password', value: realm.defaultPassword || 'Password1!', temporary: false },
-      ],
-      attributes: attrs,
-    };
     lines.push('');
-    lines.push(`# User: ${user.username}`);
+    lines.push(`# User: ${isGrafanaRealm ? '$GRAFANA_REALM_ADMIN_USERNAME' : user.username}`);
     lines.push(
       `curl -sk -X POST "\${KEYCLOAK_SCHEME}://\${KEYCLOAK_HOST}/admin/realms/${realmName}/users" \\`
     );
     lines.push(`  -H "Authorization: Bearer $KEYCLOAK_TOKEN" \\`);
     lines.push(`  -H "Content-Type: application/json" \\`);
-    lines.push(`  -d '${JSON.stringify(userPayload)}'`);
+    if (isGrafanaRealm) {
+      // Credentials render as shell variable references (with a bash default-value
+      // expansion for the username) so they're read from the operator's environment
+      // instead of being baked into this generated doc.
+      lines.push(
+        `  -d '{"username":"'"\${GRAFANA_REALM_ADMIN_USERNAME:-grafana-admin}"'","email":"${user.email || ''}","firstName":"${user.firstName || ''}","lastName":"${user.lastName || ''}","enabled":true,"credentials":[{"type":"password","value":"'"$GRAFANA_REALM_ADMIN_PASSWORD"'","temporary":false}],"attributes":${JSON.stringify(attrs)}}'`
+      );
+    } else {
+      const userPayload = {
+        username: user.username,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        enabled: true,
+        credentials: [
+          { type: 'password', value: realm.defaultPassword || 'Password1!', temporary: false },
+        ],
+        attributes: attrs,
+      };
+      lines.push(`  -d '${JSON.stringify(userPayload)}'`);
+    }
   }
 
   return lines.join('\n');
@@ -129,8 +139,8 @@ function _generateOrgRealmCurls(realm) {
   return lines.join('\n');
 }
 
-export function envVarsFor(_cfg) {
-  return [
+export function envVarsFor(cfg) {
+  const vars = [
     {
       name: 'KEYCLOAK_ADMIN_USERNAME',
       required: true,
@@ -152,6 +162,28 @@ export function envVarsFor(_cfg) {
       description: 'Postgres superuser password',
     },
   ];
+  if (cfg?.soloUIClients?.enabled) {
+    vars.push({
+      name: 'SOLO_UI_DEFAULT_PASSWORD',
+      required: true,
+      description: 'Solo UI demo bootstrap password (solo-admin/solo-reader/solo-writer)',
+    });
+  }
+  if ((cfg?.realms || []).some(r => r.realm === 'grafana')) {
+    vars.push(
+      {
+        name: 'GRAFANA_REALM_ADMIN_USERNAME',
+        required: false,
+        description: "Grafana OIDC demo admin username (default: 'grafana-admin')",
+      },
+      {
+        name: 'GRAFANA_REALM_ADMIN_PASSWORD',
+        required: true,
+        description: 'Grafana OIDC demo admin password',
+      }
+    );
+  }
+  return vars;
 }
 
 export function envExportsFor(cfg) {
@@ -168,7 +200,8 @@ export function envExportsFor(cfg) {
 export async function generate(_subIndex, profileAddonConfig) {
   const cfg = profileAddonConfig || {};
   const tlsSecretName = cfg.tls?.secretName || 'keycloak-tls';
-  const storageClass = cfg.storageClass || '';
+  const storageClass = cfg.postgres?.persistentVolume?.storageClass || '';
+  const postgresPvcSize = cfg.postgres?.persistentVolume?.size || '5Gi';
 
   const postgresTemplate = await readFile(join(__dirname, 'config', 'postgres.yaml'), 'utf8');
   const keycloakTemplate = await readFile(join(__dirname, 'config', 'keycloak.yaml'), 'utf8');
@@ -177,6 +210,7 @@ export async function generate(_subIndex, profileAddonConfig) {
     NAMESPACE: '$KC_NAMESPACE',
     POSTGRES_VERSION: '$POSTGRES_VERSION',
     STORAGE_CLASS_NAME: storageClass,
+    POSTGRES_PVC_SIZE: postgresPvcSize,
     POSTGRES_USER: '$KEYCLOAK_POSTGRES_USER',
     POSTGRES_PASSWORD: '$KEYCLOAK_POSTGRES_PASSWORD',
   });
