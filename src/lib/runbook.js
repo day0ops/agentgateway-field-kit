@@ -13,6 +13,7 @@ import { ProfileManager } from './profiles.js';
 import { EnvironmentManager } from './environment.js';
 import { ProfileSchema } from './profile-schema.js';
 import { mergeAddonConfig } from './addons.js';
+import { InfraStateManager } from './infra-state.js';
 
 /**
  * Slugify heading text into a URL anchor.
@@ -132,7 +133,10 @@ export class RunbookBuilder {
         const envName = environment || profileData.environment || 'local';
         try {
           const env = await EnvironmentManager.load(envName);
-          profileData = EnvironmentManager.resolveAllTemplates(profileData, env);
+          const infraState = profileData.infra
+            ? await InfraStateManager.load(profileData.infra)
+            : null;
+          profileData = EnvironmentManager.resolveAllTemplates(profileData, env, infraState);
         } catch {
           // continue without template resolution
         }

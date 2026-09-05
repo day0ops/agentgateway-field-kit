@@ -999,7 +999,11 @@ usecase
     try {
       await InfraStateManager.resolveAndApplyKubeContext();
 
-      if (!(await KubernetesHelper.isClusterAccessible())) {
+      // --current checks every provisioned infra's contexts itself (it can't assume
+      // resolveAndApplyKubeContext() picked the right one when more than one is
+      // provisioned) and raises its own clear error if nothing is reachable at all -
+      // the accessibility gate below would otherwise abort before it gets the chance.
+      if (!options.current && !(await KubernetesHelper.isClusterAccessible())) {
         Logger.error('Cluster not accessible. Check your kubeconfig/context.');
         process.exit(1);
       }

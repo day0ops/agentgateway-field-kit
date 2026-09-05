@@ -1015,9 +1015,53 @@ export function waitFor(ms) {
 }
 
 /**
+ * Build the AWS Load Balancer Controller annotation set for a public-facing NLB.
+ * Always pins the scheme to internet-facing — AWS LBC's own default is `internal`
+ * (private VPC IPs only), silently unreachable from outside the VPC; confirmed live
+ * more than once as the cause of a "stuck"/timed-out install with no clear error.
+ * Additionally gates the listener to a fixed CIDR allowlist (e.g. a VPN egress range)
+ * when sourceRanges is non-empty.
+ *
+ * Two non-obvious AWS LBC gotchas, both confirmed live in the sibling agentic-field-kit
+ * repo (source-ranges silently had no effect, NLB stayed open to 0.0.0.0/0, until both
+ * were fixed):
+ *  - The CIDR-allowlist key is `load-balancer-source-ranges` with NO `aws-` prefix —
+ *    the one annotation in this whole system inherited from the generic in-tree
+ *    cloud-provider convention rather than AWS LBC's own `aws-load-balancer-*` naming.
+ *  - With nlb-target-type=ip, AWS disables client-IP preservation by default, and
+ *    source-ranges is documented to be ignored entirely when that's disabled — so it
+ *    must be turned back on via target-group-attributes.
+ *
+ * .flat() is defensive rather than load-bearing here: EnvironmentManager's template
+ * resolver always returns plain strings (String.replace() coerces any value to a
+ * string), so sourceRanges never actually contains a nested array the way it can in
+ * the sibling repos' full-value-token resolver — but flattening is harmless either way.
+ */
+export function nlbSourceRangeAnnotations(sourceRanges) {
+  const ranges = (Array.isArray(sourceRanges) ? sourceRanges : [sourceRanges])
+    .flat()
+    .filter(Boolean);
+  return {
+    'service.beta.kubernetes.io/aws-load-balancer-type': 'external',
+    'service.beta.kubernetes.io/aws-load-balancer-nlb-target-type': 'ip',
+    'service.beta.kubernetes.io/aws-load-balancer-scheme': 'internet-facing',
+    'service.beta.kubernetes.io/aws-load-balancer-target-group-attributes':
+      'preserve_client_ip.enabled=true',
+    ...(ranges.length > 0
+      ? { 'service.beta.kubernetes.io/load-balancer-source-ranges': ranges.join(',') }
+      : {}),
+  };
+}
+
+/**
  * Wait indefinitely for a public hostname to resolve in DNS, then verify HTTP reachability.
  *
- * Phase 1 — DNS: polls dns.resolve4(hostname) every `interval` ms until an IP is returned.
+ * Phase 1 — DNS: polls dns.lookup(hostname) every `interval` ms until an IP is returned. Uses
+ * dns.lookup() (getaddrinfo, the OS resolver) rather than dns.resolve4() (a raw query against
+ * /etc/resolv.conf's nameserver) so this respects the same resolution path — split-DNS overrides
+ * (e.g. macOS /etc/resolver/*), /etc/hosts, nsswitch.conf — that Phase 2's HTTP request below
+ * already goes through. The two phases used to disagree: Phase 1 could hang on a stale answer
+ * from a caching resolver (e.g. Pi-hole) that Phase 2 would have already bypassed.
  * Phase 2 — HTTP: polls the URL (ignoring TLS cert errors) until a non-5xx response is received.
  * Phase 3 — TLS (HTTPS only): verifies TLS cert is valid (trusted) before returning.
  *
@@ -1056,11 +1100,9 @@ export async function waitForPublicUrl(
   logger(`Waiting for DNS to resolve: ${hostname}`, 'info');
   while (true) {
     try {
-      const addrs = await dns.resolve4(hostname);
-      if (addrs.length > 0) {
-        logger(`DNS resolved: ${hostname} → ${addrs[0]} (${elapsed()})`, 'success');
-        break;
-      }
+      const { address } = await dns.lookup(hostname, { family: 4 });
+      logger(`DNS resolved: ${hostname} → ${address} (${elapsed()})`, 'success');
+      break;
     } catch {
       // ENOTFOUND or similar — record not propagated yet
     }

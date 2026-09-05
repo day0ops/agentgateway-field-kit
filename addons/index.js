@@ -17,6 +17,7 @@ import { AgentgatewayExtensionsFeature } from './agentgateway-extensions/index.j
 import { OpenfgaFeature } from './openfga/index.js';
 import { OpaFeature } from './opa/index.js';
 import { OpikFeature } from './opik/index.js';
+import { AwsLoadBalancerControllerFeature } from './aws-load-balancer-controller/index.js';
 
 // Register all addons
 FeatureManager.register('telemetry', TelemetryFeature);
@@ -29,6 +30,7 @@ FeatureManager.register('agentgateway-extensions', AgentgatewayExtensionsFeature
 FeatureManager.register('openfga', OpenfgaFeature);
 FeatureManager.register('opa', OpaFeature);
 FeatureManager.register('opik', OpikFeature);
+FeatureManager.register('aws-load-balancer-controller', AwsLoadBalancerControllerFeature);
 
 // Export for direct use if needed
 export {
@@ -42,4 +44,5 @@ export {
   OpenfgaFeature,
   OpaFeature,
   OpikFeature,
+  AwsLoadBalancerControllerFeature,
 };

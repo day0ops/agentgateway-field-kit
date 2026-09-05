@@ -1,6 +1,10 @@
 import { Feature, FeatureManager } from '../../src/lib/feature.js';
 import { EDITION_GATEWAY_NAME, EDITION_BASE_NAME } from '../../src/lib/editions.js';
-import { KubernetesHelper, waitForPublicUrl } from '../../src/lib/common.js';
+import {
+  KubernetesHelper,
+  waitForPublicUrl,
+  nlbSourceRangeAnnotations,
+} from '../../src/lib/common.js';
 
 const IPV4_RE = /^\d{1,3}(\.\d{1,3}){3}$/;
 
@@ -39,7 +43,12 @@ const IPV4_RE = /^\d{1,3}(\.\d{1,3}){3}$/;
  *                             // validation: { frontend: { default: { validation: {...} } } })
  *     frontend?: object,
  *     backend?: object,
- *   }
+ *   },
+ *   sourceRanges: string | string[], // Optional: CIDR allowlist (e.g. a VPN egress range)
+ *                             // for the auto-provisioned LoadBalancer Service on AWS.
+ *                             // Always pins the scheme to internet-facing regardless -
+ *                             // AWS LBC's own default (internal) is unreachable from
+ *                             // outside the VPC.
  * }
  */
 export class GatewayFeature extends Feature {
@@ -58,6 +67,7 @@ export class GatewayFeature extends Feature {
       gatewayClassName,
       listeners,
       tls,
+      sourceRanges,
     } = this.config;
 
     const overrides = {
@@ -75,6 +85,12 @@ export class GatewayFeature extends Feature {
     const specOverrides = { gatewayClassName: gatewayClassName ?? EDITION_BASE_NAME[this.edition] };
     if (listeners !== undefined && listeners.length > 0) specOverrides.listeners = listeners;
     if (tls !== undefined) specOverrides.tls = tls;
+    // The Gateway API controller auto-provisions a LoadBalancer Service for this Gateway
+    // on AWS; without an explicit scheme, AWS Load Balancer Controller defaults to
+    // `internal` (unreachable from outside the VPC).
+    specOverrides.infrastructure = {
+      annotations: nlbSourceRangeAnnotations(sourceRanges),
+    };
     overrides.spec = specOverrides;
 
     await this.applyYamlFile('gateway.yaml', overrides);

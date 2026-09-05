@@ -9,6 +9,9 @@ const __dirname = dirname(__filename);
 const KEYCLOAK_VERSION = '26.6.2';
 const POSTGRES_VERSION = '18.2-alpine';
 
+// tpl: return v if it's a real value (not an unresolved {{...}} template), otherwise fb
+const tpl = (v, fb) => (v && !/\{\{/.test(v) ? v : fb);
+
 function _renderTemplate(template, vars) {
   return Object.entries(vars).reduce((t, [k, v]) => t.replaceAll(`{{${k}}}`, v), template);
 }
@@ -162,7 +165,7 @@ export function envVarsFor(cfg) {
       description: 'Postgres superuser password',
     },
   ];
-  if (cfg?.soloUIClients?.enabled) {
+  if (cfg?.soloUiClients?.enabled) {
     vars.push({
       name: 'SOLO_UI_DEFAULT_PASSWORD',
       required: true,
@@ -231,6 +234,21 @@ export async function generate(_subIndex, profileAddonConfig) {
     ADMIN_PASSWORD: '$KEYCLOAK_ADMIN_PASSWORD',
   });
 
+  // sourceRanges mixes a real env value ({{env.security.vpnSourceRanges}}) with a
+  // per-cluster infra-state token (the NAT gateway IP) neither of which this generator
+  // can resolve (no env/infraState passed in here) — each falls back to a readable
+  // placeholder instead of leaving `{{...}}` literally in the runbook.
+  const sourceRangesList = Array.isArray(cfg.sourceRanges) ? cfg.sourceRanges : [cfg.sourceRanges];
+  const sourceRanges = sourceRangesList
+    .filter(Boolean)
+    .map(r => {
+      if (r === '{{env.security.vpnSourceRanges}}') return '<vpn-cidr>';
+      const infraMatch = r?.match?.(/infra\.clusters\.(\w+)\.network\.natGatewayIp/);
+      if (infraMatch) return `<${infraMatch[1]}-nat-gateway-ip>/32`;
+      return tpl(r, r);
+    })
+    .join(',');
+
   const lines = [];
   lines.push('### Install Keycloak');
   lines.push('');
@@ -265,6 +283,26 @@ export async function generate(_subIndex, profileAddonConfig) {
   lines.push(keycloakRendered.trimEnd());
   lines.push('EOF');
   lines.push('```');
+  if (sourceRanges) {
+    lines.push('');
+    lines.push('#### Gate the NLB to an allowed CIDR list');
+    lines.push('');
+    lines.push(
+      '(the AWS Load Balancer Controller reads this annotation and rewrites its managed security group; `nlb-target-type=ip` requires client-IP preservation to be re-enabled or the CIDR gate is silently ignored)'
+    );
+    lines.push('');
+    lines.push('```bash');
+    lines.push('kubectl annotate service keycloak -n ${KC_NAMESPACE} \\');
+    lines.push('  "service.beta.kubernetes.io/aws-load-balancer-type=external" \\');
+    lines.push('  "service.beta.kubernetes.io/aws-load-balancer-nlb-target-type=ip" \\');
+    lines.push('  "service.beta.kubernetes.io/aws-load-balancer-scheme=internet-facing" \\');
+    lines.push(
+      '  "service.beta.kubernetes.io/aws-load-balancer-target-group-attributes=preserve_client_ip.enabled=true" \\'
+    );
+    lines.push(`  "service.beta.kubernetes.io/load-balancer-source-ranges=${sourceRanges}" \\`);
+    lines.push('  --overwrite');
+    lines.push('```');
+  }
   lines.push('');
   lines.push('#### Wait for Keycloak to be ready');
   lines.push('');
@@ -309,9 +347,9 @@ export async function generate(_subIndex, profileAddonConfig) {
     }
   }
 
-  const soloUIClients = cfg.soloUIClients;
-  if (soloUIClients?.enabled) {
-    const suiRealm = soloUIClients.realm || 'solo-ui';
+  const soloUiClients = cfg.soloUiClients;
+  if (soloUiClients?.enabled) {
+    const suiRealm = soloUiClients.realm || 'solo-ui';
     lines.push('');
     lines.push(`# Create Solo UI realm: ${suiRealm}`);
     lines.push(`curl -sk -X POST "\${KEYCLOAK_SCHEME}://\${KEYCLOAK_HOST}/admin/realms" \\`);
@@ -319,16 +357,16 @@ export async function generate(_subIndex, profileAddonConfig) {
     lines.push(`  -H "Content-Type: application/json" \\`);
     lines.push(`  -d '{"realm":"${suiRealm}","enabled":true}'`);
 
-    if (soloUIClients.backendClientId) {
+    if (soloUiClients.backendClientId) {
       const backendPayload = {
-        clientId: soloUIClients.backendClientId,
-        secret: soloUIClients.backendClientSecret,
+        clientId: soloUiClients.backendClientId,
+        secret: soloUiClients.backendClientSecret,
         publicClient: false,
         serviceAccountsEnabled: false,
         standardFlowEnabled: true,
       };
       lines.push('');
-      lines.push(`# Backend client (confidential): ${soloUIClients.backendClientId}`);
+      lines.push(`# Backend client (confidential): ${soloUiClients.backendClientId}`);
       lines.push(
         `curl -sk -X POST "\${KEYCLOAK_SCHEME}://\${KEYCLOAK_HOST}/admin/realms/${suiRealm}/clients" \\`
       );
@@ -337,15 +375,15 @@ export async function generate(_subIndex, profileAddonConfig) {
       lines.push(`  -d '${JSON.stringify(backendPayload)}'`);
     }
 
-    if (soloUIClients.frontendClientId) {
+    if (soloUiClients.frontendClientId) {
       const frontendPayload = {
-        clientId: soloUIClients.frontendClientId,
+        clientId: soloUiClients.frontendClientId,
         publicClient: true,
         serviceAccountsEnabled: false,
         standardFlowEnabled: true,
       };
       lines.push('');
-      lines.push(`# Frontend client (public): ${soloUIClients.frontendClientId}`);
+      lines.push(`# Frontend client (public): ${soloUiClients.frontendClientId}`);
       lines.push(
         `curl -sk -X POST "\${KEYCLOAK_SCHEME}://\${KEYCLOAK_HOST}/admin/realms/${suiRealm}/clients" \\`
       );

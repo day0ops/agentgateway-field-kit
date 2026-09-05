@@ -1,6 +1,15 @@
 import { Feature, FeatureManager } from '../../src/lib/feature.js';
-import { EDITION_GATEWAY_NAME, EDITION_BASE_NAME } from '../../src/lib/editions.js';
-import { KubernetesHelper, CommandRunner } from '../../src/lib/common.js';
+import {
+  EDITION_GATEWAY_NAME,
+  EDITION_BASE_NAME,
+  POLICY_KIND,
+  policyApiVersion,
+} from '../../src/lib/editions.js';
+import {
+  KubernetesHelper,
+  CommandRunner,
+  nlbSourceRangeAnnotations,
+} from '../../src/lib/common.js';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { readFile, readdir } from 'fs/promises';
@@ -42,6 +51,10 @@ const OTEL_COLLECTOR_VERSION = '0.96.0';
  *   enableMetrics: boolean,       // Default: true
  *   retention: string,            // Default: '120h' (5 days) - retention period for metrics, logs, traces
  *   grafanaServiceType: string,   // Default: 'LoadBalancer' - Grafana service type (ClusterIP, LoadBalancer, NodePort)
+ *   grafanaSourceRanges: string | string[], // Optional: CIDR allowlist (e.g. VPN egress range)
+ *                                 // for the Grafana LoadBalancer Service on AWS. Always pins
+ *                                 // the scheme to internet-facing regardless - AWS LBC's own
+ *                                 // default (internal) is unreachable from outside the VPC.
  *   nodeSelector: object          // Default: {} (e.g., { nodeclass: 'worker' })
  * }
  *
@@ -66,6 +79,7 @@ export class TelemetryFeature extends Feature {
     this.enableMetrics = config.enableMetrics !== false;
     this.retention = config.retention || '120h'; // 5 days default
     this.grafanaServiceType = config.grafanaServiceType || 'LoadBalancer';
+    this.grafanaSourceRanges = config.grafanaSourceRanges || null;
     this.nodeSelector = config.nodeSelector || {};
     this.database = config.database || null;
     this.storageClass = this.database?.storageClass || config.storageClass || '';
@@ -189,25 +203,28 @@ export class TelemetryFeature extends Feature {
       await this.applyYamlFile('service-monitor-kubelet.yaml');
     }
 
-    // Step 7: Create EnterpriseAgentgatewayPolicy resources
+    // Step 7: Create per-edition Policy resources (EnterpriseAgentgatewayPolicy on
+    // enterprise, AgentgatewayPolicy on opensource - same spec.frontend.{accessLog,tracing}
+    // schema on both, only the CRD group/kind differs). The static YAML files default to
+    // the enterprise kind, so it's overridden here for opensource.
     const gatewayTargetRefs = [
       { group: 'gateway.networking.k8s.io', kind: 'Gateway', name: gatewayRef.name },
     ];
+    const policyOverrides = {
+      apiVersion: policyApiVersion(resolvedEdition),
+      kind: POLICY_KIND[resolvedEdition],
+      metadata: { namespace: this.gatewayNamespace },
+      spec: { targetRefs: gatewayTargetRefs },
+    };
     if (this.enableLogs) {
-      await this.applyYamlFile('logging-policy.yaml', {
-        metadata: { namespace: this.gatewayNamespace },
-        spec: { targetRefs: gatewayTargetRefs },
-      });
+      await this.applyYamlFile('logging-policy.yaml', policyOverrides);
       await this.applyYamlFile('reference-grant-logs.yaml');
     }
     if (this.enableTraces) {
       // Deploy fan-out collector to route traces to both Solo UI (ClickHouse) and Tempo (Grafana)
       await this.installFanOutCollector();
       // Apply gateway tracing policy (routes traces from agentgateway to fan-out-collector)
-      await this.applyYamlFile('tracing-policy.yaml', {
-        metadata: { namespace: this.gatewayNamespace },
-        spec: { targetRefs: gatewayTargetRefs },
-      });
+      await this.applyYamlFile('tracing-policy.yaml', policyOverrides);
       await this.applyYamlFile('reference-grant-traces.yaml');
     }
 
@@ -296,17 +313,16 @@ export class TelemetryFeature extends Feature {
   async cleanup() {
     this.log('Cleaning up observability stack...', 'info');
 
-    // Delete EnterpriseAgentgatewayPolicies
-    await this.deleteResource(
-      'EnterpriseAgentgatewayPolicy',
-      'logging-policy',
-      this.gatewayNamespace
-    );
-    await this.deleteResource(
-      'EnterpriseAgentgatewayPolicy',
-      'tracing-policy',
-      this.gatewayNamespace
-    );
+    // Reverse the same gatewayRef -> edition lookup used in deploy() to delete the
+    // right Policy kind (EnterpriseAgentgatewayPolicy vs AgentgatewayPolicy).
+    const gatewayRef = FeatureManager.getGatewayRef();
+    const resolvedEdition =
+      Object.entries(EDITION_GATEWAY_NAME).find(([, name]) => name === gatewayRef.name)?.[0] ||
+      'enterprise';
+    const policyKind = POLICY_KIND[resolvedEdition];
+
+    await this.deleteResource(policyKind, 'logging-policy', this.gatewayNamespace);
+    await this.deleteResource(policyKind, 'tracing-policy', this.gatewayNamespace);
 
     // Delete PodMonitors and ServiceMonitors
     await this.deleteResource('PodMonitor', 'agentgateway-metrics', this.telemetryNamespace);
@@ -557,6 +573,18 @@ export class TelemetryFeature extends Feature {
         '--set',
         `grafana.service.annotations.external-dns\\.alpha\\.kubernetes\\.io/hostname=${this.grafanaHostname}`
       );
+    }
+    // AWS LBC's own default scheme (when no annotation is present) is `internal`,
+    // unreachable from outside the VPC -- always pin internet-facing explicitly.
+    if (this.grafanaServiceType === 'LoadBalancer') {
+      for (const [key, value] of Object.entries(
+        nlbSourceRangeAnnotations(this.grafanaSourceRanges)
+      )) {
+        helmArgs.push(
+          '--set',
+          `grafana.service.annotations.${key.replaceAll('.', '\\.')}=${value}`
+        );
+      }
     }
     if (this.prometheusHostname) {
       helmArgs.push(

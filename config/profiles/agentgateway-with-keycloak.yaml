@@ -379,10 +379,10 @@ spec:
                 attributes:
                   partner_tier: bronze
                   partner_id: acme-partner
-        soloUIClients:
+        soloUiClients:
           enabled: true
           realm: solo-ui
-          hostname: http://{{env.domains.soloUI}}
+          hostname: http://{{env.domains.soloUi}}
           backendClientId: solo-ui-backend
           backendClientSecret: solo-ui-backend-secret
           frontendClientId: solo-ui-frontend

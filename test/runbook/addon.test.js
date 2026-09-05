@@ -73,7 +73,7 @@ const KEYCLOAK_PROFILE_CONFIG = {
       k8sSecretNamespace: 'agentgateway-system',
     },
   ],
-  soloUIClients: {
+  soloUiClients: {
     enabled: true,
     realm: 'solo-ui',
     hostname: 'http://soloui.demo.kasunt.apac.fe.solo.io',
@@ -189,7 +189,7 @@ describe('AddonAdapter', () => {
     expect(section).toContain('--from-literal=clientSecret=caller-agent-secret');
   });
 
-  test('generate(keycloak) with soloUIClients generates solo-ui realm and clients', async () => {
+  test('generate(keycloak) with soloUiClients generates solo-ui realm and clients', async () => {
     const section = await AddonAdapter.generate(
       'keycloak',
       0,

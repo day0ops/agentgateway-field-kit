@@ -26,6 +26,16 @@ export function mergeAddonConfig(addon) {
   };
 }
 
+// Never delete cluster-critical or shared namespaces, even if an addon happens to be
+// configured to install into one (e.g. aws-load-balancer-controller defaults to kube-system).
+const PROTECTED_NAMESPACES = new Set([
+  'kube-system',
+  'kube-public',
+  'kube-node-lease',
+  'default',
+  'agentgateway-system',
+]);
+
 const PROFILE_ADDONS = [
   { name: 'telemetry', namespace: 'telemetry' },
   { name: 'solo-ui', namespace: 'agentgateway-system' },
@@ -117,17 +127,28 @@ export class AddonInstaller {
       await FeatureManager.cleanup(name, namespace ? { namespace, spinner } : { spinner });
       spinner.succeed(`Addon '${name}' cleaned up`);
 
-      if (deleteNamespace && namespace && namespace !== 'agentgateway-system') {
-        const nsResult = await KubernetesHelper.kubectl(
-          ['get', 'namespace', namespace, '-o', 'name'],
-          { ignoreError: true }
-        );
-        if (nsResult?.exitCode === 0 && nsResult?.stdout?.includes(namespace)) {
-          Logger.info(`Deleting namespace ${namespace}...`);
-          await KubernetesHelper.kubectl(['delete', 'namespace', namespace, '--wait=false'], {
-            ignoreError: true,
-          });
-          Logger.success(`Namespace ${namespace} deletion initiated`);
+      if (deleteNamespace && namespace) {
+        if (PROTECTED_NAMESPACES.has(namespace)) {
+          Logger.info(`Skipping deletion of shared/system namespace '${namespace}'`);
+        } else {
+          const nsResult = await KubernetesHelper.kubectl(
+            ['get', 'namespace', namespace, '-o', 'name'],
+            { ignoreError: true }
+          );
+          if (nsResult?.exitCode === 0 && nsResult?.stdout?.includes(namespace)) {
+            Logger.info(`Deleting namespace ${namespace}...`);
+            const deleteResult = await KubernetesHelper.kubectl(
+              ['delete', 'namespace', namespace, '--wait=false'],
+              { ignoreError: true }
+            );
+            if (deleteResult?.exitCode === 0) {
+              Logger.success(`Namespace ${namespace} deletion initiated`);
+            } else {
+              Logger.warn(
+                `Failed to delete namespace ${namespace}: ${deleteResult?.stderr || deleteResult?.message || 'unknown error'}`
+              );
+            }
+          }
         }
       }
     } catch (error) {

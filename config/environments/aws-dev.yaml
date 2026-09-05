@@ -24,6 +24,13 @@ spec:
   tls:
     issuer: letsencrypt-dns
 
+  # CIDR allowlist applied to public-facing NLBs (aws-load-balancer-source-ranges).
+  # Checkpoint Harmony SASE documented egress range (same corporate VPN as the sibling
+  # agentic-field-kit/mesh-field-kit repos).
+  security:
+    vpnSourceRanges:
+      - 165.99.148.0/24
+
   internal:
     # Service name matches EDITION_GATEWAY_NAME.enterprise (src/lib/editions.js) - the
     # Gateway API controller auto-provisions a Service named after the Gateway object,
@@ -81,5 +88,5 @@ spec:
     keycloak: keycloak.demo.kasunt.apac.fe.solo.io
     grafana: grafana.demo.kasunt.apac.fe.solo.io
     quotaManagement: quota-management.demo.kasunt.apac.fe.solo.io
-    soloUI: soloui.demo.kasunt.apac.fe.solo.io
+    soloUi: solo-ui.demo.kasunt.apac.fe.solo.io
     agentgateway: agentgateway.demo.kasunt.apac.fe.solo.io

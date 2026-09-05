@@ -156,17 +156,34 @@ export class EnvironmentManager {
   }
 
   /**
-   * Resolve a single template string
-   * @param {string} template - Template string like '{{env.domains.keycloak}}'
+   * Resolve a single template string. Supports '{{env.*}}' (against the Environment spec)
+   * and '{{infra.clusters.<name>.*}}' (against persisted InfraState, e.g. Terraform-derived
+   * network/IAM fields like natGatewayIp) — the latter only resolves when infraState is
+   * passed in, since not every caller (e.g. a profile with no provisioned infra yet) has it.
+   * @param {string} template - Template string like '{{env.domains.keycloak}}' or
+   *   '{{infra.clusters.demo.network.natGatewayIp}}'
    * @param {object} env - Environment object
+   * @param {object|null} [infraState] - Loaded InfraState (status.clusters used for infra.* vars)
    * @returns {string} Resolved string
    */
-  static resolveTemplate(template, env) {
+  static resolveTemplate(template, env, infraState = null) {
     if (typeof template !== 'string') {
       return template;
     }
 
-    return template.replace(/\{\{env\.([^}]+)\}\}/g, (match, path) => {
+    return template.replace(/\{\{(env|infra)\.([^}]+)\}\}/g, (match, scope, path) => {
+      if (scope === 'infra') {
+        if (!infraState?.status?.clusters) {
+          throw new Error(`Template variable '{{infra.${path}}}' used but no infra state provided`);
+        }
+        const clustersByName = Object.fromEntries(infraState.status.clusters.map(c => [c.name, c]));
+        const value = this.getNestedValue({ clusters: clustersByName }, path);
+        if (value === undefined) {
+          throw new Error(`Template variable '{{infra.${path}}}' not found in infra state`);
+        }
+        return value;
+      }
+
       const value = this.getNestedValue(env.spec, path);
       if (value === undefined) {
         throw new Error(
@@ -201,21 +218,22 @@ export class EnvironmentManager {
    * Resolve all templates in an object recursively
    * @param {*} obj - Object, array, or primitive to resolve
    * @param {object} env - Environment object
+   * @param {object|null} [infraState] - Loaded InfraState, enables '{{infra.*}}' tokens
    * @returns {*} Resolved object
    */
-  static resolveAllTemplates(obj, env) {
+  static resolveAllTemplates(obj, env, infraState = null) {
     if (typeof obj === 'string') {
-      return this.resolveTemplate(obj, env);
+      return this.resolveTemplate(obj, env, infraState);
     }
 
     if (Array.isArray(obj)) {
-      return obj.map(item => this.resolveAllTemplates(item, env));
+      return obj.map(item => this.resolveAllTemplates(item, env, infraState));
     }
 
     if (obj !== null && typeof obj === 'object') {
       const result = {};
       for (const [key, value] of Object.entries(obj)) {
-        result[key] = this.resolveAllTemplates(value, env);
+        result[key] = this.resolveAllTemplates(value, env, infraState);
       }
       return result;
     }

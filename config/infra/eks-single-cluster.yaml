@@ -11,6 +11,7 @@ spec:
   settings:
     nodes: 2
     node_type: t3.xlarge
+    private_nodes: true
 
   clusters:
     - name: demo

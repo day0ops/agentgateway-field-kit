@@ -4,8 +4,10 @@ import {
   SpinnerLogger,
   CertificateHelper,
   waitForPublicUrl,
+  nlbSourceRangeAnnotations,
 } from './common.js';
 import { EnvironmentManager } from './environment.js';
+import { InfraStateManager } from './infra-state.js';
 import { readFile, writeFile, unlink } from 'fs/promises';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -46,7 +48,8 @@ export class AgentGatewayManager {
     if (profile.environment) {
       try {
         const environment = await EnvironmentManager.load(profile.environment);
-        profile = EnvironmentManager.resolveAllTemplates(profile, environment);
+        const infraState = profile.infra ? await InfraStateManager.load(profile.infra) : null;
+        profile = EnvironmentManager.resolveAllTemplates(profile, environment, infraState);
       } catch {
         // If environment loading fails, continue with unresolved profile
       }
@@ -711,8 +714,12 @@ export class AgentGatewayManager {
     await KubernetesHelper.waitForDeployment(AGENTGATEWAY_NAMESPACE, gatewayName, 300, spinner);
     spinner.succeed('agentgateway proxy is ready');
 
-    // Annotate the LB Service so external-dns (service source) creates the DNS record
+    // Annotate the LB Service so external-dns (service source) creates the DNS record,
+    // and so AWS Load Balancer Controller provisions it internet-facing -- its own
+    // default (when no scheme annotation is present) is `internal`, silently
+    // unreachable from outside the VPC.
     if (gatewayHostname && CertificateHelper.isExternalHostname(gatewayHostname)) {
+      const nlbAnnotations = nlbSourceRangeAnnotations(profile?.gateway?.sourceRanges);
       try {
         await KubernetesHelper.kubectl([
           'annotate',
@@ -721,6 +728,7 @@ export class AgentGatewayManager {
           '-n',
           AGENTGATEWAY_NAMESPACE,
           `external-dns.alpha.kubernetes.io/hostname=${gatewayHostname}`,
+          ...Object.entries(nlbAnnotations).map(([k, v]) => `${k}=${v}`),
           '--overwrite',
         ]);
         spinner.info(`Annotated Service for DNS: ${gatewayHostname}`);

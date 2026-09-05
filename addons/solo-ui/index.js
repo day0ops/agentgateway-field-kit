@@ -4,6 +4,7 @@ import {
   CommandRunner,
   CertificateHelper,
   waitForPublicUrl,
+  nlbSourceRangeAnnotations,
 } from '../../src/lib/common.js';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -43,6 +44,10 @@ const CRDS_RELEASE_NAME = 'solo-ui-crds';
  *   managementChartVersion: string,  // Default: '0.3.13'
  *   managementChartOci: string,      // Default: OCI chart URL
  *   serviceType: string,             // Optional: e.g. 'LoadBalancer'; omit for port-forward
+ *   sourceRanges: string | string[], // Optional: CIDR allowlist (e.g. VPN egress range) for
+ *                                    // the LoadBalancer Service/Gateway on AWS. Always pins
+ *                                    // the scheme to internet-facing regardless - AWS LBC's
+ *                                    // own default (internal) is unreachable from outside the VPC.
  *   nodeSelector: object,            // Default: {} (e.g., { nodeclass: 'worker' })
  *   applyGatewayTracingPolicy: boolean, // Default: true — set false when telemetry addon owns the gateway tracing policy
  *   clickhouse: {                      // Optional: ClickHouse persistent volume config
@@ -85,6 +90,7 @@ export class SoloUIFeature extends Feature {
       config.managementChartVersion || config.version || DEFAULT_SOLO_UI_MANAGEMENT_CHART_VERSION;
     this.chartOci = config.managementChartOci || DEFAULT_SOLO_UI_MANAGEMENT_CHART_OCI;
     this.serviceType = config.serviceType || null;
+    this.sourceRanges = config.sourceRanges || null;
     this.nodeSelector = config.nodeSelector || {};
     this.applyGatewayTracingPolicy = config.applyGatewayTracingPolicy !== false;
     this.clickhouse = config.clickhouse || null;
@@ -259,6 +265,14 @@ export class SoloUIFeature extends Feature {
         ? ['--set', `licensing.licenseKey=${ENTERPRISE_AGENTGATEWAY_LICENSE}`]
         : []),
       ...(this.serviceType ? ['--set', `service.type=${this.serviceType}`] : []),
+      // AWS LBC's own default scheme (when no annotation is present) is `internal`,
+      // unreachable from outside the VPC -- always pin internet-facing explicitly.
+      ...(this.serviceType
+        ? [
+            '--set-json',
+            `service.annotations=${JSON.stringify(nlbSourceRangeAnnotations(this.sourceRanges))}`,
+          ]
+        : []),
       ...(this.costManagement?.enabled
         ? ['--set', 'products.agentgateway.features.cost-management=true']
         : []),
@@ -401,6 +415,11 @@ export class SoloUIFeature extends Feature {
             },
           },
         ],
+        // AWS LBC's own default scheme (when no annotation is present) is `internal`,
+        // unreachable from outside the VPC -- always pin internet-facing explicitly.
+        infrastructure: {
+          annotations: nlbSourceRangeAnnotations(this.sourceRanges),
+        },
       },
     });
 

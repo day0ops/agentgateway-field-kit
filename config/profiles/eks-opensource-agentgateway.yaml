@@ -31,6 +31,15 @@ spec:
     hostname: '{{env.domains.agentgateway}}'
 
   addons:
+    - name: aws-load-balancer-controller
+      description: AWS Load Balancer Controller (IRSA-backed NLB/ALB provisioning)
+      version: 3.5.0
+      namespace: kube-system
+      config:
+        clusterName: '{{infra.clusters.demo.cluster}}'
+        serviceAccountRoleArn: '{{infra.clusters.demo.network.albControllerRoleArn}}'
+        vpcId: '{{infra.clusters.demo.network.vpcId}}'
+
     - name: cert-manager
       description: Certificate management for TLS
       version: 1.21.1
@@ -63,6 +72,13 @@ spec:
             size: 5Gi
         keycloakNamespace: keycloak
         hostname: '{{env.domains.keycloak}}'
+        # Keycloak is OIDC issuer for agentgateway's tokenExchange validators, so
+        # in-cluster pods hairpin out through the internet and back in via its public
+        # hostname/NLB for token validation. This cluster's own NAT Gateway egress IP
+        # is allowlisted alongside the VPN range so that hairpin traffic isn't blocked.
+        sourceRanges:
+          - '{{env.security.vpnSourceRanges}}'
+          - '{{infra.clusters.demo.network.natGatewayIp}}/32'
         protocol: '{{env.keycloak.scheme}}'
         loginTheme: '{{env.keycloak.loginTheme}}'
         tls:

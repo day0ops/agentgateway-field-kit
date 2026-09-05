@@ -58,6 +58,7 @@ const PROVIDER_CONFIGS = {
         eks_cluster_name: config.clusterName,
         eks_nodes: config.nodes,
         eks_node_type: config.nodeType,
+        eks_private_nodes: config.privateNodes ?? false,
       };
       if (config.team) vars.team = config.team;
       if (config.purpose) vars.purpose = config.purpose;
@@ -371,6 +372,7 @@ export class TerraformCloudRunner extends BaseProvisionerRunner {
         provisioner.kubernetes_version || process.env.KUBERNETES_VERSION || undefined,
       enableDns64: provisioner.enable_dns64,
       enableBastion: provisioner.enable_bastion,
+      privateNodes: provisioner.private_nodes,
       gkeProject:
         provisioner.project || (this.providerType === 'gke' ? process.env.GCP_PROJECT : undefined),
       aksServicePrincipal:
@@ -577,6 +579,8 @@ export class TerraformCloudRunner extends BaseProvisionerRunner {
         kubeconfigFiles.push(kubeconfigPath);
       }
 
+      const network = await this.extractNetworkInfo(terraform, prefix, i);
+
       results.push({
         name: clusterLabel,
         context: contextList[i] || null,
@@ -584,6 +588,7 @@ export class TerraformCloudRunner extends BaseProvisionerRunner {
         kubeconfig: kubeconfigPath,
         provisioned: true,
         verified: false,
+        ...(network ? { network } : {}),
       });
     }
 
@@ -630,6 +635,8 @@ export class TerraformCloudRunner extends BaseProvisionerRunner {
           kubeconfigFiles.push(kubeconfigPath);
         }
 
+        const network = await this.extractNetworkInfo(terraform, prefix, i);
+
         results.push({
           name: clusterLabel,
           context: contextList[i] || null,
@@ -637,6 +644,7 @@ export class TerraformCloudRunner extends BaseProvisionerRunner {
           kubeconfig: kubeconfigPath,
           provisioned: true,
           verified: false,
+          ...(network ? { network } : {}),
         });
       }
     }
@@ -651,6 +659,51 @@ export class TerraformCloudRunner extends BaseProvisionerRunner {
     }
 
     return results;
+  }
+
+  async extractNetworkInfo(terraform, prefix, clusterIndex) {
+    try {
+      const vpcIds = await terraform.getOutput(this.stateFile, `${prefix}_vpc_ids`);
+      const allSubnetIds = await terraform.getOutput(
+        this.stateFile,
+        `${prefix}_private_subnet_ids`
+      );
+      const sgIds = await terraform.getOutput(
+        this.stateFile,
+        `${prefix}_worker_security_group_ids`
+      );
+      const natGatewayIps = await terraform.getOutput(
+        this.stateFile,
+        `${prefix}_nat_gateway_public_ips`
+      );
+      const albRoleArns = await terraform.getOutput(
+        this.stateFile,
+        `${prefix}_aws_load_balancer_controller_role_arns`
+      );
+
+      const vpcId = Array.isArray(vpcIds) ? vpcIds[clusterIndex] || null : null;
+      const privateSubnetIds = Array.isArray(allSubnetIds) ? allSubnetIds[clusterIndex] || [] : [];
+      const workerSgId = Array.isArray(sgIds) ? sgIds[clusterIndex] || null : null;
+      const natGatewayIp = Array.isArray(natGatewayIps)
+        ? natGatewayIps[clusterIndex] || null
+        : null;
+      const albControllerRoleArn = Array.isArray(albRoleArns)
+        ? albRoleArns[clusterIndex] || null
+        : null;
+
+      if (!vpcId) return null;
+
+      return {
+        vpcId,
+        privateSubnetIds,
+        workerSgId,
+        ...(natGatewayIp ? { natGatewayIp } : {}),
+        ...(albControllerRoleArn ? { albControllerRoleArn } : {}),
+      };
+    } catch {
+      this.logWarn(`Could not extract network outputs for cluster index ${clusterIndex}`);
+      return null;
+    }
   }
 
   async extractDnsInfo(terraform) {

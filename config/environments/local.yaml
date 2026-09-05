@@ -9,6 +9,10 @@ spec:
   tls:
     issuer: selfsigned-issuer
 
+  # Okta tenant
+  okta:
+    domain: dev-12345.okta.com
+
   keycloak:
     scheme: http
 
@@ -45,8 +49,7 @@ spec:
     keycloak: keycloak.keycloak.svc.cluster.local
     grafana: kube-prometheus-stack-grafana.telemetry.svc.cluster.local
     quotaManagement: quota-management.agentgateway-system.svc.cluster.local
-    soloUI: solo-enterprise-ui.agentgateway-system.svc.cluster.local
-    okta: dev-12345.okta.com
+    soloUi: solo-enterprise-ui.agentgateway-system.svc.cluster.local
     agentgateway: agentgateway.agentgateway-system.svc.cluster.local
 
   # Placeholder Entra ID (Azure AD) tenant/app registration - replace with a real

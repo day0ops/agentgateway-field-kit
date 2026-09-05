@@ -9,6 +9,7 @@ import { Prompts } from './prompts.js';
 import { Logger, SpinnerLogger, KubernetesHelper, formatDescription } from './common.js';
 import { FeatureManager, PolicyRegistry } from '../../features/index.js';
 import { EnvironmentManager } from './environment.js';
+import { InfraStateManager } from './infra-state.js';
 import {
   showStepHeader,
   showUseCaseOverview,
@@ -304,14 +305,48 @@ export class UseCaseManager {
   }
 
   /**
-   * Get the currently deployed use case
-   * Assumes the caller has already verified cluster accessibility.
+   * Every provisioned infra profile's cluster contexts, deduplicated, in profile-list order.
+   * The tracking ConfigMap lives on whatever context resolveAndApplyKubeContext() picked (or
+   * the ambient context, if that resolution was ambiguous) at deploy time -- not necessarily
+   * the one active now -- so getCurrentUseCase() must check all of them explicitly rather than
+   * trust the caller's own default/ambient context, which may point at an unrelated cluster.
+   */
+  static async resolveTrackingConfigMapContexts() {
+    const profiles = await InfraStateManager.listInfraProfiles();
+    const contexts = [];
+    for (const profile of profiles) {
+      if (!profile.provisioned) continue;
+      const state = await InfraStateManager.load(profile.name);
+      // Merges this profile's kubeconfig file(s) into process.env.KUBECONFIG so the
+      // --context=<name> overrides below can actually resolve, without forcing any one
+      // profile to become KubernetesHelper's process-wide default context.
+      InfraStateManager.mergeKubeconfig(state);
+      for (const { context } of InfraStateManager.getAllContexts(state)) {
+        if (context && !contexts.includes(context)) contexts.push(context);
+      }
+    }
+    return contexts;
+  }
+
+  /**
+   * Get the currently deployed use case.
+   * Checks every provisioned infra profile's cluster contexts explicitly (see
+   * resolveTrackingConfigMapContexts), falling back to KubernetesHelper's current default
+   * context only when no infra state exists at all (e.g. a cluster passed in directly).
+   * On success, sets that context as the new default so the caller's next call (e.g.
+   * cleanup()) targets the same cluster without needing to re-resolve it.
    * @returns {Promise<string|null>} Current use case name or null
    */
   static async getCurrentUseCase() {
-    try {
+    const contexts = await this.resolveTrackingConfigMapContexts();
+    const candidates = contexts.length > 0 ? contexts : [null];
+
+    let anyReachable = false;
+    for (const context of candidates) {
+      const contextFlag = context ? `--context=${context}` : '';
       const result = await KubernetesHelper.kubectl(
         [
+          ...(contextFlag ? [contextFlag] : []),
           'get',
           'configmap',
           TRACKING_CONFIGMAP,
@@ -319,16 +354,29 @@ export class UseCaseManager {
           TRACKING_NAMESPACE,
           '-o',
           'jsonpath={.data.usecase}',
+          // Without this, a cluster with no tracked use case exits nonzero (NotFound) --
+          // indistinguishable from a genuinely unreachable cluster without inspecting
+          // stderr text. --ignore-not-found makes "reachable, nothing tracked" exit 0.
+          '--ignore-not-found',
         ],
         { ignoreError: true }
       );
-
-      const raw = result.stdout.trim() || null;
-      if (!raw) return null;
-      return raw.startsWith('/') ? raw : join(this.USECASES_DIR, raw);
-    } catch {
-      return null;
+      if (result.exitCode === 0) {
+        anyReachable = true;
+        const raw = result.stdout.trim();
+        if (raw) {
+          if (context) KubernetesHelper.setDefaultContext(context);
+          return raw.startsWith('/') ? raw : join(this.USECASES_DIR, raw);
+        }
+      }
     }
+
+    if (!anyReachable) {
+      throw new Error(
+        'Cannot reach the Kubernetes API on any provisioned cluster — check your kubeconfig/credentials (e.g. an expired AWS SSO session) before continuing.'
+      );
+    }
+    return null;
   }
 
   /**

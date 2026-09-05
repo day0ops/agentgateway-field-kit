@@ -156,13 +156,19 @@ export class InfraStateManager {
     state.status.phase = 'provisioned';
     state.status.provisioned = true;
     state.status.provisionedAt = new Date().toISOString();
-    state.status.clusters = clusters.map(cluster => ({
-      name: cluster.name,
-      context: cluster.context,
-      cluster: cluster.cluster || null,
-      kubeconfig: cluster.kubeconfig || null,
-      provisioned: true,
-    }));
+    state.status.clusters = clusters.map(cluster => {
+      const entry = {
+        name: cluster.name,
+        context: cluster.context,
+        cluster: cluster.cluster || null,
+        kubeconfig: cluster.kubeconfig || null,
+        provisioned: true,
+      };
+      if (cluster.network) {
+        entry.network = cluster.network;
+      }
+      return entry;
+    });
 
     // Clear any previous error state
     delete state.status.error;
@@ -234,19 +240,29 @@ export class InfraStateManager {
       .map(c => ({ name: c.name, context: c.context, kubeconfig: c.kubeconfig }));
   }
 
+  /**
+   * Merge a provisioned infra's kubeconfig file(s) into process.env.KUBECONFIG, without
+   * touching KubernetesHelper's default context. Split out of applyKubeContext so callers
+   * that just need --context=<name> flags to resolve (e.g. probing several provisioned
+   * infras for one that owns a specific resource) don't also force a single one of them
+   * to become the process-wide default.
+   */
+  static mergeKubeconfig(state) {
+    const kubeconfigs = this.getAllContexts(state)
+      .map(c => c.kubeconfig)
+      .filter(Boolean);
+    if (kubeconfigs.length === 0) return;
+    const existing = process.env.KUBECONFIG || '';
+    const merged = [...new Set([...existing.split(':').filter(Boolean), ...kubeconfigs])].join(':');
+    process.env.KUBECONFIG = merged;
+  }
+
   static async applyKubeContext(resolvedInfra, infraState = null) {
     const state = infraState ?? (await this.load(resolvedInfra));
     if (!state?.status?.provisioned) return;
 
+    this.mergeKubeconfig(state);
     const contexts = this.getAllContexts(state);
-    const kubeconfigs = contexts.map(c => c.kubeconfig).filter(Boolean);
-    if (kubeconfigs.length > 0) {
-      const existing = process.env.KUBECONFIG || '';
-      const merged = [...new Set([...existing.split(':').filter(Boolean), ...kubeconfigs])].join(
-        ':'
-      );
-      process.env.KUBECONFIG = merged;
-    }
     if (contexts.length > 0 && contexts[0].context) {
       KubernetesHelper.setDefaultContext(contexts[0].context);
       Logger.info(`Using kubectl context: ${contexts[0].context}`);

@@ -1,5 +1,5 @@
 import { Feature, FeatureManager } from '../../src/lib/feature.js';
-import { KubernetesHelper } from '../../src/lib/common.js';
+import { KubernetesHelper, nlbSourceRangeAnnotations } from '../../src/lib/common.js';
 import fs from 'fs/promises';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -68,6 +68,10 @@ export class QuotaBudgetFeature extends Feature {
 
   get port() {
     return this.config.port || 443;
+  }
+
+  get sourceRanges() {
+    return this.config.sourceRanges || null;
   }
 
   get tlsIssuer() {
@@ -255,6 +259,11 @@ export class QuotaBudgetFeature extends Feature {
             allowedRoutes: { namespaces: { from: 'All' } },
           },
         ],
+        // AWS LBC's own default scheme (when no annotation is present) is `internal`,
+        // unreachable from outside the VPC -- always pin internet-facing explicitly.
+        infrastructure: {
+          annotations: nlbSourceRangeAnnotations(this.sourceRanges),
+        },
       },
     });
 
