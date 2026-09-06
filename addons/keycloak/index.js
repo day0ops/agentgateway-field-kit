@@ -415,7 +415,19 @@ export class KeycloakFeature extends Feature {
       await this.setupRealms(baseUrl, token, this.config.realms);
     } else {
       // Legacy path: backward compat for profiles without realms array
-      await this.createRealm(baseUrl, token);
+      const realmReady = await this.createAndVerify(
+        `Realm '${this.realm}'`,
+        () => this.createRealm(baseUrl, token),
+        () => this.realmExists(baseUrl, token, this.realm),
+        {
+          refreshFn: async () => {
+            token = await this.getAdminToken(baseUrl);
+          },
+        }
+      );
+      if (!realmReady) {
+        throw new Error(`Realm '${this.realm}' could not be created — aborting Keycloak setup`);
+      }
       await this.configureUserProfile(baseUrl, token);
       await this.createConfidentialClient(baseUrl, token);
       await this.createPublicClient(baseUrl, token);
@@ -430,8 +442,7 @@ export class KeycloakFeature extends Feature {
       await this.configureWorkloadClients(baseUrl, token);
     }
 
-    if (this.soloUIClients?.enabled) {
-      token = await this.getAdminToken(baseUrl);
+    if (this.soloUiClients?.enabled) {
       await this.createSoloUIClients(baseUrl, token);
     }
 
@@ -726,12 +737,30 @@ export class KeycloakFeature extends Feature {
   }
 
   async createSoloUIClients(baseUrl, token) {
-    const { hostname, backendClientId, backendClientSecret, frontendClientId } = this.soloUIClients;
-    const realm = this.soloUIRealm;
+    // This runs last, after every config-driven realm - confirmed live: the token
+    // obtained at the start of configureKeycloak() can be stale by now on a long run.
+    token = await this.getAdminToken(baseUrl);
+    const refreshToken = async () => {
+      token = await this.getAdminToken(baseUrl);
+    };
+    const { hostname, backendClientId, backendClientSecret, frontendClientId } = this.soloUiClients;
+    const realm = this.soloUiRealm;
     const redirectUri = `${hostname}/callback`;
     const postLogoutUri = `${hostname}/logout`;
 
-    await this.createSoloUIRealm(baseUrl, token);
+    const realmReady = await this.createAndVerify(
+      `Solo UI realm '${realm}'`,
+      () => this.createSoloUIRealm(baseUrl, token),
+      () => this.realmExists(baseUrl, token, realm),
+      { refreshFn: refreshToken }
+    );
+    if (!realmReady) {
+      this.log(
+        `Solo UI realm '${realm}' could not be created — aborting Solo UI client setup`,
+        'error'
+      );
+      return;
+    }
 
     this.log(`Creating Solo UI backend client '${backendClientId}'...`, 'info');
 
@@ -896,6 +925,15 @@ export class KeycloakFeature extends Feature {
       ],
       { ignoreError: true }
     );
+    // A connection-level failure (DNS, timeout, reset) leaves curl's own exit code
+    // non-zero -- confirmed live: curl still writes the placeholder "000" via -w in
+    // that case, which is otherwise indistinguishable from a genuine non-200 and
+    // gets misreported as "realm doesn't exist" when the check itself just failed.
+    if (result.exitCode !== 0) {
+      throw new Error(
+        `could not reach Keycloak to check realm '${realmName}' (curl exit ${result.exitCode})`
+      );
+    }
     return result.stdout?.trim() === '200';
   }
 
@@ -1376,16 +1414,79 @@ export class KeycloakFeature extends Feature {
     }
   }
 
+  /**
+   * Run createFn, then verify success via verifyFn (a truthy result, e.g. an id,
+   * means success). Retries up to `attempts` times with a short delay between --
+   * confirmed live: creating a client/group immediately after realm creation can
+   * silently no-op once (a transient consistency lag) and succeed on retry.
+   *
+   * verifyFn is expected to THROW (not just return falsy) when the check itself
+   * couldn't be completed -- e.g. a network/connectivity failure -- as opposed to
+   * returning falsy for a confirmed "doesn't exist yet". Both are retried the same
+   * way here, but are logged distinctly, since a connectivity blip mid-run
+   * (confirmed live) otherwise gets misreported as "confirmed absent" and can make
+   * an already-existing resource look like it failed to create.
+   *
+   * refreshFn, if given, runs before each retry -- confirmed live: the admin token
+   * fetched once at the start of configureKeycloak() can expire mid-run across a
+   * long multi-realm setup, after which every call with the stale token fails
+   * identically (curl exit 22) and retrying without a new token can't help.
+   *
+   * Returns verifyFn's result, or null if it never succeeds.
+   */
+  async createAndVerify(
+    label,
+    createFn,
+    verifyFn,
+    { attempts = 3, delayMs = 2000, refreshFn = null } = {}
+  ) {
+    let lastError = null;
+    for (let attempt = 1; attempt <= attempts; attempt++) {
+      lastError = null;
+      try {
+        await createFn();
+        const result = await verifyFn();
+        if (result) return result;
+      } catch (err) {
+        lastError = err;
+      }
+      if (attempt < attempts) {
+        const reason = lastError ? `error verifying (${lastError.message})` : 'not found';
+        this.log(`${label}: ${reason} — attempt ${attempt}/${attempts}, retrying...`, 'warn');
+        if (refreshFn) await refreshFn();
+        await new Promise(r => setTimeout(r, delayMs));
+      }
+    }
+    const reason = lastError ? `error verifying (${lastError.message})` : 'still not found';
+    this.log(`${label}: ${reason} after ${attempts} attempts — giving up`, 'error');
+    return null;
+  }
+
   async setupStandardRealm(baseUrl, token, realm) {
     this.log(`Setting up standard realm '${realm.realm}'...`, 'info');
-    await this.createNamedRealm(baseUrl, token, realm.realm);
+    let realmOk = true;
+    // Reassigned by refreshToken below; createFn/verifyFn closures close over this
+    // binding, so a mid-realm refresh is picked up by their next invocation.
+    const refreshToken = async () => {
+      token = await this.getAdminToken(baseUrl);
+    };
+
+    const realmReady = await this.createAndVerify(
+      `Realm '${realm.realm}'`,
+      () => this.createNamedRealm(baseUrl, token, realm.realm),
+      () => this.realmExists(baseUrl, token, realm.realm),
+      { refreshFn: refreshToken }
+    );
+    if (!realmReady) {
+      this.log(`Realm '${realm.realm}' could not be created — skipping its clients/users`, 'error');
+      return;
+    }
 
     if (realm.customAttributes?.length) {
       await this.configureUserProfileForRealm(baseUrl, token, realm.realm, realm.customAttributes);
     }
 
     for (const client of realm.clients || []) {
-      token = await this.getAdminToken(baseUrl);
       const payload = {
         clientId: client.clientId,
         enabled: true,
@@ -1404,28 +1505,34 @@ export class KeycloakFeature extends Feature {
       };
       if (client.clientSecret) payload.secret = client.clientSecret;
 
-      const result = await this.registerClient(baseUrl, token, payload, realm.realm);
-      let id = this.extractIdFromLocation(result.stdout);
-      if (!id) id = await this.lookupClientId(baseUrl, token, client.clientId, realm.realm);
+      const id = await this.createAndVerify(
+        `Client '${client.clientId}' in realm '${realm.realm}'`,
+        () => this.registerClient(baseUrl, token, payload, realm.realm),
+        () => this.lookupClientId(baseUrl, token, client.clientId, realm.realm),
+        { refreshFn: refreshToken }
+      );
 
-      if (id && realm.customAttributes?.length) {
-        const existingMapperNames = await this.listProtocolMapperNames(
-          baseUrl,
-          token,
-          id,
-          realm.realm
-        );
-        for (const attrName of realm.customAttributes) {
-          if (existingMapperNames.has(attrName)) continue;
-          await this.addAttributeMapper(baseUrl, token, id, realm.realm, attrName);
+      if (id) {
+        if (realm.customAttributes?.length) {
+          const existingMapperNames = await this.listProtocolMapperNames(
+            baseUrl,
+            token,
+            id,
+            realm.realm
+          );
+          for (const attrName of realm.customAttributes) {
+            if (existingMapperNames.has(attrName)) continue;
+            await this.addAttributeMapper(baseUrl, token, id, realm.realm, attrName);
+          }
         }
+      } else {
+        realmOk = false;
       }
     }
 
     const isGrafanaRealm = realm.realm === 'grafana';
     const defaultPassword = isGrafanaRealm ? this.grafanaAdminPassword : realm.defaultPassword;
     for (const user of realm.users || []) {
-      token = await this.getAdminToken(baseUrl);
       const username = isGrafanaRealm ? this.grafanaAdminUsername : user.username;
       const password = user.password || defaultPassword;
       if (!password) {
@@ -1433,23 +1540,51 @@ export class KeycloakFeature extends Feature {
           `No password for user '${username}' in realm '${realm.realm}'. Set defaultPassword or per-user password.`
         );
       }
-      await this.createOrUpdateUserWithPassword(
-        baseUrl,
-        token,
-        username,
-        realm.realm,
-        user.attributes || {},
-        password,
-        { firstName: user.firstName, lastName: user.lastName, email: user.email }
+      const userId = await this.createAndVerify(
+        `User '${username}' in realm '${realm.realm}'`,
+        () =>
+          this.createOrUpdateUserWithPassword(
+            baseUrl,
+            token,
+            username,
+            realm.realm,
+            user.attributes || {},
+            password,
+            { firstName: user.firstName, lastName: user.lastName, email: user.email }
+          ),
+        () => this.lookupUserId(baseUrl, token, username, realm.realm),
+        { refreshFn: refreshToken }
       );
+      if (!userId) realmOk = false;
     }
 
-    this.log(`Standard realm '${realm.realm}' configured`, 'info');
+    if (realmOk) {
+      this.log(`Standard realm '${realm.realm}' configured`, 'info');
+    } else {
+      this.log(
+        `Standard realm '${realm.realm}' configured with errors — one or more resources failed to create even after retries, see above`,
+        'error'
+      );
+    }
   }
 
   async setupOrgRealm(baseUrl, token, realm) {
     this.log(`Setting up org realm '${realm.realm}' (orgId: ${realm.orgId})...`, 'info');
-    await this.createNamedRealm(baseUrl, token, realm.realm);
+    let realmOk = true;
+    const refreshToken = async () => {
+      token = await this.getAdminToken(baseUrl);
+    };
+
+    const realmReady = await this.createAndVerify(
+      `Realm '${realm.realm}'`,
+      () => this.createNamedRealm(baseUrl, token, realm.realm),
+      () => this.realmExists(baseUrl, token, realm.realm),
+      { refreshFn: refreshToken }
+    );
+    if (!realmReady) {
+      this.log(`Realm '${realm.realm}' could not be created — skipping its teams/users`, 'error');
+      return;
+    }
 
     const orgAttrs = ['org_id', 'team_id', 'is_org_admin', 'is_team_admin'];
     await this.configureUserProfileForRealm(baseUrl, token, realm.realm, orgAttrs);
@@ -1457,7 +1592,6 @@ export class KeycloakFeature extends Feature {
     const defaultPassword = realm.defaultPassword;
 
     for (const team of realm.teams || []) {
-      token = await this.getAdminToken(baseUrl);
       const payload = {
         clientId: team.clientId,
         secret: team.clientSecret,
@@ -1475,9 +1609,12 @@ export class KeycloakFeature extends Feature {
         },
       };
 
-      const result = await this.registerClient(baseUrl, token, payload, realm.realm);
-      let id = this.extractIdFromLocation(result.stdout);
-      if (!id) id = await this.lookupClientId(baseUrl, token, team.clientId, realm.realm);
+      const id = await this.createAndVerify(
+        `Client '${team.clientId}' in realm '${realm.realm}'`,
+        () => this.registerClient(baseUrl, token, payload, realm.realm),
+        () => this.lookupClientId(baseUrl, token, team.clientId, realm.realm),
+        { refreshFn: refreshToken }
+      );
 
       if (id) {
         const existingMapperNames = await this.listProtocolMapperNames(
@@ -1494,6 +1631,8 @@ export class KeycloakFeature extends Feature {
           org_id: realm.orgId,
           team_id: team.teamId,
         });
+      } else {
+        realmOk = false;
       }
 
       for (const user of team.users || []) {
@@ -1503,19 +1642,33 @@ export class KeycloakFeature extends Feature {
             `No password for user '${user.username}' in realm '${realm.realm}'. Set defaultPassword or per-user password.`
           );
         }
-        await this.createOrUpdateUserWithPassword(
-          baseUrl,
-          token,
-          user.username,
-          realm.realm,
-          user.attributes || {},
-          password,
-          { firstName: user.firstName, lastName: user.lastName, email: user.email }
+        const userId = await this.createAndVerify(
+          `User '${user.username}' in realm '${realm.realm}'`,
+          () =>
+            this.createOrUpdateUserWithPassword(
+              baseUrl,
+              token,
+              user.username,
+              realm.realm,
+              user.attributes || {},
+              password,
+              { firstName: user.firstName, lastName: user.lastName, email: user.email }
+            ),
+          () => this.lookupUserId(baseUrl, token, user.username, realm.realm),
+          { refreshFn: refreshToken }
         );
+        if (!userId) realmOk = false;
       }
     }
 
-    this.log(`Org realm '${realm.realm}' configured`, 'info');
+    if (realmOk) {
+      this.log(`Org realm '${realm.realm}' configured`, 'info');
+    } else {
+      this.log(
+        `Org realm '${realm.realm}' configured with errors — one or more resources failed to create even after retries, see above`,
+        'error'
+      );
+    }
   }
 
   async setupRealms(baseUrl, token, realms) {
@@ -1560,23 +1713,28 @@ export class KeycloakFeature extends Feature {
   }
 
   async lookupClientId(baseUrl, token, clientId, realm = this.realm) {
-    try {
-      const result = await CommandRunner.run(
-        'curl',
-        [
-          '-sSfk',
-          ...(this.curlResolveArgs || []),
-          '-H',
-          `Authorization: Bearer ${token}`,
-          `${baseUrl}/admin/realms/${realm}/clients?clientId=${clientId}`,
-        ],
-        { ignoreError: true }
+    const result = await CommandRunner.run(
+      'curl',
+      [
+        '-sSfk',
+        ...(this.curlResolveArgs || []),
+        '-H',
+        `Authorization: Bearer ${token}`,
+        `${baseUrl}/admin/realms/${realm}/clients?clientId=${clientId}`,
+      ],
+      { ignoreError: true }
+    );
+    if (result.exitCode !== 0) {
+      throw new Error(
+        `could not reach Keycloak to look up client '${clientId}' (curl exit ${result.exitCode})`
       );
-      if (result.stdout) return JSON.parse(result.stdout)[0]?.id || null;
-    } catch {
-      /* fallthrough */
     }
-    return null;
+    if (!result.stdout) return null;
+    try {
+      return JSON.parse(result.stdout)[0]?.id || null;
+    } catch {
+      return null;
+    }
   }
 
   async createUsers(baseUrl, token) {
@@ -1682,26 +1840,28 @@ export class KeycloakFeature extends Feature {
   }
 
   async lookupUserId(baseUrl, token, username, realm = this.realm) {
-    try {
-      const result = await CommandRunner.run(
-        'curl',
-        [
-          '-sSfk',
-          ...(this.curlResolveArgs || []),
-          '-H',
-          `Authorization: Bearer ${token}`,
-          `${baseUrl}/admin/realms/${realm}/users?username=${encodeURIComponent(username)}&exact=true`,
-        ],
-        { ignoreError: true }
+    const result = await CommandRunner.run(
+      'curl',
+      [
+        '-sSfk',
+        ...(this.curlResolveArgs || []),
+        '-H',
+        `Authorization: Bearer ${token}`,
+        `${baseUrl}/admin/realms/${realm}/users?username=${encodeURIComponent(username)}&exact=true`,
+      ],
+      { ignoreError: true }
+    );
+    if (result.exitCode !== 0) {
+      throw new Error(
+        `could not reach Keycloak to look up user '${username}' (curl exit ${result.exitCode})`
       );
-      if (result.stdout) {
-        const users = JSON.parse(result.stdout);
-        return users[0]?.id || null;
-      }
-    } catch {
-      /* user not found */
     }
-    return null;
+    if (!result.stdout) return null;
+    try {
+      return JSON.parse(result.stdout)[0]?.id || null;
+    } catch {
+      return null;
+    }
   }
 
   // ---------------------------------------------------------------------------
