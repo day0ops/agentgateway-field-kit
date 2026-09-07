@@ -1,0 +1,144 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: mcp-per-tool-rate-limiting
+  description: |
+    Per-tool MCP rate limiting: different request ceilings for different tool names on the same route, using CEL expressions to extract the JSON-RPC method and tool name from each MCP request body.
+
+    - RateLimitConfig descriptors are keyed by mcp_method (tools/call) then nested by tool_name
+    - get_stock_price is capped at 3 requests per minute; every other tool (e.g. get_exchange_rate) defaults to 10 per minute
+    - Requests beyond a tool's configured limit receive 429 Too Many Requests, independent of other tools' counters
+  docs: https://docs.solo.io/agentgateway/kubernetes/latest/documentation/mcp/rate-limit/
+
+spec:
+  diagram: |
+    sequenceDiagram
+      participant Agent
+      participant AGW as agentgateway
+      participant RLS as Rate Limit Server
+      participant Stock as Stock MCP Server
+      participant Currency as Currency MCP Server
+      Agent->>AGW: MCP tools/call get_stock_price (POST /mcp)
+      AGW->>RLS: check tool_name=get_stock_price counter (3/min)
+      RLS-->>AGW: within limit
+      AGW->>Stock: forward
+      Stock-->>Agent: result
+      Agent->>AGW: MCP tools/call get_stock_price (4th call this minute)
+      AGW->>RLS: check tool_name=get_stock_price counter
+      RLS-->>AGW: limit exceeded
+      AGW-->>Agent: 429 Too Many Requests
+      Agent->>AGW: MCP tools/call get_exchange_rate
+      AGW->>RLS: check tool_name=get_exchange_rate counter (10/min, unaffected)
+      RLS-->>AGW: within limit
+      AGW->>Currency: forward
+      Currency-->>Agent: result
+
+  steps:
+    - title: Deploy the stock and currency MCP servers behind one route
+      description: |
+        Deploy both MCP server workloads and federate them into a single AgentgatewayBackend/HTTPRoute at /mcp, so both tools are reachable on the same route for per-tool rate limiting to distinguish between.
+      features:
+        - name: mcp-server
+          config:
+            backendName: mcp-backend
+            routeName: mcp
+            protocol: StreamableHTTP
+            mcpPath: /mcp
+            prefixMode: Never
+            servers:
+              - name: stock-server-mcp
+                image: '{{env.images.stock-server-mcp}}'
+                serverPort: 8000
+                servicePort: 80
+              - name: currency-server-mcp
+                image: '{{env.images.currency-server-mcp}}'
+                serverPort: 8000
+                servicePort: 80
+            targets:
+              - name: stock-server-mcp
+                matchLabels:
+                  app: stock-server-mcp
+              - name: currency-server-mcp
+                matchLabels:
+                  app: currency-server-mcp
+
+    - title: Cap get_stock_price at 3/min, leave every other tool at the 10/min default
+      description: |
+        Create a RateLimitConfig with per-tool descriptors (mcp_method then tool_name) and attach it to the /mcp HTTPRoute via an EnterpriseAgentgatewayPolicy.
+      features:
+        - name: rate-limit
+          config:
+            name: mcp-per-tool-rate-limit
+            mode: global
+            descriptors:
+              - match: { method: 'tools/call', tool: get_stock_price }
+                requestsPerUnit: 3
+                unit: MINUTE
+              - match: { method: 'tools/call' }
+                requestsPerUnit: 10
+                unit: MINUTE
+            targetRefs:
+              - name: mcp
+                kind: HTTPRoute
+
+  tests:
+    - name: allow-get-exchange-rate-within-default-limit
+      description: get_exchange_rate stays under its 10 per minute default limit
+      steps:
+        - action: send-mcp-request
+          endpoint: /mcp
+          method: tools/call
+          params:
+            name: get_exchange_rate
+            arguments:
+              base: USD
+              target: EUR
+        - action: verify
+          expect:
+            status: success
+
+    - name: rate-limited-after-per-tool-threshold
+      description: get_stock_price is rate limited after 3 calls per minute, independent of other tools
+      steps:
+        - action: send-mcp-request
+          endpoint: /mcp
+          method: tools/call
+          params:
+            name: get_stock_price
+            arguments:
+              symbol: AAPL
+        - action: send-mcp-request
+          endpoint: /mcp
+          method: tools/call
+          params:
+            name: get_stock_price
+            arguments:
+              symbol: AAPL
+        - action: send-mcp-request
+          endpoint: /mcp
+          method: tools/call
+          params:
+            name: get_stock_price
+            arguments:
+              symbol: AAPL
+        - action: send-mcp-request
+          endpoint: /mcp
+          method: tools/call
+          params:
+            name: get_stock_price
+            arguments:
+              symbol: AAPL
+        - action: verify
+          expect:
+            statusCode: 429
+        - action: send-mcp-request
+          endpoint: /mcp
+          method: tools/call
+          params:
+            name: get_exchange_rate
+            arguments:
+              base: USD
+              target: EUR
+        - action: verify
+          expect:
+            status: success
