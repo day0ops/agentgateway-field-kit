@@ -1,0 +1,101 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: tool-mode-codesearch
+  description: |
+    Combines progressive tool discovery with sandboxed code execution: instead of listing every tool individually, the gateway exposes get_tool/run_code meta-tools so an agent can look up just the tools it needs and run multi-step JavaScript against them in one call.
+  docs: https://docs.solo.io/agentgateway/2026.7.1/mcp/tool-mode/
+
+spec:
+  diagram: |
+    sequenceDiagram
+      participant Agent
+      participant AGW as agentgateway (toolMode: CodeSearch)
+      participant Stock as Stock MCP Server
+      participant Currency as Currency MCP Server
+      Agent->>AGW: MCP tools/list
+      AGW-->>Agent: meta-tools: get_tool, run_code
+      Agent->>AGW: MCP tools/call get_tool (find stock/currency tools)
+      AGW-->>Agent: matching tool descriptions
+      Agent->>AGW: MCP tools/call run_code (JS calling stock + currency tools)
+      AGW->>Stock: invoke get_stock_price
+      AGW->>Currency: invoke get_exchange_rate
+      Stock-->>AGW: result
+      Currency-->>AGW: result
+      AGW-->>Agent: run_code result
+
+  steps:
+    - title: Deploy the stock and currency MCP server workloads
+      description: |
+        Deploy both MCP server workloads. This step's own AgentgatewayBackend/HTTPRoute are not used by this demo - the entMcp backend below federates the same underlying Services via label selectors.
+      features:
+        - name: mcp-server
+          config:
+            backendName: mcp-workloads-backend
+            routeName: mcp-workloads
+            protocol: StreamableHTTP
+            mcpPath: /mcp
+            servers:
+              - name: stock-server-mcp
+                image: '{{env.images.stock-server-mcp}}'
+                serverPort: 8000
+                servicePort: 80
+              - name: currency-server-mcp
+                image: '{{env.images.currency-server-mcp}}'
+                serverPort: 8000
+                servicePort: 80
+            targets:
+              - name: stock-server-mcp
+                matchLabels:
+                  app: stock-server-mcp
+              - name: currency-server-mcp
+                matchLabels:
+                  app: currency-server-mcp
+
+    - title: Federate with toolMode CodeSearch
+      description: |
+        Create an EnterpriseAgentgatewayBackend federating both servers with toolMode: CodeSearch, exposing get_tool/run_code meta-tools instead of the full catalog or a single run_code tool.
+      features:
+        - name: mcp-enterprise
+          config:
+            backendName: mcp-codesearch-backend
+            routeName: mcp-codesearch
+            pathPrefix: /mcp-codesearch
+            toolMode: CodeSearch
+            codeMode:
+              timeout: 7s
+            targets:
+              - name: stock-server-mcp
+                matchLabels:
+                  app: stock-server-mcp
+              - name: currency-server-mcp
+                matchLabels:
+                  app: currency-server-mcp
+
+  tests:
+    - name: test-meta-tools-present
+      description: toolMode CodeSearch exposes only two meta-tools, get_tool and run_code, instead of a separate tool per federated capability
+      steps:
+        - action: send-mcp-request
+          endpoint: /mcp-codesearch
+          method: tools/list
+        - action: verify
+          expect:
+            status: success
+            contains: [get_tool, run_code]
+
+    - name: test-get-tool-lookup
+      description: get_tool finds the federated stock tool by name and returns its callable signature
+      steps:
+        - action: send-mcp-request
+          endpoint: /mcp-codesearch
+          method: tools/call
+          params:
+            name: get_tool
+            arguments:
+              name: stock-server-mcp-80_get_stock_price
+        - action: verify
+          expect:
+            status: success
+            contains: get_stock_price
+            notContains: no_match
