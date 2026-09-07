@@ -8,7 +8,7 @@ metadata:
     - RateLimitConfig descriptors are keyed by mcp_method (tools/call) then nested by tool_name
     - get_stock_price is capped at 3 requests per minute; every other tool (e.g. get_exchange_rate) defaults to 10 per minute
     - Requests beyond a tool's configured limit receive 429 Too Many Requests, independent of other tools' counters
-  docs: https://docs.solo.io/agentgateway/kubernetes/latest/documentation/mcp/rate-limit/
+  docs: https://docs.solo.io/agentgateway/2026.7.1/mcp/rate-limit/
 
 spec:
   diagram: |

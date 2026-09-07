@@ -4,7 +4,7 @@ metadata:
   name: stateless-session-routing
   description: |
     Every MCP request is treated independently, with no Mcp-Session-Id-based stickiness to a specific agentgateway replica - appropriate when the client/LLM manages context itself, or state doesn't need to survive a request landing on a different replica.
-  docs: https://docs.solo.io/agentgateway/kubernetes/latest/documentation/mcp/session/
+  docs: https://docs.solo.io/agentgateway/2026.7.1/mcp/session/
 
 spec:
   diagram: |

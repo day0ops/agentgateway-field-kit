@@ -4,7 +4,7 @@ metadata:
   name: tool-mode-codesearch
   description: |
     Combines progressive tool discovery with sandboxed code execution: instead of listing every tool individually, the gateway exposes get_tool/run_code meta-tools so an agent can look up just the tools it needs and run multi-step JavaScript against them in one call.
-  docs: https://docs.solo.io/agentgateway/kubernetes/latest/documentation/mcp/tool-mode/
+  docs: https://docs.solo.io/agentgateway/2026.7.1/mcp/tool-mode/
 
 spec:
   diagram: |
