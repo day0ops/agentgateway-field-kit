@@ -382,7 +382,7 @@ spec:
         soloUIClients:
           enabled: true
           realm: solo-ui
-          hostname: http://{{env.domains.soloUI}}
+          hostname: http://{{env.domains.soloUi}}
           backendClientId: solo-ui-backend
           backendClientSecret: solo-ui-backend-secret
           frontendClientId: solo-ui-frontend

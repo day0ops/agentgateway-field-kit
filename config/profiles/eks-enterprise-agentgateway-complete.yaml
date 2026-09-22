@@ -126,7 +126,7 @@ spec:
         soloUIClients:
           enabled: true
           realm: solo-ui
-          hostname: https://{{env.domains.soloUI}}
+          hostname: https://{{env.domains.soloUi}}
           backendClientId: solo-ui-backend
           backendClientSecret: solo-ui-backend-secret
           frontendClientId: solo-ui-frontend
@@ -497,7 +497,7 @@ spec:
             storageClass: gp3
             size: 50Gi
         serviceType: ClusterIP
-        hostname: '{{env.domains.soloUI}}'
+        hostname: '{{env.domains.soloUi}}'
         tls:
           enabled: true
           secretName: solo-ui-tls

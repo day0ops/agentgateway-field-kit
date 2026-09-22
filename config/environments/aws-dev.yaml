@@ -81,5 +81,5 @@ spec:
     keycloak: keycloak.demo.kasunt.apac.fe.solo.io
     grafana: grafana.demo.kasunt.apac.fe.solo.io
     quotaManagement: quota-management.demo.kasunt.apac.fe.solo.io
-    soloUI: soloui.demo.kasunt.apac.fe.solo.io
+    soloUi: soloui.demo.kasunt.apac.fe.solo.io
     agentgateway: agentgateway.demo.kasunt.apac.fe.solo.io
