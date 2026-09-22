@@ -30,8 +30,10 @@ const PROVIDER_CONFIGS = {
         eks_ipv6_region: config.region,
         eks_ipv6_cluster_count: config.clusterCount,
         eks_ipv6_cluster_name: config.clusterName,
-        eks_ipv6_nodes: config.nodes,
+        eks_ipv6_nodes: config.desiredNodes,
         eks_ipv6_node_type: config.nodeType,
+        eks_ipv6_min_nodes: config.minNodes,
+        eks_ipv6_max_nodes: config.maxNodes,
         enable_dns64: config.enableDns64 ?? true,
         enable_bastion: config.enableBastion ?? true,
       };
@@ -56,8 +58,11 @@ const PROVIDER_CONFIGS = {
         eks_region: config.region,
         eks_cluster_count: config.clusterCount,
         eks_cluster_name: config.clusterName,
-        eks_nodes: config.nodes,
+        eks_nodes: config.desiredNodes,
         eks_node_type: config.nodeType,
+        eks_min_nodes: config.minNodes,
+        eks_max_nodes: config.maxNodes,
+        eks_private_nodes: config.privateNodes ?? false,
       };
       if (config.team) vars.team = config.team;
       if (config.purpose) vars.purpose = config.purpose;
@@ -87,7 +92,7 @@ const PROVIDER_CONFIGS = {
         gke_region: config.region,
         gke_cluster_count: config.clusterCount,
         gke_cluster_name: config.clusterName,
-        gke_node_pool_size: config.nodes,
+        gke_node_pool_size: config.desiredNodes,
         gke_node_type: config.nodeType,
       };
       if (config.team) vars.team = config.team;
@@ -116,8 +121,10 @@ const PROVIDER_CONFIGS = {
         aks_region: config.region,
         aks_cluster_count: config.clusterCount,
         aks_cluster_name: config.clusterName,
-        aks_nodes: config.nodes,
+        aks_nodes: config.desiredNodes,
         aks_node_type: config.nodeType,
+        aks_min_nodes: config.minNodes,
+        aks_max_nodes: config.maxNodes,
         aks_service_principal: config.aksServicePrincipal,
       };
       if (config.team) vars.team = config.team;
@@ -356,6 +363,8 @@ export class TerraformCloudRunner extends BaseProvisionerRunner {
     const firstCluster = this.clusters[0];
     const provisioner = firstCluster.provisioner || {};
     const pc = this.providerConfig;
+    const nodesCfg = provisioner.nodes || {};
+    const desiredNodes = nodesCfg.desired ?? 2;
 
     return {
       owner: provisioner.owner || process.env.CLUSTER_OWNER,
@@ -365,8 +374,11 @@ export class TerraformCloudRunner extends BaseProvisionerRunner {
       awsProfile: provisioner.aws_profile || process.env.AWS_PROFILE,
       clusterName: provisioner.cluster_name || firstCluster.name || this.profileName,
       clusterCount: this.clusters.length,
-      nodes: provisioner.nodes ?? 2,
-      nodeType: provisioner.node_type || pc.defaultNodeType,
+      desiredNodes,
+      nodeType: nodesCfg.type || pc.defaultNodeType,
+      minNodes: nodesCfg.min ?? Math.max(1, desiredNodes - 1),
+      maxNodes: nodesCfg.max ?? desiredNodes + 2,
+      privateNodes: nodesCfg.private,
       kubernetesVersion:
         provisioner.kubernetes_version || process.env.KUBERNETES_VERSION || undefined,
       enableDns64: provisioner.enable_dns64,
@@ -416,12 +428,16 @@ export class TerraformCloudRunner extends BaseProvisionerRunner {
     for (const [cloud, clusters] of clouds) {
       const defs = CLOUD_DEFAULTS[cloud] || {};
       const first = clusters[0].provisioner || {};
+      const nodesCfg = first.nodes || {};
+      const desiredNodes = nodesCfg.desired ?? 2;
 
       config.clouds[cloud] = {
         count: clusters.length,
         region: first.region || defs.defaultRegion,
-        nodeType: first.node_type || defs.defaultNodeType,
-        nodes: first.nodes ?? 2,
+        nodeType: nodesCfg.type || defs.defaultNodeType,
+        desiredNodes,
+        minNodes: nodesCfg.min ?? Math.max(1, desiredNodes - 1),
+        maxNodes: nodesCfg.max ?? desiredNodes + 2,
         clusterName: first.cluster_name || clusters[0].name || this.profileName,
         clusters,
       };
@@ -480,8 +496,10 @@ export class TerraformCloudRunner extends BaseProvisionerRunner {
       lines.push(`eks_cluster_count = ${eksCloud.count}`);
       lines.push(`eks_cluster_name = ${formatTfValue(eksCloud.clusterName)}`);
       lines.push(`eks_region = ${formatTfValue(eksCloud.region)}`);
-      lines.push(`eks_nodes = ${eksCloud.nodes}`);
+      lines.push(`eks_nodes = ${eksCloud.desiredNodes}`);
       lines.push(`eks_node_type = ${formatTfValue(eksCloud.nodeType)}`);
+      lines.push(`eks_min_nodes = ${eksCloud.minNodes}`);
+      lines.push(`eks_max_nodes = ${eksCloud.maxNodes}`);
       lines.push('');
     } else {
       lines.push(`eks_cluster_count = 0`);
@@ -495,7 +513,7 @@ export class TerraformCloudRunner extends BaseProvisionerRunner {
       lines.push(`gke_cluster_count = ${gkeCloud.count}`);
       lines.push(`gke_cluster_name = ${formatTfValue(gkeCloud.clusterName)}`);
       lines.push(`gke_region = ${formatTfValue(gkeCloud.region)}`);
-      lines.push(`gke_node_pool_size = ${gkeCloud.nodes}`);
+      lines.push(`gke_node_pool_size = ${gkeCloud.desiredNodes}`);
       lines.push(`gke_node_type = ${formatTfValue(gkeCloud.nodeType)}`);
       lines.push('');
     } else {
@@ -510,8 +528,10 @@ export class TerraformCloudRunner extends BaseProvisionerRunner {
       lines.push(`aks_cluster_count = ${aksCloud.count}`);
       lines.push(`aks_cluster_name = ${formatTfValue(aksCloud.clusterName)}`);
       lines.push(`aks_region = ${formatTfValue(aksCloud.region)}`);
-      lines.push(`aks_nodes = ${aksCloud.nodes}`);
+      lines.push(`aks_nodes = ${aksCloud.desiredNodes}`);
       lines.push(`aks_node_type = ${formatTfValue(aksCloud.nodeType)}`);
+      lines.push(`aks_min_nodes = ${aksCloud.minNodes}`);
+      lines.push(`aks_max_nodes = ${aksCloud.maxNodes}`);
       if (config.aksServicePrincipal) {
         lines.push(`aks_service_principal = ${formatTfValue(config.aksServicePrincipal)}`);
       } else {

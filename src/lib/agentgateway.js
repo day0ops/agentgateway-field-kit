@@ -35,7 +35,7 @@ const ENTERPRISE_AGENTGATEWAY_LICENSE = process.env.ENTERPRISE_AGENTGATEWAY_LICE
 
 export class AgentGatewayManager {
   /**
-   * Load a profile YAML file and resolve environment templates (e.g. {{env.domains.keycloak}}).
+   * Load a profile YAML file and resolve environment templates (e.g. {{env.domains.core.keycloak}}).
    * @param {string} profileFile - Path to the profile YAML file
    * @returns {Promise<object>} Resolved profile object
    */

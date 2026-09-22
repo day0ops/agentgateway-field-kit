@@ -121,7 +121,7 @@ spec:
       features:
         - name: keycloak-jwt-auth
           config:
-            keycloakHost: '{{env.domains.keycloak}}'
+            keycloakHost: '{{env.domains.core.keycloak}}'
             mode: Optional
             claimHeaders:
               - claim: preferred_username
@@ -239,7 +239,7 @@ spec:
       steps:
         - action: get-token
           keycloak:
-            hostname: '{{env.domains.keycloak}}'
+            hostname: '{{env.domains.core.keycloak}}'
             realm: agw-dev
             clientId: agw-client
             clientSecret: agw-client-secret
@@ -261,7 +261,7 @@ spec:
       steps:
         - action: get-token
           keycloak:
-            hostname: '{{env.domains.keycloak}}'
+            hostname: '{{env.domains.core.keycloak}}'
             realm: agw-dev
             clientId: agw-client
             clientSecret: agw-client-secret
@@ -283,7 +283,7 @@ spec:
       steps:
         - action: get-token
           keycloak:
-            hostname: '{{env.domains.keycloak}}'
+            hostname: '{{env.domains.core.keycloak}}'
             realm: agw-dev
             clientId: agw-client
             clientSecret: agw-client-secret

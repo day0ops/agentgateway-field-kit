@@ -42,12 +42,17 @@ spec:
     stsIssuer: enterprise-agentgateway.agentgateway-system.svc.cluster.local:7777
 
   domains:
-    keycloak: keycloak.keycloak.svc.cluster.local
-    grafana: kube-prometheus-stack-grafana.telemetry.svc.cluster.local
-    quotaManagement: quota-management.agentgateway-system.svc.cluster.local
-    soloUI: solo-enterprise-ui.agentgateway-system.svc.cluster.local
-    okta: dev-12345.okta.com
-    agentgateway: agentgateway.agentgateway-system.svc.cluster.local
+    core:
+      keycloak: keycloak.keycloak.svc.cluster.local
+      grafana: kube-prometheus-stack-grafana.telemetry.svc.cluster.local
+      soloUi: solo-enterprise-ui.agentgateway-system.svc.cluster.local
+      agentgateway: agentgateway.agentgateway-system.svc.cluster.local
+    app:
+      quotaManagement: quota-management.agentgateway-system.svc.cluster.local
+
+  # Okta tenant
+  okta:
+    domain: dev-12345.okta.com
 
   # Placeholder Entra ID (Azure AD) tenant/app registration - replace with a real
   # tenant to test entra-jwt-auth end-to-end; the 401-without-token test doesn't

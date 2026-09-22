@@ -51,14 +51,14 @@ spec:
             policyName: oauth-authorization-code
             keycloak:
               realm: agw-dev
-            issuerUrl: '{{env.keycloak.scheme}}://{{env.domains.keycloak}}/realms/agw-dev/'
+            issuerUrl: '{{env.keycloak.scheme}}://{{env.domains.core.keycloak}}/realms/agw-dev/'
             clientId: agw-client
             clientSecret: agw-client-secret
             # The session cookie ext-auth-service issues is marked Secure, so the whole
             # flow needs the Gateway's public HTTPS listener (real cert, port 443) - the
             # plain :8080 address gets a 302 back with the cookie set, but every client
             # (browser or curl) silently drops a Secure cookie received over HTTP.
-            appUrl: 'https://{{env.domains.agentgateway}}'
+            appUrl: 'https://{{env.domains.core.agentgateway}}'
             callbackPath: /openai
             scopes:
               - email
@@ -92,13 +92,13 @@ spec:
           # so https needs an explicit port here - the public HTTPS listener is 443.
           port: 443
           resolve:
-            hostname: '{{env.domains.agentgateway}}'
+            hostname: '{{env.domains.core.agentgateway}}'
         - action: send-request
           endpoint: /openai/v1/chat/completions
           auth: session
           scheme: https
           resolve:
-            hostname: '{{env.domains.agentgateway}}'
+            hostname: '{{env.domains.core.agentgateway}}'
           prompt: 'What is 2+2?'
         - action: verify
           expect:

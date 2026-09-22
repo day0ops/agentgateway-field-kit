@@ -58,7 +58,7 @@ spec:
         # eager-auth-entra's resource override. The 4 non-interactive automated tests
         # below still hit the default :8080 address; only the browser-login
         # discoveryUrl needs the public HTTPS listener.
-        resource: 'https://{{env.domains.agentgateway}}/mcp'
+        resource: 'https://{{env.domains.core.agentgateway}}/mcp'
 
   tests:
     - name: unauthenticated-mcp-request-rejected
@@ -106,7 +106,7 @@ spec:
         - action: get-token
           okta:
             clientId: '{{env.okta.clientId}}'
-            discoveryUrl: 'https://{{env.domains.agentgateway}}/.well-known/oauth-authorization-server/mcp'
+            discoveryUrl: 'https://{{env.domains.core.agentgateway}}/.well-known/oauth-authorization-server/mcp'
         - action: send-mcp-request
           endpoint: /mcp
           method: tools/list

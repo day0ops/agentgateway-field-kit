@@ -83,7 +83,7 @@ spec:
           config:
             keycloak:
               realm: agw-dev
-              externalUrl: '{{env.keycloak.scheme}}://{{env.domains.keycloak}}'
+              externalUrl: '{{env.keycloak.scheme}}://{{env.domains.core.keycloak}}'
             clientId: agw-issuer
             mcpPath: /mcp
             preIssuance:

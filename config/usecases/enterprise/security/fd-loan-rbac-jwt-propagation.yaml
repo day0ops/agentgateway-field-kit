@@ -156,7 +156,7 @@ spec:
             useTokenExchange: true
             saTokenAudience: agentgateway
             mayActClaim: true
-            keycloakUrl: '{{env.keycloak.scheme}}://{{env.domains.keycloak}}'
+            keycloakUrl: '{{env.keycloak.scheme}}://{{env.domains.core.keycloak}}'
             llmBaseUrl: '{{env.internal.agentgateway}}/openai'
             mcpUrl: '{{env.internal.agentgateway}}/fd-mcp'
             model: gpt-4o-mini
@@ -189,7 +189,7 @@ spec:
             useTokenExchange: true
             saTokenAudience: agentgateway
             mayActClaim: true
-            keycloakUrl: '{{env.keycloak.scheme}}://{{env.domains.keycloak}}'
+            keycloakUrl: '{{env.keycloak.scheme}}://{{env.domains.core.keycloak}}'
             stockAgentUrl: '{{env.internal.agentgateway}}/fd-agent/run'
             additionalEnv:
               - name: FD_AGENT_URL
@@ -234,7 +234,7 @@ spec:
             clientId: loan-agent
             clientSecret: loan-agent-secret
             grantType: client_credentials
-            hostname: '{{env.domains.keycloak}}'
+            hostname: '{{env.domains.core.keycloak}}'
             scheme: '{{env.keycloak.scheme}}'
         - action: get-k8s-token
           serviceAccount: loan-agent
@@ -266,7 +266,7 @@ spec:
             clientId: fd-agent
             clientSecret: fd-agent-secret
             grantType: client_credentials
-            hostname: '{{env.domains.keycloak}}'
+            hostname: '{{env.domains.core.keycloak}}'
             scheme: '{{env.keycloak.scheme}}'
         - action: get-k8s-token
           serviceAccount: fd-agent
@@ -295,7 +295,7 @@ spec:
             clientId: fd-agent
             clientSecret: fd-agent-secret
             grantType: client_credentials
-            hostname: '{{env.domains.keycloak}}'
+            hostname: '{{env.domains.core.keycloak}}'
             scheme: '{{env.keycloak.scheme}}'
         - action: get-k8s-token
           serviceAccount: fd-agent
@@ -326,7 +326,7 @@ spec:
             clientId: loan-agent
             clientSecret: loan-agent-secret
             grantType: client_credentials
-            hostname: '{{env.domains.keycloak}}'
+            hostname: '{{env.domains.core.keycloak}}'
             scheme: '{{env.keycloak.scheme}}'
         - action: send-mcp-request
           endpoint: /fd-mcp

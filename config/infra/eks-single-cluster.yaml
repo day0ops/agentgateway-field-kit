@@ -9,8 +9,9 @@ spec:
   environment: aws-dev
 
   settings:
-    nodes: 2
-    node_type: t3.xlarge
+    nodes:
+      desired: 2
+      type: t3.xlarge
 
   clusters:
     - name: demo

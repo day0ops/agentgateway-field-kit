@@ -82,7 +82,7 @@ export class WorkloadAgentFeature extends Feature {
 
   /**
    * Ensure keycloakUrl has a scheme (and port for cluster-local).
-   * Handles bare hostnames from env templates like {{env.domains.keycloak}}.
+   * Handles bare hostnames from env templates like {{env.domains.core.keycloak}}.
    */
   static normalizeKeycloakUrl(url) {
     if (!url.startsWith('http://') && !url.startsWith('https://')) {
