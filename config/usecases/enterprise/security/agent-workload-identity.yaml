@@ -71,7 +71,7 @@ spec:
         - name: obo-token-exchange
           config:
             policyName: workload-identity-jwt-policy
-            issuer: '{{env.keycloak.scheme}}://{{env.domains.keycloak}}/realms/agw-dev'
+            issuer: '{{env.keycloak.scheme}}://{{env.domains.core.keycloak}}/realms/agw-dev'
             jwksPath: realms/agw-dev/protocol/openid-connect/certs
             audiences:
               - agentgateway
@@ -121,7 +121,7 @@ spec:
             clientId: caller-agent
             clientSecretName: caller-agent-credentials
             audience: agentgateway
-            keycloakUrl: '{{env.domains.keycloak}}'
+            keycloakUrl: '{{env.domains.core.keycloak}}'
 
   tests:
     - name: test-unauthenticated-mcp-blocked
@@ -159,7 +159,7 @@ spec:
             clientId: agw-client
             clientSecret: agw-client-secret
             grantType: client_credentials
-            hostname: '{{env.domains.keycloak}}'
+            hostname: '{{env.domains.core.keycloak}}'
             scheme: '{{env.keycloak.scheme}}'
         - action: send-mcp-request
           endpoint: /mcp
@@ -179,7 +179,7 @@ spec:
             clientId: caller-agent
             clientSecret: caller-agent-secret
             grantType: client_credentials
-            hostname: '{{env.domains.keycloak}}'
+            hostname: '{{env.domains.core.keycloak}}'
             scheme: '{{env.keycloak.scheme}}'
         - action: send-mcp-request
           endpoint: /mcp

@@ -101,7 +101,7 @@ spec:
           keycloak:
             realm: agw-dev
             clientId: agw-client-public
-            hostname: '{{env.domains.keycloak}}'
+            hostname: '{{env.domains.core.keycloak}}'
             scheme: '{{env.keycloak.scheme}}'
         - action: send-request
           endpoint: /github/user
@@ -119,7 +119,7 @@ spec:
           keycloak:
             realm: agw-dev
             clientId: agw-client-public
-            hostname: '{{env.domains.keycloak}}'
+            hostname: '{{env.domains.core.keycloak}}'
             scheme: '{{env.keycloak.scheme}}'
         - action: send-request
           endpoint: /github/user

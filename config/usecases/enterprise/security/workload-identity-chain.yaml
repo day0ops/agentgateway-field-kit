@@ -77,7 +77,7 @@ spec:
         - name: obo-token-exchange
           config:
             policyName: chain-stock-agent-jwt-policy
-            issuer: 'http://{{env.domains.keycloak}}:8080/realms/agw-dev'
+            issuer: 'http://{{env.domains.core.keycloak}}:8080/realms/agw-dev'
             jwksPath: realms/agw-dev/protocol/openid-connect/certs
             audiences:
               - agentgateway
@@ -94,7 +94,7 @@ spec:
         - name: obo-token-exchange
           config:
             policyName: chain-mcp-jwt-policy
-            issuer: 'http://{{env.domains.keycloak}}:8080/realms/agw-dev'
+            issuer: 'http://{{env.domains.core.keycloak}}:8080/realms/agw-dev'
             jwksPath: realms/agw-dev/protocol/openid-connect/certs
             audiences:
               - agentgateway

@@ -35,7 +35,7 @@ spec:
   features:
     - name: multi-org-jwt-auth
       config:
-        keycloakHost: '{{env.domains.keycloak}}'
+        keycloakHost: '{{env.domains.core.keycloak}}'
         injectOrgHeaders: false
         routePath: /api/anything
         rewritePath: /anything
@@ -50,12 +50,12 @@ spec:
         action: Allow
         expressions:
           - >-
-            (jwt.iss == 'https://{{env.domains.keycloak}}/realms/workforce-idp' && jwt.role == 'admin') ||
-            (jwt.iss == 'https://{{env.domains.keycloak}}/realms/workforce-idp' && jwt.role == 'manager' && request.method != 'DELETE') ||
-            (jwt.iss == 'https://{{env.domains.keycloak}}/realms/workforce-idp' && jwt.role == 'employee' && request.method == 'GET') ||
-            (jwt.iss == 'https://{{env.domains.keycloak}}/realms/partner-idp' && jwt.partner_tier == 'gold' && request.method in ['GET', 'POST']) ||
-            (jwt.iss == 'https://{{env.domains.keycloak}}/realms/partner-idp' && jwt.partner_tier == 'silver' && request.method == 'GET') ||
-            (jwt.iss == 'https://{{env.domains.keycloak}}/realms/partner-idp' && jwt.partner_tier == 'bronze' && request.method == 'GET')
+            (jwt.iss == 'https://{{env.domains.core.keycloak}}/realms/workforce-idp' && jwt.role == 'admin') ||
+            (jwt.iss == 'https://{{env.domains.core.keycloak}}/realms/workforce-idp' && jwt.role == 'manager' && request.method != 'DELETE') ||
+            (jwt.iss == 'https://{{env.domains.core.keycloak}}/realms/workforce-idp' && jwt.role == 'employee' && request.method == 'GET') ||
+            (jwt.iss == 'https://{{env.domains.core.keycloak}}/realms/partner-idp' && jwt.partner_tier == 'gold' && request.method in ['GET', 'POST']) ||
+            (jwt.iss == 'https://{{env.domains.core.keycloak}}/realms/partner-idp' && jwt.partner_tier == 'silver' && request.method == 'GET') ||
+            (jwt.iss == 'https://{{env.domains.core.keycloak}}/realms/partner-idp' && jwt.partner_tier == 'bronze' && request.method == 'GET')
         targetRefs:
           - group: gateway.networking.k8s.io
             kind: HTTPRoute
@@ -73,7 +73,7 @@ spec:
             grantType: password
             username: alice-admin
             password: Password1!
-            hostname: '{{env.domains.keycloak}}'
+            hostname: '{{env.domains.core.keycloak}}'
             scheme: '{{env.keycloak.scheme}}'
         - action: send-request
           endpoint: /api/anything
@@ -94,7 +94,7 @@ spec:
             grantType: password
             username: bob-manager
             password: Password1!
-            hostname: '{{env.domains.keycloak}}'
+            hostname: '{{env.domains.core.keycloak}}'
             scheme: '{{env.keycloak.scheme}}'
         - action: send-request
           endpoint: /api/anything
@@ -122,7 +122,7 @@ spec:
             grantType: password
             username: carol-employee
             password: Password1!
-            hostname: '{{env.domains.keycloak}}'
+            hostname: '{{env.domains.core.keycloak}}'
             scheme: '{{env.keycloak.scheme}}'
         - action: send-request
           endpoint: /api/anything
@@ -150,7 +150,7 @@ spec:
             grantType: password
             username: acme-gold-user
             password: Password1!
-            hostname: '{{env.domains.keycloak}}'
+            hostname: '{{env.domains.core.keycloak}}'
             scheme: '{{env.keycloak.scheme}}'
         - action: send-request
           endpoint: /api/anything
@@ -171,7 +171,7 @@ spec:
             grantType: password
             username: acme-silver-user
             password: Password1!
-            hostname: '{{env.domains.keycloak}}'
+            hostname: '{{env.domains.core.keycloak}}'
             scheme: '{{env.keycloak.scheme}}'
         - action: send-request
           endpoint: /api/anything
@@ -199,7 +199,7 @@ spec:
             grantType: password
             username: acme-bronze-user
             password: Password1!
-            hostname: '{{env.domains.keycloak}}'
+            hostname: '{{env.domains.core.keycloak}}'
             scheme: '{{env.keycloak.scheme}}'
         - action: send-request
           endpoint: /api/anything

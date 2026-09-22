@@ -41,7 +41,7 @@ spec:
             kind: HTTPRoute
             name: mcp
         jwtAuthentication:
-          issuer: '{{env.keycloak.scheme}}://{{env.domains.keycloak}}/realms/agw-dev'
+          issuer: '{{env.keycloak.scheme}}://{{env.domains.core.keycloak}}/realms/agw-dev'
           jwks:
             host: keycloak.keycloak.svc.cluster.local
             port: 8080

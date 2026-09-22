@@ -36,6 +36,9 @@ spec:
     scheme: https
     loginTheme: keycloak-soloio-login-theme
 
+  soloUi:
+    version: 0.5.6
+
   # Custom demo images, built and pushed to this GAR repo. Each value is a full
   # repo:tag reference - bump the tag here to roll every usecase forward at once.
   images:
@@ -78,8 +81,10 @@ spec:
 
   # Domain mappings - auto-generated pattern: <service>.<childZone>.<parentDomain>
   domains:
-    keycloak: keycloak.demo.kasunt.apac.fe.solo.io
-    grafana: grafana.demo.kasunt.apac.fe.solo.io
-    quotaManagement: quota-management.demo.kasunt.apac.fe.solo.io
-    soloUI: soloui.demo.kasunt.apac.fe.solo.io
-    agentgateway: agentgateway.demo.kasunt.apac.fe.solo.io
+    core:
+      keycloak: keycloak.demo.kasunt.apac.fe.solo.io
+      grafana: grafana.demo.kasunt.apac.fe.solo.io
+      soloUi: soloui.demo.kasunt.apac.fe.solo.io
+      agentgateway: agentgateway.demo.kasunt.apac.fe.solo.io
+    app:
+      quotaManagement: quota-management.demo.kasunt.apac.fe.solo.io

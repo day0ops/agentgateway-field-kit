@@ -54,7 +54,7 @@ spec:
       features:
         - name: keycloak-jwt-auth
           config:
-            keycloakHost: '{{env.domains.keycloak}}'
+            keycloakHost: '{{env.domains.core.keycloak}}'
 
     - title: Deploy quota-budget (infrastructure + budget ext-proc)
       description: |
@@ -80,13 +80,13 @@ spec:
             enableCORS: true
             cors:
               allowOrigins:
-                - 'https://{{env.domains.quotaManagement}}'
-            keycloakHost: '{{env.domains.keycloak}}'
+                - 'https://{{env.domains.app.quotaManagement}}'
+            keycloakHost: '{{env.domains.core.keycloak}}'
             tls:
-              hostname: '{{env.domains.quotaManagement}}'
+              hostname: '{{env.domains.app.quotaManagement}}'
               issuer: '{{env.tls.issuer}}'
             auth:
-              appUrl: 'https://{{env.domains.quotaManagement}}'
+              appUrl: 'https://{{env.domains.app.quotaManagement}}'
               clientId: quota-management
               callbackPath: /callback
               logoutPath: /logout

@@ -60,13 +60,13 @@ spec:
               serviceName: keycloak
               serviceNamespace: keycloak
               servicePort: 443
-              externalUrl: '{{env.keycloak.scheme}}://{{env.domains.keycloak}}'
+              externalUrl: '{{env.keycloak.scheme}}://{{env.domains.core.keycloak}}'
               configureDynamicRegistration: true
               grantAudienceToClients:
                 - agw-client
             audiences:
-              - 'http://{{env.domains.agentgateway}}:8080/mcp'
-            resource: 'http://{{env.domains.agentgateway}}:8080/mcp'
+              - 'http://{{env.domains.core.agentgateway}}:8080/mcp'
+            resource: 'http://{{env.domains.core.agentgateway}}:8080/mcp'
             scopesSupported:
               - email
             mode: Strict
@@ -99,12 +99,12 @@ spec:
         - action: register-client
           keycloak:
             realm: agw-dev
-            hostname: '{{env.domains.keycloak}}'
+            hostname: '{{env.domains.core.keycloak}}'
         - action: get-token
           keycloak:
             realm: agw-dev
             grantType: client_credentials
-            hostname: '{{env.domains.keycloak}}'
+            hostname: '{{env.domains.core.keycloak}}'
         - action: send-mcp-request
           endpoint: /mcp
           method: tools/list
@@ -125,7 +125,7 @@ spec:
             grantType: password
             username: user1
             password: Password1!
-            hostname: '{{env.domains.keycloak}}'
+            hostname: '{{env.domains.core.keycloak}}'
         - action: send-mcp-request
           endpoint: /mcp
           method: tools/list
@@ -146,7 +146,7 @@ spec:
             grantType: password
             username: user1
             password: Password1!
-            hostname: '{{env.domains.keycloak}}'
+            hostname: '{{env.domains.core.keycloak}}'
         - action: send-mcp-request
           endpoint: /mcp
           method: tools/call

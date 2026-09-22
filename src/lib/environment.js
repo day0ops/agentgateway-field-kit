@@ -157,7 +157,7 @@ export class EnvironmentManager {
 
   /**
    * Resolve a single template string
-   * @param {string} template - Template string like '{{env.domains.keycloak}}'
+   * @param {string} template - Template string like '{{env.domains.core.keycloak}}'
    * @param {object} env - Environment object
    * @returns {string} Resolved string
    */
@@ -180,7 +180,7 @@ export class EnvironmentManager {
   /**
    * Get nested value from object using dot notation
    * @param {object} obj - Object to traverse
-   * @param {string} path - Dot-separated path like 'domains.keycloak'
+   * @param {string} path - Dot-separated path like 'domains.core.keycloak'
    * @returns {*} Value at path or undefined
    */
   static getNestedValue(obj, path) {

@@ -47,7 +47,7 @@ spec:
             secretName: agentgateway-tls-secret
             issuer: '{{env.tls.issuer}}'
             dnsNames:
-              - '{{env.domains.agentgateway}}'
+              - '{{env.domains.core.agentgateway}}'
 
     - title: Configure Gateway with HTTPS and hostname
       description: |
@@ -59,7 +59,7 @@ spec:
               - name: https
                 port: 443
                 protocol: HTTPS
-                hostname: '{{env.domains.agentgateway}}'
+                hostname: '{{env.domains.core.agentgateway}}'
                 tls:
                   mode: Terminate
                   certificateRefs:
@@ -78,7 +78,7 @@ spec:
               - name: anthropic
                 providerName: anthropic
                 pathPrefix: /
-                hostname: '{{env.domains.agentgateway}}'
+                hostname: '{{env.domains.core.agentgateway}}'
                 policies:
                   ai:
                     routes:
@@ -119,13 +119,13 @@ spec:
             enableCORS: true
             cors:
               allowOrigins:
-                - 'https://{{env.domains.quotaManagement}}'
-            keycloakHost: '{{env.domains.keycloak}}'
+                - 'https://{{env.domains.app.quotaManagement}}'
+            keycloakHost: '{{env.domains.core.keycloak}}'
             tls:
-              hostname: '{{env.domains.quotaManagement}}'
+              hostname: '{{env.domains.app.quotaManagement}}'
               issuer: '{{env.tls.issuer}}'
             auth:
-              appUrl: 'https://{{env.domains.quotaManagement}}'
+              appUrl: 'https://{{env.domains.app.quotaManagement}}'
               clientId: quota-management
               callbackPath: /callback
               logoutPath: /logout
