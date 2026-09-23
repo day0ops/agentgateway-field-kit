@@ -159,14 +159,16 @@ export class EnvironmentManager {
    * Resolve a single template string
    * @param {string} template - Template string like '{{env.domains.core.keycloak}}'
    * @param {object} env - Environment object
-   * @returns {string} Resolved string
+   * @returns {*} Resolved value. A string that is nothing but a single
+   *   placeholder resolves to the raw environment value (which may be an
+   *   object, e.g. a chartVersions map) rather than a stringified copy.
    */
   static resolveTemplate(template, env) {
     if (typeof template !== 'string') {
       return template;
     }
 
-    return template.replace(/\{\{env\.([^}]+)\}\}/g, (match, path) => {
+    const lookup = path => {
       const value = this.getNestedValue(env.spec, path);
       if (value === undefined) {
         throw new Error(
@@ -174,7 +176,14 @@ export class EnvironmentManager {
         );
       }
       return value;
-    });
+    };
+
+    const soleMatch = template.match(/^\{\{env\.([^}]+)\}\}$/);
+    if (soleMatch) {
+      return lookup(soleMatch[1]);
+    }
+
+    return template.replace(/\{\{env\.([^}]+)\}\}/g, (_match, path) => lookup(path));
   }
 
   /**

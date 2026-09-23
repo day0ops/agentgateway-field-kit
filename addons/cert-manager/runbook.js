@@ -6,7 +6,7 @@ export function envVarsFor(_cfg) {
 
 export function envExportsFor(_cfg) {
   return [
-    { key: 'CERT_MANAGER_VERSION', value: 'v1.19.3', group: 'versions' },
+    { key: 'CERT_MANAGER_VERSION', value: 'v1.21.2', group: 'versions' },
     { key: 'CERT_MANAGER_NAMESPACE', value: 'cert-manager', group: 'settings' },
   ];
 }

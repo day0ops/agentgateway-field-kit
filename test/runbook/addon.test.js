@@ -299,7 +299,7 @@ describe('AddonAdapter', () => {
     const keys = exports.map(e => e.key);
     expect(keys).toContain('CERT_MANAGER_VERSION');
     expect(keys).toContain('CERT_MANAGER_NAMESPACE');
-    expect(exports.find(e => e.key === 'CERT_MANAGER_VERSION').value).toBe('v1.19.3');
+    expect(exports.find(e => e.key === 'CERT_MANAGER_VERSION').value).toBe('v1.21.2');
     expect(exports.find(e => e.key === 'CERT_MANAGER_NAMESPACE').value).toBe('cert-manager');
   });
 

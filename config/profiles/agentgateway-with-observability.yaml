@@ -13,12 +13,14 @@ spec:
     - name: telemetry
       description: OpenTelemetry observability stack (Prometheus, Grafana, Loki, Tempo)
       namespace: telemetry
+      chartVersions: '{{env.telemetry.version}}'
       config:
         nodeSelector:
           nodeclass: worker
 
     - name: solo-ui
       description: Solo Enterprise UI for agentgateway
+      version: '{{env.soloUi.version}}'
       namespace: agentgateway-system
       config:
         nodeSelector:

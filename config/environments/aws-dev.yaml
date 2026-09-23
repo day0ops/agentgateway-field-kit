@@ -33,16 +33,24 @@ spec:
     stsIssuer: enterprise-agentgateway.agentgateway-system.svc.cluster.local:7777
 
   keycloak:
+    image: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/keycloak:26.7.4
     scheme: https
     loginTheme: keycloak-soloio-login-theme
 
   soloUi:
-    version: 0.5.6
+    version: 0.5.8
+
+  telemetry:
+    version:
+      kube-prom-stack: 91.5.0
+      loki: 7.3.0
+      tempo: 1.61.3
+      alloy: 1.12.1
+      otel: 0.173.1
 
   # Custom demo images, built and pushed to this GAR repo. Each value is a full
   # repo:tag reference - bump the tag here to roll every usecase forward at once.
   images:
-    keycloak: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/keycloak:26.7.0
     stock-agent: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/stock-agent:0.1.1
     caller-agent: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/caller-agent:0.1.1
     stock-server-mcp: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/stock-server-mcp:0.1.1

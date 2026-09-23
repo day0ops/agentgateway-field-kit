@@ -7,7 +7,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const CONFIG_DIR = join(__dirname, 'config');
 
-const EXTERNAL_DNS_VERSION = '1.21.1';
+const EXTERNAL_DNS_VERSION = '1.22.0';
 
 /**
  * external-dns Addon

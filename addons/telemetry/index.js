@@ -11,11 +11,11 @@ const CONFIG_DIR = join(__dirname, 'config');
 const DASHBOARDS_DIR = join(__dirname, 'dashboards');
 
 // Helm chart versions
-const PROMETHEUS_STACK_VERSION = '80.4.2';
-const LOKI_VERSION = '6.6.2';
-const TEMPO_DISTRIBUTED_VERSION = '1.29.0';
-const ALLOY_VERSION = '0.12.0';
-const OTEL_COLLECTOR_VERSION = '0.96.0';
+const PROMETHEUS_STACK_VERSION = '91.5.0';
+const LOKI_VERSION = '7.3.0';
+const TEMPO_DISTRIBUTED_VERSION = '1.61.3';
+const ALLOY_VERSION = '1.12.1';
+const OTEL_COLLECTOR_VERSION = '0.173.1';
 
 /**
  * Telemetry Feature

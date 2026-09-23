@@ -10,12 +10,23 @@ spec:
     issuer: selfsigned-issuer
 
   keycloak:
+    image: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/keycloak:latest
     scheme: http
+
+  soloUi:
+    version: 0.5.8
+
+  telemetry:
+    version:
+      kube-prom-stack: 91.5.0
+      loki: 7.3.0
+      tempo: 1.61.3
+      alloy: 1.12.1
+      otel: 0.173.1
 
   # Custom demo images, built and pushed to this GAR repo. Each value is a full
   # repo:tag reference - bump the tag here to roll every usecase forward at once.
   images:
-    keycloak: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/keycloak:latest
     stock-agent: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/stock-agent:latest
     caller-agent: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/caller-agent:latest
     stock-server-mcp: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/stock-server-mcp:0.1.1
@@ -54,19 +65,7 @@ spec:
   okta:
     domain: dev-12345.okta.com
 
-  # Placeholder Entra ID (Azure AD) tenant/app registration - replace with a real
-  # tenant to test entra-jwt-auth end-to-end; the 401-without-token test doesn't
-  # need a real tenant, but JWKS validation of an actual token does. Also used by
-  # eager-auth-entra, which additionally needs (one-time, in the Azure portal,
-  # live-verified 2026-08-09): a "Mobile and desktop applications" platform
-  # redirect URI set to `http://localhost` (no port - Azure AD's loopback
-  # matching allows any port for this platform type); an exposed API scope
-  # named `mcp_access` under "Expose an API"; "Allow public client flows" set
-  # to Yes under Authentication > Advanced settings (else token exchange 400s
-  # with AADSTS7000218, demanding a client_secret); and `accessTokenAcceptedVersion`
-  # set to `2` in the app manifest (else minted tokens carry a v1 issuer,
-  # `https://sts.windows.net/<tenantId>/`, and the gateway's v2-issuer default
-  # rejects them with InvalidIssuer).
+  # Placeholder Entra ID (Azure AD) tenant/app registration
   entra:
     tenantId: 00000000-0000-0000-0000-000000000000
     clientId: 00000000-0000-0000-0000-000000000000
