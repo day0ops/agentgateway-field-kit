@@ -57,19 +57,19 @@ spec:
       subjectValidator:
         validatorType: remote
         remoteConfig:
-          url: '{{env.keycloak.scheme}}://{{env.domains.keycloak}}/realms/agw-dev/protocol/openid-connect/certs'
+          url: '{{env.keycloak.scheme}}://{{env.domains.core.keycloak}}/realms/agw-dev/protocol/openid-connect/certs'
         skipMayActClaimValidation: true
       actorValidator:
         validatorType: k8s
       apiValidator:
         validatorType: remote
         remoteConfig:
-          url: '{{env.keycloak.scheme}}://{{env.domains.keycloak}}/realms/agw-dev/protocol/openid-connect/certs'
+          url: '{{env.keycloak.scheme}}://{{env.domains.core.keycloak}}/realms/agw-dev/protocol/openid-connect/certs'
     agentgatewayModels:
       enabled: true
 
   gateway:
-    hostname: '{{env.domains.agentgateway}}'
+    hostname: '{{env.domains.core.agentgateway}}'
     mtls:
       enabled: true
     publicHttps:
@@ -100,11 +100,11 @@ spec:
       description: CA chain and server certificate for the Gateway's mTLS listener
       config:
         dnsNames:
-          - '{{env.domains.agentgateway}}'
+          - '{{env.domains.core.agentgateway}}'
         publicHttps:
           enabled: true
           dnsNames:
-            - '{{env.domains.agentgateway}}'
+            - '{{env.domains.core.agentgateway}}'
 
     - name: external-dns
       description: Automatic DNS record management via Route53
@@ -127,7 +127,7 @@ spec:
             storageClass: gp3
             size: 5Gi
         keycloakNamespace: keycloak
-        hostname: '{{env.domains.keycloak}}'
+        hostname: '{{env.domains.core.keycloak}}'
         protocol: '{{env.keycloak.scheme}}'
         loginTheme: '{{env.keycloak.loginTheme}}'
         tls:

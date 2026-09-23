@@ -49,7 +49,7 @@ spec:
       config:
         auth0Domain: '{{env.auth0.domain}}'
         audience: '{{env.auth0.audience}}'
-        resource: 'http://{{env.domains.agentgateway}}:8080/mcp'
+        resource: 'http://{{env.domains.core.agentgateway}}:8080/mcp'
 
   tests:
     - name: unauthenticated-mcp-request-rejected
@@ -96,7 +96,7 @@ spec:
       steps:
         - action: get-token
           auth0:
-            discoveryUrl: 'http://{{env.domains.agentgateway}}:8080/.well-known/oauth-authorization-server/mcp'
+            discoveryUrl: 'http://{{env.domains.core.agentgateway}}:8080/.well-known/oauth-authorization-server/mcp'
         - action: send-mcp-request
           endpoint: /mcp
           method: tools/list

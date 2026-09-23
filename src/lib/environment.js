@@ -157,7 +157,7 @@ export class EnvironmentManager {
 
   /**
    * Resolve a single template string
-   * @param {string} template - Template string like '{{env.domains.keycloak}}'
+   * @param {string} template - Template string like '{{env.domains.core.keycloak}}'
    * @param {object} env - Environment object
    * @returns {*} Resolved value. A string that is nothing but a single
    *   placeholder resolves to the raw environment value (which may be an
@@ -189,7 +189,7 @@ export class EnvironmentManager {
   /**
    * Get nested value from object using dot notation
    * @param {object} obj - Object to traverse
-   * @param {string} path - Dot-separated path like 'domains.keycloak'
+   * @param {string} path - Dot-separated path like 'domains.core.keycloak'
    * @returns {*} Value at path or undefined
    */
   static getNestedValue(obj, path) {

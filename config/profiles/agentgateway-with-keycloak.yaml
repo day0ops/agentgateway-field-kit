@@ -52,14 +52,14 @@ spec:
       subjectValidator:
         validatorType: remote
         remoteConfig:
-          url: https://{{env.domains.keycloak}}/realms/agw-dev/protocol/openid-connect/certs
+          url: https://{{env.domains.core.keycloak}}/realms/agw-dev/protocol/openid-connect/certs
         skipMayActClaimValidation: true
       actorValidator:
         validatorType: k8s
       apiValidator:
         validatorType: remote
         remoteConfig:
-          url: https://{{env.domains.keycloak}}/realms/agw-dev/protocol/openid-connect/certs
+          url: https://{{env.domains.core.keycloak}}/realms/agw-dev/protocol/openid-connect/certs
 
   resources:
     - agentgateway-with-keycloak/enterprise-agentgateway-sharedext-params.yaml
@@ -81,7 +81,7 @@ spec:
       namespace: keycloak
       config:
         keycloakNamespace: keycloak
-        hostname: '{{env.domains.keycloak}}'
+        hostname: '{{env.domains.core.keycloak}}'
         protocol: https
         tls:
           enabled: true
@@ -382,7 +382,7 @@ spec:
         soloUIClients:
           enabled: true
           realm: solo-ui
-          hostname: http://{{env.domains.soloUi}}
+          hostname: http://{{env.domains.core.soloUi}}
           backendClientId: solo-ui-backend
           backendClientSecret: solo-ui-backend-secret
           frontendClientId: solo-ui-frontend
@@ -417,7 +417,7 @@ spec:
       description: Solo Enterprise UI for agentgateway
       namespace: agentgateway-system
       config:
-        managementChartVersion: 0.5.3
+        managementChartVersion: '{{env.soloUi.version}}'
         serviceType: LoadBalancer
         nodeSelector:
           nodeclass: worker
@@ -427,7 +427,7 @@ spec:
           port: 4317
         oidc:
           enabled: true
-          issuerUrl: https://{{env.domains.keycloak}}/realms/solo-ui
+          issuerUrl: https://{{env.domains.core.keycloak}}/realms/solo-ui
           backendClientId: solo-ui-backend
           backendClientSecret: solo-ui-backend-secret
           frontendClientId: solo-ui-frontend

@@ -28,7 +28,7 @@ spec:
       enabled: true
 
   gateway:
-    hostname: '{{env.domains.agentgateway}}'
+    hostname: '{{env.domains.core.agentgateway}}'
 
   addons:
     - name: cert-manager
@@ -62,7 +62,7 @@ spec:
             storageClass: gp3
             size: 5Gi
         keycloakNamespace: keycloak
-        hostname: '{{env.domains.keycloak}}'
+        hostname: '{{env.domains.core.keycloak}}'
         protocol: '{{env.keycloak.scheme}}'
         loginTheme: '{{env.keycloak.loginTheme}}'
         tls:
@@ -91,4 +91,4 @@ spec:
           storageSize: 100Gi
         retention: 120h
         grafanaServiceType: LoadBalancer
-        grafanaHostname: '{{env.domains.grafana}}'
+        grafanaHostname: '{{env.domains.core.grafana}}'

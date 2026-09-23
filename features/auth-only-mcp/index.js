@@ -41,7 +41,7 @@ const DEFAULT_AUDIENCES = ['account'];
  * drops that JWT provider when building the data-plane config, and the proxy then rejects the
  * policy with "JWT MCP extension requires exactly one provider, found 0" - live-diagnosed via
  * controller logs (component: jwks_store). Same root cause and fix as mcp-auth's own
- * keycloakExternalUrl. Set `keycloak.externalUrl` (e.g. '{{env.keycloak.scheme}}://{{env.domains.keycloak}}')
+ * keycloakExternalUrl. Set `keycloak.externalUrl` (e.g. '{{env.keycloak.scheme}}://{{env.domains.core.keycloak}}')
  * for a real deploy.
  *
  * Configuration:
@@ -257,7 +257,7 @@ export class AuthOnlyMcpFeature extends Feature {
     if (!this.dryRun && !this.keycloakExternalUrl) {
       throw new Error(
         'auth-only-mcp requires keycloak.externalUrl for a real deploy (e.g. ' +
-          "'{{env.keycloak.scheme}}://{{env.domains.keycloak}}')"
+          "'{{env.keycloak.scheme}}://{{env.domains.core.keycloak}}')"
       );
     }
 

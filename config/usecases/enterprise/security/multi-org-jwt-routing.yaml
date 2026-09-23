@@ -27,7 +27,7 @@ spec:
       features:
         - name: multi-org-jwt-auth
           config:
-            keycloakHost: '{{env.domains.keycloak}}'
+            keycloakHost: '{{env.domains.core.keycloak}}'
             orgRealms:
               - realm: org-acme
                 orgId: acme
@@ -45,7 +45,7 @@ spec:
       steps:
         - action: get-token
           keycloak:
-            hostname: '{{env.domains.keycloak}}'
+            hostname: '{{env.domains.core.keycloak}}'
             scheme: '{{env.keycloak.scheme}}'
             realm: org-acme
             clientId: acme-team-eng
@@ -66,7 +66,7 @@ spec:
       steps:
         - action: get-token
           keycloak:
-            hostname: '{{env.domains.keycloak}}'
+            hostname: '{{env.domains.core.keycloak}}'
             scheme: '{{env.keycloak.scheme}}'
             realm: org-globex
             clientId: globex-team-sales
@@ -87,7 +87,7 @@ spec:
       steps:
         - action: get-token
           keycloak:
-            hostname: '{{env.domains.keycloak}}'
+            hostname: '{{env.domains.core.keycloak}}'
             scheme: '{{env.keycloak.scheme}}'
             realm: org-initech
             clientId: initech-team-dev
@@ -108,7 +108,7 @@ spec:
       steps:
         - action: get-token
           keycloak:
-            hostname: '{{env.domains.keycloak}}'
+            hostname: '{{env.domains.core.keycloak}}'
             scheme: '{{env.keycloak.scheme}}'
             realm: org-acme
             clientId: acme-team-eng

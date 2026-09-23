@@ -77,7 +77,7 @@ spec:
               serviceName: keycloak
               serviceNamespace: keycloak
               servicePort: 443
-              externalUrl: '{{env.keycloak.scheme}}://{{env.domains.keycloak}}'
+              externalUrl: '{{env.keycloak.scheme}}://{{env.domains.core.keycloak}}'
               configureDynamicRegistration: true
               grantAudienceToClients:
                 - agw-client
@@ -114,7 +114,7 @@ spec:
             grantType: password
             username: user1
             password: Password1!
-            hostname: '{{env.domains.keycloak}}'
+            hostname: '{{env.domains.core.keycloak}}'
             scheme: '{{env.keycloak.scheme}}'
         - action: send-mcp-request
           endpoint: /mcp
@@ -139,7 +139,7 @@ spec:
             grantType: password
             username: user2
             password: Password1!
-            hostname: '{{env.domains.keycloak}}'
+            hostname: '{{env.domains.core.keycloak}}'
             scheme: '{{env.keycloak.scheme}}'
         - action: send-mcp-request
           endpoint: /mcp
@@ -170,7 +170,7 @@ spec:
             grantType: password
             username: user1
             password: Password1!
-            hostname: '{{env.domains.keycloak}}'
+            hostname: '{{env.domains.core.keycloak}}'
             scheme: '{{env.keycloak.scheme}}'
         - action: send-mcp-request
           endpoint: /mcp

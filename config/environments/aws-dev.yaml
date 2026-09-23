@@ -89,8 +89,10 @@ spec:
 
   # Domain mappings - auto-generated pattern: <service>.<childZone>.<parentDomain>
   domains:
-    keycloak: keycloak.demo.kasunt.apac.fe.solo.io
-    grafana: grafana.demo.kasunt.apac.fe.solo.io
-    quotaManagement: quota-management.demo.kasunt.apac.fe.solo.io
-    soloUi: soloui.demo.kasunt.apac.fe.solo.io
-    agentgateway: agentgateway.demo.kasunt.apac.fe.solo.io
+    core:
+      keycloak: keycloak.demo.kasunt.apac.fe.solo.io
+      grafana: grafana.demo.kasunt.apac.fe.solo.io
+      soloUi: soloui.demo.kasunt.apac.fe.solo.io
+      agentgateway: agentgateway.demo.kasunt.apac.fe.solo.io
+    app:
+      quotaManagement: quota-management.demo.kasunt.apac.fe.solo.io
