@@ -60,19 +60,19 @@ spec:
       subjectValidator:
         validatorType: remote
         remoteConfig:
-          url: '{{env.keycloak.scheme}}://{{env.domains.keycloak}}/realms/agw-dev/protocol/openid-connect/certs'
+          url: '{{env.keycloak.scheme}}://{{env.domains.core.keycloak}}/realms/agw-dev/protocol/openid-connect/certs'
         skipMayActClaimValidation: true
       actorValidator:
         validatorType: k8s
       apiValidator:
         validatorType: remote
         remoteConfig:
-          url: '{{env.keycloak.scheme}}://{{env.domains.keycloak}}/realms/agw-dev/protocol/openid-connect/certs'
+          url: '{{env.keycloak.scheme}}://{{env.domains.core.keycloak}}/realms/agw-dev/protocol/openid-connect/certs'
     agentgatewayModels:
       enabled: true
 
   gateway:
-    hostname: '{{env.domains.agentgateway}}'
+    hostname: '{{env.domains.core.agentgateway}}'
 
   resources:
     - agentgateway-with-keycloak/enterprise-agentgateway-sharedext-params.yaml
@@ -116,7 +116,7 @@ spec:
             storageClass: gp3
             size: 5Gi
         keycloakNamespace: keycloak
-        hostname: '{{env.domains.keycloak}}'
+        hostname: '{{env.domains.core.keycloak}}'
         protocol: '{{env.keycloak.scheme}}'
         loginTheme: '{{env.keycloak.loginTheme}}'
         tls:
@@ -126,7 +126,7 @@ spec:
         soloUIClients:
           enabled: true
           realm: solo-ui
-          hostname: https://{{env.domains.soloUi}}
+          hostname: https://{{env.domains.core.soloUi}}
           backendClientId: solo-ui-backend
           backendClientSecret: solo-ui-backend-secret
           frontendClientId: solo-ui-frontend
@@ -444,9 +444,9 @@ spec:
                   - authorization-code
                 groupMembership: true
                 redirectUris:
-                  - 'https://{{env.domains.grafana}}/login/generic_oauth'
+                  - 'https://{{env.domains.core.grafana}}/login/generic_oauth'
                 postLogoutRedirectUris:
-                  - 'https://{{env.domains.grafana}}'
+                  - 'https://{{env.domains.core.grafana}}'
             users:
               # username/password sourced from GRAFANA_REALM_ADMIN_USERNAME (default:
               # grafana-admin) and GRAFANA_REALM_ADMIN_PASSWORD, not this profile
@@ -497,14 +497,14 @@ spec:
             storageClass: gp3
             size: 50Gi
         serviceType: ClusterIP
-        hostname: '{{env.domains.soloUi}}'
+        hostname: '{{env.domains.core.soloUi}}'
         tls:
           enabled: true
           secretName: solo-ui-tls
           issuer: '{{env.tls.issuer}}'
         oidc:
           enabled: true
-          issuerUrl: https://{{env.domains.keycloak}}/realms/solo-ui
+          issuerUrl: https://{{env.domains.core.keycloak}}/realms/solo-ui
           backendClientId: solo-ui-backend
           backendClientSecret: solo-ui-backend-secret
           frontendClientId: solo-ui-frontend
@@ -523,14 +523,14 @@ spec:
           storageClass: gp3
           storageSize: 100Gi
         retention: 120h
-        grafanaHostname: '{{env.domains.grafana}}'
+        grafanaHostname: '{{env.domains.core.grafana}}'
         grafanaTls:
           enabled: true
           secretName: grafana-tls
           issuer: letsencrypt-dns
         grafanaOidc:
           enabled: true
-          issuerUrl: 'https://{{env.domains.keycloak}}/realms/grafana'
+          issuerUrl: 'https://{{env.domains.core.keycloak}}/realms/grafana'
           clientId: grafana
           clientSecret: grafana-client-secret
           adminGroup: grafana-admins
