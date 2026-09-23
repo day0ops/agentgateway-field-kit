@@ -1,6 +1,6 @@
 // addons/external-dns/runbook.js
 
-const EXTERNAL_DNS_VERSION = '1.21.1';
+const EXTERNAL_DNS_VERSION = '1.22.0';
 
 export function envVarsFor(_cfg) {
   // Route53 access is via IRSA on the external-dns service account, so there are

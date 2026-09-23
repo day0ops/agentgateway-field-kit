@@ -8,7 +8,7 @@ const __dirname = dirname(__filename);
 const CONFIG_DIR = join(__dirname, 'config');
 
 // Helm chart version
-const CERT_MANAGER_CHART_VERSION = '1.19.3';
+const CERT_MANAGER_CHART_VERSION = '1.21.2';
 
 /**
  * Cert-Manager Feature

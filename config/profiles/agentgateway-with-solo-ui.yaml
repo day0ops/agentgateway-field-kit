@@ -12,10 +12,12 @@ spec:
   addons:
     - name: solo-ui
       description: Solo Enterprise UI for agentgateway
+      version: '{{env.soloUi.version}}'
       namespace: agentgateway-system
 
     - name: telemetry
       description: OpenTelemetry observability stack (Prometheus, Grafana, Loki, Tempo)
       namespace: telemetry
+      chartVersions: '{{env.telemetry.version}}'
       config:
         enableTraces: false

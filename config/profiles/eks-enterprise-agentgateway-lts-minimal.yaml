@@ -1,24 +1,21 @@
 apiVersion: agentgateway.demo/v1
 kind: Profile
 metadata:
-  name: eks-enterprise-agentgateway-complete
+  name: eks-enterprise-agentgateway-lts-minimal
   description: |
-    Complete enterprise agentgateway (bleeding edge version) demo on EKS
+    Minimal enterprise agentgateway LTS demo on EKS
     - Keycloak integration
-    - Full observability
-    - OpenFGA integration for ReBAC
-    - Solo UI and full stack observability
     - TLS via cert-manager, and DNS via Route53
 spec:
   environment: aws-dev
   infra: eks-single-cluster
 
   agentgateway:
-    version: v2026.9.1
+    version: v2026.7.1-patch.2
     ociRegistry: oci://us-docker.pkg.dev/solo-public/enterprise-agentgateway/charts
 
   agentgateway-crds:
-    version: v2026.9.1
+    version: v2026.7.1-patch.2
     ociRegistry: oci://us-docker.pkg.dev/solo-public/enterprise-agentgateway/charts
     helmValues:
       installAgentgatewayModelCRD: true
@@ -73,10 +70,14 @@ spec:
 
   gateway:
     hostname: '{{env.domains.agentgateway}}'
+    mtls:
+      enabled: true
+    publicHttps:
+      enabled: true
 
   resources:
-    - agentgateway-with-keycloak/enterprise-agentgateway-sharedext-params.yaml
-    - agentgateway-with-keycloak/enterprise-agentgateway-gatewayclass.yaml
+    - eks-enterprise-agentgateway-minimal/enterprise-agentgateway-sharedext-params.yaml
+    - eks-enterprise-agentgateway-minimal/enterprise-agentgateway-gatewayclass.yaml
 
   featureGates:
     injectExtAuthCustomCaCert:
@@ -94,6 +95,16 @@ spec:
           enabled: true
           email: '{{env.acme.email}}'
           region: '{{env.aws.region}}'
+
+    - name: gateway-mtls
+      description: CA chain and server certificate for the Gateway's mTLS listener
+      config:
+        dnsNames:
+          - '{{env.domains.agentgateway}}'
+        publicHttps:
+          enabled: true
+          dnsNames:
+            - '{{env.domains.agentgateway}}'
 
     - name: external-dns
       description: Automatic DNS record management via Route53
@@ -123,13 +134,6 @@ spec:
           enabled: true
           secretName: keycloak-tls
           createCertificate: true
-        soloUIClients:
-          enabled: true
-          realm: solo-ui
-          hostname: https://{{env.domains.soloUi}}
-          backendClientId: solo-ui-backend
-          backendClientSecret: solo-ui-backend-secret
-          frontendClientId: solo-ui-frontend
         realms:
           - realm: agw-dev
             defaultPassword: Password1!
@@ -433,29 +437,6 @@ spec:
                   partner_tier: bronze
                   partner_id: acme-partner
 
-          - realm: grafana
-            groups:
-              - grafana-admins
-            clients:
-              - clientId: grafana
-                type: confidential
-                clientSecret: grafana-client-secret
-                flows:
-                  - authorization-code
-                groupMembership: true
-                redirectUris:
-                  - 'https://{{env.domains.grafana}}/login/generic_oauth'
-                postLogoutRedirectUris:
-                  - 'https://{{env.domains.grafana}}'
-            users:
-              # username/password sourced from GRAFANA_REALM_ADMIN_USERNAME (default:
-              # grafana-admin) and GRAFANA_REALM_ADMIN_PASSWORD, not this profile
-              - email: grafana-admin@example.com
-                firstName: Grafana
-                lastName: Admin
-                memberOf:
-                  - grafana-admins
-
         workloadClients:
           - clientId: caller-agent
             clientSecret: caller-agent-secret
@@ -482,55 +463,3 @@ spec:
             audience: agentgateway
             k8sSecretName: fd-agent-credentials
             k8sSecretNamespace: agentgateway-system
-
-    - name: openfga
-      description: OpenFGA ReBAC authorization server
-      namespace: openfga
-
-    - name: solo-ui
-      description: Solo Enterprise UI
-      version: '{{env.soloUi.version}}'
-      namespace: agentgateway-system
-      config:
-        clickhouse:
-          persistentVolume:
-            storageClass: gp3
-            size: 50Gi
-        serviceType: ClusterIP
-        hostname: '{{env.domains.soloUi}}'
-        tls:
-          enabled: true
-          secretName: solo-ui-tls
-          issuer: '{{env.tls.issuer}}'
-        oidc:
-          enabled: true
-          issuerUrl: https://{{env.domains.keycloak}}/realms/solo-ui
-          backendClientId: solo-ui-backend
-          backendClientSecret: solo-ui-backend-secret
-          frontendClientId: solo-ui-frontend
-        applyGatewayTracingPolicy: false
-        features:
-          costManagement:
-            enabled: true
-
-    - name: telemetry
-      description: OpenTelemetry observability stack (Prometheus, Grafana, Loki, Tempo)
-      namespace: telemetry
-      chartVersions: '{{env.telemetry.version}}'
-      config:
-        gatewayNamespace: agentgateway-system
-        database:
-          storageClass: gp3
-          storageSize: 100Gi
-        retention: 120h
-        grafanaHostname: '{{env.domains.grafana}}'
-        grafanaTls:
-          enabled: true
-          secretName: grafana-tls
-          issuer: letsencrypt-dns
-        grafanaOidc:
-          enabled: true
-          issuerUrl: 'https://{{env.domains.keycloak}}/realms/grafana'
-          clientId: grafana
-          clientSecret: grafana-client-secret
-          adminGroup: grafana-admins

@@ -9,10 +9,10 @@ export function envVarsFor(_cfg) {
 
 export function envExportsFor(_cfg) {
   return [
-    { key: 'PROMETHEUS_STACK_VERSION', value: '80.4.2', group: 'versions' },
-    { key: 'TEMPO_VERSION', value: '1.29.0', group: 'versions' },
-    { key: 'LOKI_VERSION', value: '6.6.2', group: 'versions' },
-    { key: 'ALLOY_VERSION', value: '0.12.0', group: 'versions' },
+    { key: 'PROMETHEUS_STACK_VERSION', value: '91.5.0', group: 'versions' },
+    { key: 'TEMPO_VERSION', value: '1.61.3', group: 'versions' },
+    { key: 'LOKI_VERSION', value: '7.3.0', group: 'versions' },
+    { key: 'ALLOY_VERSION', value: '1.12.1', group: 'versions' },
     { key: 'TELEMETRY_NAMESPACE', value: 'telemetry', group: 'settings' },
   ];
 }

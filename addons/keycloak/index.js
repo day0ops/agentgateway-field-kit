@@ -15,8 +15,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const CONFIG_DIR = join(__dirname, 'config');
 
-const KEYCLOAK_VERSION = '26.6.2';
-const POSTGRES_VERSION = '18.2-alpine';
+const KEYCLOAK_VERSION = '26.7.4';
+const POSTGRES_VERSION = '18.6-alpine';
 
 /**
  * Keycloak Feature (manifest-based, no Helm)

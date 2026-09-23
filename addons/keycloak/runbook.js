@@ -6,8 +6,8 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const KEYCLOAK_VERSION = '26.6.2';
-const POSTGRES_VERSION = '18.2-alpine';
+const KEYCLOAK_VERSION = '26.7.4';
+const POSTGRES_VERSION = '18.6-alpine';
 
 function _renderTemplate(template, vars) {
   return Object.entries(vars).reduce((t, [k, v]) => t.replaceAll(`{{${k}}}`, v), template);
