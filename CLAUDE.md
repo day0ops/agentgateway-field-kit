@@ -51,6 +51,7 @@ export GRAFANA_REALM_ADMIN_USERNAME=   # optional, only used when a 'grafana' re
 export GRAFANA_REALM_ADMIN_PASSWORD=   # required only when a 'grafana' realm is configured, no default
 export GRAFANA_ADMIN_USERNAME=         # required by the telemetry addon, no default
 export GRAFANA_ADMIN_PASSWORD=         # required by the telemetry addon, no default
+export OPIK_API_KEY=                   # required to deploy the guardrail-webhook usecase at all, not just its live-eval test
 ```
 
 AKS also needs `ARM_CLIENT_ID`, `ARM_CLIENT_SECRET`, `ARM_OBJECT_ID`, `ARM_SUBSCRIPTION_ID`, `ARM_TENANT_ID`.
@@ -72,7 +73,7 @@ Features live in `features/<name>/index.js` (one capability per directory), addo
 
 Two editions: **enterprise** (default, needs `ENTERPRISE_AGENTGATEWAY_LICENSE`) and **opensource** (opt-in via `spec.edition: opensource`). This picks which Helm chart/CRDs get installed and which CRD group features emit.
 
-Most features work on both editions unmodified. Some are enterprise-only because no equivalent OSS CRD exists: ext-auth/token-exchange, quota/budget, and the `entMcp` family (`mcp-enterprise`, `mcp-guardrails`).
+Most features work on both editions unmodified. Some are enterprise-only because no equivalent OSS CRD exists - check a feature's `SUPPORTED_EDITIONS` static field in `features/<name>/index.js` (default: both) rather than assuming from this list, since it grows as features are added. Enterprise-only as of this writing: `apikey-auth`, `auth-only-mcp`, `budget-limits`, `direct-response`, `elicitation-backend`, `llm-cost-tracking`, `mcp-eager-auth-auth0`, `mcp-eager-auth-entra`, `mcp-eager-auth-okta`, the `entMcp` family (`mcp-enterprise`, `mcp-guardrails`), `model-costs`, `multi-org-jwt-auth`, `oauth-access-token-validation`, `oauth-authorization-code`, `oauth-issuer-route`, `oauth-token-exchange`, `obo-token-exchange`, `opa-authz`, `openfga-authz`, `quota-budget`, `quota-ratelimit`, `rate-limit`, `token-exchange`, `traffic-policy`, `virtual-keys`.
 
 Usecase names resolve to the enterprise edition by default; use an `opensource/...` prefix to pick the OSS version when both exist.
 
