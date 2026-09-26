@@ -3,16 +3,31 @@ import { readFile } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join } from 'path';
 import { UseCaseManager } from '../usecase.js';
+import { EnvironmentManager } from '../environment.js';
 
 export const UseCaseAdapter = {
   /**
    * Generate a lab section from a use case YAML.
-   * @param {{ name: string, labNum: number, deployedProviders: string[], projectRoot?: string }} opts
+   * @param {{ name: string, labNum: number, deployedProviders: string[], projectRoot?: string, environment?: string|null }} opts
    * @returns {Promise<string>}
    */
-  async generate({ name, labNum, deployedProviders = [], projectRoot = process.cwd() }) {
+  async generate({
+    name,
+    labNum,
+    deployedProviders = [],
+    projectRoot = process.cwd(),
+    environment = null,
+  }) {
     const ucMeta = await UseCaseManager.get(name, projectRoot);
-    const ucData = await UseCaseManager.parse(ucMeta.file);
+    let ucData = await UseCaseManager.parse(ucMeta.file);
+    // Resolve {{env...}} templates in feature configs so the embedded YAML matches
+    // what the deploy path produces, instead of literal placeholders.
+    try {
+      const env = await EnvironmentManager.load(environment || 'local');
+      ucData = EnvironmentManager.resolveAllTemplates(ucData, env);
+    } catch {
+      // continue without template resolution
+    }
     const { metadata, spec } = ucData;
 
     const steps = UseCaseManager.getSteps(spec);

@@ -77,10 +77,11 @@ Most features work on both editions unmodified. Some are enterprise-only because
 
 Usecase names resolve to the enterprise edition by default; use an `opensource/...` prefix to pick the OSS version when both exist.
 
-### UseCase YAML descriptions
+### UseCase/profile YAML style
 
 - Never soft-wrap prose in UseCase yaml descriptions by inserting line breaks mid-paragraph. Don't add newlines for no reason, let lines run long and wrap naturally. Otherwise they don't render well in standard out.
 - Keep descriptions concise and not deeply technical.
+- Don't add comments to usecase/profile YAML narrating what worked or didn't work (e.g. "confirmed live", "UNVERIFIED", debugging history). Keep comments concise and lean - state the constraint or non-obvious behavior, not the investigation that led to it.
 
 ## Gotchas
 
