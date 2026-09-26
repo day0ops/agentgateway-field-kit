@@ -127,7 +127,7 @@ export class RunbookBuilder {
       try {
         const rawContent = await readFile(profile.file, 'utf8');
         const raw = yaml.load(rawContent);
-        let profileData = ProfileSchema.normalize(raw, profile.file);
+        profileData = ProfileSchema.normalize(raw, profile.file);
         // Use selected environment, or fall back to profile's embedded environment
         const envName = environment || profileData.environment || 'local';
         try {
@@ -219,6 +219,7 @@ export class RunbookBuilder {
             labNum,
             deployedProviders: providers,
             projectRoot,
+            environment,
           })
         );
       } else if (lab.type === 'feature') {
