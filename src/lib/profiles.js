@@ -8,6 +8,7 @@ import yaml from 'js-yaml';
 import { Prompts } from './prompts.js';
 import { EnvironmentManager } from './environment.js';
 import { ProfileSchema } from './profile-schema.js';
+import { InfraStateManager } from './infra-state.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -102,7 +103,11 @@ export class ProfileManager {
       if (profile.environment) {
         try {
           const environment = await EnvironmentManager.load(profile.environment);
-          profile = EnvironmentManager.resolveAllTemplates(profile, environment);
+          // Best-effort: null (not yet provisioned) is fine - only profiles that actually
+          // reference {{infra.*}} tokens need it, and resolveAllTemplates only looks at it
+          // when such a token is present.
+          const infraState = profile.infra ? await InfraStateManager.load(profile.infra) : null;
+          profile = EnvironmentManager.resolveAllTemplates(profile, environment, infraState);
         } catch (envError) {
           // If environment loading fails, continue without resolution
           // This allows profiles without environments to work

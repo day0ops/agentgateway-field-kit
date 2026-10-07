@@ -157,13 +157,18 @@ export class EnvironmentManager {
 
   /**
    * Resolve a single template string
-   * @param {string} template - Template string like '{{env.domains.core.keycloak}}'
+   * @param {string} template - Template string like '{{env.domains.core.keycloak}}' or
+   *   '{{infra.clusters.demo.iam.albControllerRoleArn}}'
    * @param {object} env - Environment object
+   * @param {object} [infraState] - Loaded infra state (InfraStateManager.load result), used to
+   *   resolve `{{infra.clusters.<name>.*}}` tokens against `status.clusters`. Values provisioned
+   *   per run (e.g. an IRSA role ARN) can't be hardcoded in a profile since infra is recreated
+   *   with a fresh name/ARN each time - this lets a profile reference them dynamically instead.
    * @returns {*} Resolved value. A string that is nothing but a single
    *   placeholder resolves to the raw environment value (which may be an
    *   object, e.g. a chartVersions map) rather than a stringified copy.
    */
-  static resolveTemplate(template, env) {
+  static resolveTemplate(template, env, infraState = null) {
     if (typeof template !== 'string') {
       return template;
     }
@@ -178,12 +183,25 @@ export class EnvironmentManager {
       return value;
     };
 
-    const soleMatch = template.match(/^\{\{env\.([^}]+)\}\}$/);
+    const infraClusters = Object.fromEntries(
+      (infraState?.status?.clusters || []).map(c => [c.name, c])
+    );
+    const infraLookup = path => {
+      const value = this.getNestedValue({ clusters: infraClusters }, path);
+      if (value === undefined) {
+        throw new Error(`Template variable '{{infra.${path}}}' not found in infra state`);
+      }
+      return value;
+    };
+
+    const soleMatch = template.match(/^\{\{(env|infra)\.([^}]+)\}\}$/);
     if (soleMatch) {
-      return lookup(soleMatch[1]);
+      return soleMatch[1] === 'env' ? lookup(soleMatch[2]) : infraLookup(soleMatch[2]);
     }
 
-    return template.replace(/\{\{env\.([^}]+)\}\}/g, (_match, path) => lookup(path));
+    return template.replace(/\{\{(env|infra)\.([^}]+)\}\}/g, (_match, ns, path) =>
+      ns === 'env' ? lookup(path) : infraLookup(path)
+    );
   }
 
   /**
@@ -210,21 +228,22 @@ export class EnvironmentManager {
    * Resolve all templates in an object recursively
    * @param {*} obj - Object, array, or primitive to resolve
    * @param {object} env - Environment object
+   * @param {object} [infraState] - See resolveTemplate
    * @returns {*} Resolved object
    */
-  static resolveAllTemplates(obj, env) {
+  static resolveAllTemplates(obj, env, infraState = null) {
     if (typeof obj === 'string') {
-      return this.resolveTemplate(obj, env);
+      return this.resolveTemplate(obj, env, infraState);
     }
 
     if (Array.isArray(obj)) {
-      return obj.map(item => this.resolveAllTemplates(item, env));
+      return obj.map(item => this.resolveAllTemplates(item, env, infraState));
     }
 
     if (obj !== null && typeof obj === 'object') {
       const result = {};
       for (const [key, value] of Object.entries(obj)) {
-        result[key] = this.resolveAllTemplates(value, env);
+        result[key] = this.resolveAllTemplates(value, env, infraState);
       }
       return result;
     }

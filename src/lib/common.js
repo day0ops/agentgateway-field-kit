@@ -1370,3 +1370,38 @@ export function printTrafficBox(request, response) {
   out.push(bottom, '');
   console.log(out.join('\n'));
 }
+
+/**
+ * Build the annotation set that drives the AWS Load Balancer Controller to provision an
+ * internet-facing NLB for a Gateway API Gateway's spec.infrastructure.annotations (or a
+ * plain Service's metadata.annotations).
+ * Two non-obvious details, both required for the source IP restriction to actually
+ * take effect under the default targetType ('ip'):
+ *   - load-balancer-source-ranges has no "aws-" prefix, unlike its sibling annotations.
+ *   - with nlb-target-type=ip, client IP preservation is disabled by default and
+ *     source-ranges is silently ignored unless re-enabled via target-group-attributes.
+ *
+ * sourceRanges may contain a mix of plain CIDR strings and nested arrays - profile YAML
+ * combines a whole-list template token (e.g. {{env.security.vpnSourceRanges}}, which
+ * resolves to a raw array) with individual CIDR tokens in the same list; .flat() collapses
+ * that one level before joining. Returns null (not attached) when no ranges survive.
+ */
+export function nlbSourceRangeAnnotations(sourceRanges, { targetType = 'ip' } = {}) {
+  const ranges = (Array.isArray(sourceRanges) ? sourceRanges : [sourceRanges])
+    .flat()
+    .filter(Boolean);
+  return {
+    'service.beta.kubernetes.io/aws-load-balancer-type': 'external',
+    'service.beta.kubernetes.io/aws-load-balancer-nlb-target-type': targetType,
+    'service.beta.kubernetes.io/aws-load-balancer-scheme': 'internet-facing',
+    ...(targetType === 'ip'
+      ? {
+          'service.beta.kubernetes.io/aws-load-balancer-target-group-attributes':
+            'preserve_client_ip.enabled=true',
+        }
+      : {}),
+    ...(ranges.length > 0
+      ? { 'service.beta.kubernetes.io/load-balancer-source-ranges': ranges.join(',') }
+      : {}),
+  };
+}

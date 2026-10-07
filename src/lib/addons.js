@@ -27,6 +27,7 @@ export function mergeAddonConfig(addon) {
 }
 
 const PROFILE_ADDONS = [
+  { name: 'aws-load-balancer-controller', namespace: 'kube-system' },
   { name: 'telemetry', namespace: 'telemetry' },
   { name: 'solo-ui', namespace: 'agentgateway-system' },
   { name: 'cert-manager', namespace: 'cert-manager' },

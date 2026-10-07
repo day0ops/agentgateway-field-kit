@@ -18,6 +18,6 @@ spec:
     - name: telemetry
       description: OpenTelemetry observability stack (Prometheus, Grafana, Loki, Tempo)
       namespace: telemetry
-      chartVersions: '{{env.telemetry.version}}'
+      chartVersions: '{{env.addons.telemetry}}'
       config:
         enableTraces: false

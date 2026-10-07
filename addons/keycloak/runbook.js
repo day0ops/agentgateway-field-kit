@@ -162,7 +162,7 @@ export function envVarsFor(cfg) {
       description: 'Postgres superuser password',
     },
   ];
-  if (cfg?.soloUIClients?.enabled) {
+  if (cfg?.soloUiClients?.enabled) {
     vars.push({
       name: 'SOLO_UI_DEFAULT_PASSWORD',
       required: true,
@@ -309,9 +309,9 @@ export async function generate(_subIndex, profileAddonConfig) {
     }
   }
 
-  const soloUIClients = cfg.soloUIClients;
-  if (soloUIClients?.enabled) {
-    const suiRealm = soloUIClients.realm || 'solo-ui';
+  const soloUiClients = cfg.soloUiClients;
+  if (soloUiClients?.enabled) {
+    const suiRealm = soloUiClients.realm || 'solo-ui';
     lines.push('');
     lines.push(`# Create Solo UI realm: ${suiRealm}`);
     lines.push(`curl -sk -X POST "\${KEYCLOAK_SCHEME}://\${KEYCLOAK_HOST}/admin/realms" \\`);
@@ -319,16 +319,16 @@ export async function generate(_subIndex, profileAddonConfig) {
     lines.push(`  -H "Content-Type: application/json" \\`);
     lines.push(`  -d '{"realm":"${suiRealm}","enabled":true}'`);
 
-    if (soloUIClients.backendClientId) {
+    if (soloUiClients.backendClientId) {
       const backendPayload = {
-        clientId: soloUIClients.backendClientId,
-        secret: soloUIClients.backendClientSecret,
+        clientId: soloUiClients.backendClientId,
+        secret: soloUiClients.backendClientSecret,
         publicClient: false,
         serviceAccountsEnabled: false,
         standardFlowEnabled: true,
       };
       lines.push('');
-      lines.push(`# Backend client (confidential): ${soloUIClients.backendClientId}`);
+      lines.push(`# Backend client (confidential): ${soloUiClients.backendClientId}`);
       lines.push(
         `curl -sk -X POST "\${KEYCLOAK_SCHEME}://\${KEYCLOAK_HOST}/admin/realms/${suiRealm}/clients" \\`
       );
@@ -337,15 +337,15 @@ export async function generate(_subIndex, profileAddonConfig) {
       lines.push(`  -d '${JSON.stringify(backendPayload)}'`);
     }
 
-    if (soloUIClients.frontendClientId) {
+    if (soloUiClients.frontendClientId) {
       const frontendPayload = {
-        clientId: soloUIClients.frontendClientId,
+        clientId: soloUiClients.frontendClientId,
         publicClient: true,
         serviceAccountsEnabled: false,
         standardFlowEnabled: true,
       };
       lines.push('');
-      lines.push(`# Frontend client (public): ${soloUIClients.frontendClientId}`);
+      lines.push(`# Frontend client (public): ${soloUiClients.frontendClientId}`);
       lines.push(
         `curl -sk -X POST "\${KEYCLOAK_SCHEME}://\${KEYCLOAK_HOST}/admin/realms/${suiRealm}/clients" \\`
       );

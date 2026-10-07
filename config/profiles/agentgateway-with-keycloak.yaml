@@ -8,15 +8,15 @@ spec:
   environment: local
 
   agentgateway:
-    version: v2026.7.1-patch.2
+    version: v2026.7.1-patch.3
     ociRegistry: oci://us-docker.pkg.dev/solo-public/enterprise-agentgateway/charts
 
   agentgateway-crds:
-    version: v2026.7.1-patch.2
+    version: v2026.7.1-patch.3
     ociRegistry: oci://us-docker.pkg.dev/solo-public/enterprise-agentgateway/charts
 
   gatewayApi:
-    version: v1.6.2
+    version: v1.6.3
     channel: experimental
 
   helmValues:
@@ -74,6 +74,7 @@ spec:
   addons:
     - name: cert-manager
       description: Certificate management for TLS
+      version: '{{env.addons.cert-manager.version}}'
       namespace: cert-manager
 
     - name: keycloak
@@ -379,7 +380,7 @@ spec:
                 attributes:
                   partner_tier: bronze
                   partner_id: acme-partner
-        soloUIClients:
+        soloUiClients:
           enabled: true
           realm: solo-ui
           hostname: http://{{env.domains.core.soloUi}}
@@ -435,7 +436,7 @@ spec:
     - name: telemetry
       description: OpenTelemetry observability stack (Prometheus, Grafana, Loki, Tempo)
       namespace: telemetry
-      chartVersions: '{{env.telemetry.version}}'
+      chartVersions: '{{env.addons.telemetry}}'
       config:
         gatewayNamespace: agentgateway-system
         nodeSelector:

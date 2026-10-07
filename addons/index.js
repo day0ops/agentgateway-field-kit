@@ -7,6 +7,7 @@
  */
 
 import { FeatureManager } from '../src/lib/feature.js';
+import { AwsLoadBalancerControllerFeature } from './aws-load-balancer-controller/index.js';
 import { TelemetryFeature } from './telemetry/index.js';
 import { CertManagerFeature } from './cert-manager/index.js';
 import { GatewayMtlsFeature } from './gateway-mtls/index.js';
@@ -19,6 +20,7 @@ import { OpaFeature } from './opa/index.js';
 import { OpikFeature } from './opik/index.js';
 
 // Register all addons
+FeatureManager.register('aws-load-balancer-controller', AwsLoadBalancerControllerFeature);
 FeatureManager.register('telemetry', TelemetryFeature);
 FeatureManager.register('cert-manager', CertManagerFeature);
 FeatureManager.register('gateway-mtls', GatewayMtlsFeature);
@@ -32,6 +34,7 @@ FeatureManager.register('opik', OpikFeature);
 
 // Export for direct use if needed
 export {
+  AwsLoadBalancerControllerFeature,
   TelemetryFeature,
   CertManagerFeature,
   GatewayMtlsFeature,

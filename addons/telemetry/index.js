@@ -1,6 +1,10 @@
 import { Feature, FeatureManager } from '../../src/lib/feature.js';
 import { EDITION_GATEWAY_NAME, EDITION_BASE_NAME } from '../../src/lib/editions.js';
-import { KubernetesHelper, CommandRunner } from '../../src/lib/common.js';
+import {
+  KubernetesHelper,
+  CommandRunner,
+  nlbSourceRangeAnnotations,
+} from '../../src/lib/common.js';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { readFile, readdir } from 'fs/promises';
@@ -14,8 +18,8 @@ const DASHBOARDS_DIR = join(__dirname, 'dashboards');
 const PROMETHEUS_STACK_VERSION = '91.5.0';
 const LOKI_VERSION = '7.3.0';
 const TEMPO_DISTRIBUTED_VERSION = '1.61.3';
-const ALLOY_VERSION = '1.12.1';
-const OTEL_COLLECTOR_VERSION = '0.173.1';
+const ALLOY_VERSION = '1.13.0';
+const OTEL_COLLECTOR_VERSION = '0.175.1';
 
 /**
  * Telemetry Feature
@@ -54,11 +58,12 @@ export class TelemetryFeature extends Feature {
   constructor(name, config) {
     super(name, config);
     const chartVersions = config.chartVersions || {};
-    this.prometheusStackVersion = chartVersions['kube-prom-stack'] || PROMETHEUS_STACK_VERSION;
-    this.lokiVersion = chartVersions.loki || LOKI_VERSION;
-    this.tempoVersion = chartVersions.tempo || TEMPO_DISTRIBUTED_VERSION;
-    this.alloyVersion = chartVersions.alloy || ALLOY_VERSION;
-    this.otelVersion = chartVersions.otel || OTEL_COLLECTOR_VERSION;
+    this.prometheusStackVersion =
+      chartVersions['kube-prom-stack']?.version || PROMETHEUS_STACK_VERSION;
+    this.lokiVersion = chartVersions.loki?.version || LOKI_VERSION;
+    this.tempoVersion = chartVersions.tempo?.version || TEMPO_DISTRIBUTED_VERSION;
+    this.alloyVersion = chartVersions.alloy?.version || ALLOY_VERSION;
+    this.otelVersion = chartVersions.otel?.version || OTEL_COLLECTOR_VERSION;
     this.telemetryNamespace = config.telemetryNamespace || 'telemetry';
     this.gatewayNamespace = config.gatewayNamespace || this.namespace;
     this.enableLogs = config.enableLogs !== false;
@@ -71,6 +76,7 @@ export class TelemetryFeature extends Feature {
     this.storageClass = this.database?.storageClass || config.storageClass || '';
     this.storageSize = this.database?.storageSize || config.storageSize || '50Gi';
     // External-dns hostnames for DNS record creation
+    this.grafanaSourceRanges = config.sourceRanges || null;
     this.grafanaHostname = config.grafanaHostname || '';
     this.prometheusHostname = config.prometheusHostname || '';
     this.tempoHostname = config.tempoHostname || '';
@@ -555,13 +561,21 @@ export class TelemetryFeature extends Feature {
     if (this.grafanaHostname) {
       helmArgs.push(
         '--set',
-        `grafana.service.annotations.external-dns\\.alpha\\.kubernetes\\.io/hostname=${this.grafanaHostname}`
+        `grafana.service.annotations.external-dns\\.kubernetes\\.io/hostname=${this.grafanaHostname}`
       );
+      for (const [key, value] of Object.entries(
+        nlbSourceRangeAnnotations(this.grafanaSourceRanges)
+      )) {
+        helmArgs.push(
+          '--set',
+          `grafana.service.annotations.${key.replace(/\./g, '\\.')}=${TelemetryFeature.helmSetEscape(value)}`
+        );
+      }
     }
     if (this.prometheusHostname) {
       helmArgs.push(
         '--set',
-        `prometheus.service.annotations.external-dns\\.alpha\\.kubernetes\\.io/hostname=${this.prometheusHostname}`
+        `prometheus.service.annotations.external-dns\\.kubernetes\\.io/hostname=${this.prometheusHostname}`
       );
     }
 
