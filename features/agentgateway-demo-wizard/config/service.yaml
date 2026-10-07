@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: agentgateway-demo-wizard
+  namespace: agentgateway-system
+  labels:
+    app: agentgateway-demo-wizard
+    app.kubernetes.io/managed-by: agentgateway-demo
+    agentgateway.dev/feature: agentgateway-demo-wizard
+spec:
+  selector:
+    app: agentgateway-demo-wizard
+  ports:
+    - port: 8080
+      targetPort: 8080
+      name: http
