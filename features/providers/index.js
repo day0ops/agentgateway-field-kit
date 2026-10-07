@@ -120,6 +120,7 @@ export class ProvidersFeature extends Feature {
     super(name, config);
     // Check if using groups mode or single providers mode
     this.useGroups = !!config.groups;
+    this.createRoute = config.createRoute !== false;
 
     // Capture the gateway ref at construction time (set by prior feature like sidecar-agent).
     // This ensures cleanup uses the same gateway context as deploy.
@@ -128,6 +129,7 @@ export class ProvidersFeature extends Feature {
     if (this.useGroups) {
       this.groups = config.groups || [];
       this.pathPrefix = config.pathPrefix || '/providers';
+      this.groupsName = config.name || 'providers-groups';
     } else {
       // Normalize providers to objects with configuration (backward compatible)
       this.normalizedProviders = this.normalizeProviders(config.providers || []);
@@ -361,7 +363,9 @@ export class ProvidersFeature extends Feature {
     await this.createBackendWithGroups();
 
     // Create HTTPRoute for the groups backend
-    await this.createHTTPRouteForGroups();
+    if (this.createRoute) {
+      await this.createHTTPRouteForGroups();
+    }
   }
 
   /**
@@ -405,7 +409,7 @@ export class ProvidersFeature extends Feature {
         }
       }
       await this.createBackend(provider);
-      if (!this.singleRoute) {
+      if (!this.singleRoute && this.createRoute) {
         await this.createHTTPRoute(provider);
       }
       this.log(
@@ -413,7 +417,7 @@ export class ProvidersFeature extends Feature {
         'info'
       );
     }
-    if (this.singleRoute && this.normalizedProviders.length > 0) {
+    if (this.singleRoute && this.normalizedProviders.length > 0 && this.createRoute) {
       if (this.bodyRouting) {
         await this.createBodyRoutingPolicy();
         if (this.bodyRoutingFallback) {
@@ -1325,7 +1329,7 @@ export class ProvidersFeature extends Feature {
       apiVersion: `${BACKEND_API_GROUP[this.edition]}/v1alpha1`,
       kind: BACKEND_KIND[this.edition],
       metadata: {
-        name: 'providers-groups',
+        name: this.groupsName,
         namespace: this.namespace,
         labels: {
           'agentgateway.dev/feature': 'providers',
@@ -1352,7 +1356,7 @@ export class ProvidersFeature extends Feature {
     const gatewayRef = FeatureManager.getGatewayRef();
     const overrides = {
       metadata: {
-        name: 'providers-groups',
+        name: this.groupsName,
         namespace: this.namespace,
         labels: {
           'agentgateway.dev/feature': 'providers',
@@ -1377,7 +1381,7 @@ export class ProvidersFeature extends Feature {
             ],
             backendRefs: [
               {
-                name: 'providers-groups',
+                name: this.groupsName,
                 namespace: this.namespace,
                 group: BACKEND_API_GROUP[this.edition],
                 kind: BACKEND_KIND[this.edition],
