@@ -33,7 +33,9 @@ describe('ProvidersFeature createRoute flag', () => {
         {
           namespace: 'agentgateway-system',
           createRoute: false,
-          providers: [{ name: 'routing-dynamic-fast', providerName: 'openai', model: 'gpt-4o-mini' }],
+          providers: [
+            { name: 'routing-dynamic-fast', providerName: 'openai', model: 'gpt-4o-mini' },
+          ],
         },
         { dryRun: true }
       );
@@ -51,8 +53,16 @@ describe('ProvidersFeature createRoute flag', () => {
           namespace: 'agentgateway-system',
           createRoute: false,
           groups: [
-            { providers: [{ name: 'routing-fallback-cheap', providerName: 'openai', model: 'gpt-4o-mini' }] },
-            { providers: [{ name: 'routing-fallback-premium', providerName: 'openai', model: 'gpt-4o' }] },
+            {
+              providers: [
+                { name: 'routing-fallback-cheap', providerName: 'openai', model: 'gpt-4o-mini' },
+              ],
+            },
+            {
+              providers: [
+                { name: 'routing-fallback-premium', providerName: 'openai', model: 'gpt-4o' },
+              ],
+            },
           ],
         },
         { dryRun: true }
@@ -70,7 +80,9 @@ describe('ProvidersFeature createRoute flag', () => {
         },
         { dryRun: true }
       );
-      expect(findDoc(defaultNamed, 'EnterpriseAgentgatewayBackend', 'providers-groups')).toBeTruthy();
+      expect(
+        findDoc(defaultNamed, 'EnterpriseAgentgatewayBackend', 'providers-groups')
+      ).toBeTruthy();
 
       const customNamed = await FeatureManager.deploy(
         'providers',
@@ -81,7 +93,9 @@ describe('ProvidersFeature createRoute flag', () => {
         },
         { dryRun: true }
       );
-      expect(findDoc(customNamed, 'EnterpriseAgentgatewayBackend', 'routing-fallback')).toBeTruthy();
+      expect(
+        findDoc(customNamed, 'EnterpriseAgentgatewayBackend', 'routing-fallback')
+      ).toBeTruthy();
       expect(findDoc(customNamed, 'EnterpriseAgentgatewayBackend', 'providers-groups')).toBeFalsy();
     }));
 
@@ -95,13 +109,19 @@ describe('ProvidersFeature createRoute flag', () => {
           pathPrefix: '/chat/by-name',
           providers: [
             { name: 'routing-by-name-openai', providerName: 'openai', model: 'gpt-4o-mini' },
-            { name: 'routing-by-name-anthropic', providerName: 'anthropic', model: 'claude-3-5-sonnet-20241022' },
+            {
+              name: 'routing-by-name-anthropic',
+              providerName: 'anthropic',
+              model: 'claude-3-5-sonnet-20241022',
+            },
           ],
         },
         { dryRun: true }
       );
       expect(findDoc(docs, 'HTTPRoute', 'providers-chat-by-name-route')).toBeTruthy();
       expect(findDoc(docs, 'EnterpriseAgentgatewayBackend', 'routing-by-name-openai')).toBeTruthy();
-      expect(findDoc(docs, 'EnterpriseAgentgatewayBackend', 'routing-by-name-anthropic')).toBeTruthy();
+      expect(
+        findDoc(docs, 'EnterpriseAgentgatewayBackend', 'routing-by-name-anthropic')
+      ).toBeTruthy();
     }));
 });
