@@ -12,6 +12,7 @@ spec:
     nodes:
       desired: 2
       type: t3.xlarge
+      private: true
 
   clusters:
     - name: demo

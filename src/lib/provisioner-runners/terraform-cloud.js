@@ -578,6 +578,14 @@ export class TerraformCloudRunner extends BaseProvisionerRunner {
     const contexts = await terraform.getOutput(this.stateFile, `${prefix}_kubeconfig_context`);
     const clusterNames = await terraform.getOutput(this.stateFile, `${prefix}_cluster_name`);
     const kubeconfigJoined = await terraform.getOutput(this.stateFile, `${prefix}_kubeconfig`);
+    const albRoleArns = await terraform.getOutput(
+      this.stateFile,
+      `${prefix}_aws_load_balancer_controller_role_arns`
+    );
+    const natGatewayIps = await terraform.getOutput(
+      this.stateFile,
+      `${prefix}_nat_gateway_public_ips`
+    );
 
     const kubeconfigPaths = kubeconfigJoined
       ? String(kubeconfigJoined).split(':').filter(Boolean)
@@ -585,6 +593,8 @@ export class TerraformCloudRunner extends BaseProvisionerRunner {
 
     const contextList = Array.isArray(contexts) ? contexts : [];
     const nameList = Array.isArray(clusterNames) ? clusterNames : [];
+    const albRoleArnList = Array.isArray(albRoleArns) ? albRoleArns : [];
+    const natGatewayIpList = Array.isArray(natGatewayIps) ? natGatewayIps : [];
 
     for (let i = 0; i < config.clusterCount; i++) {
       const cluster = this.clusters[i] || {};
@@ -597,6 +607,9 @@ export class TerraformCloudRunner extends BaseProvisionerRunner {
         kubeconfigFiles.push(kubeconfigPath);
       }
 
+      const albControllerRoleArn = albRoleArnList[i] || null;
+      const natGatewayIp = natGatewayIpList[i] || null;
+
       results.push({
         name: clusterLabel,
         context: contextList[i] || null,
@@ -604,6 +617,8 @@ export class TerraformCloudRunner extends BaseProvisionerRunner {
         kubeconfig: kubeconfigPath,
         provisioned: true,
         verified: false,
+        ...(albControllerRoleArn ? { iam: { albControllerRoleArn } } : {}),
+        ...(natGatewayIp ? { network: { natGatewayIp } } : {}),
       });
     }
 

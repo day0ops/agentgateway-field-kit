@@ -87,6 +87,13 @@ spec:
       sourceNamespace: keycloak
 
   addons:
+    - name: aws-load-balancer-controller
+      description: Provisions NLBs (not classic ELBs) that honor the other addons' security-group annotations
+      namespace: kube-system
+      config:
+        clusterName: '{{infra.clusters.demo.cluster}}'
+        serviceAccountRoleArn: '{{infra.clusters.demo.iam.albControllerRoleArn}}'
+
     - name: cert-manager
       description: Certificate management for TLS
       version: '{{env.addons.cert-manager.version}}'
@@ -129,7 +136,9 @@ spec:
             size: 5Gi
         keycloakNamespace: keycloak
         hostname: '{{env.domains.core.keycloak}}'
-        sourceRanges: '{{env.security.vpnSourceRanges}}'
+        sourceRanges:
+          - '{{env.security.vpnSourceRanges}}'
+          - '{{infra.clusters.demo.network.natGatewayIp}}/32'
         protocol: '{{env.keycloak.scheme}}'
         loginTheme: '{{env.keycloak.loginTheme}}'
         tls:

@@ -36,7 +36,7 @@ const POSTGRES_VERSION = '18.6-alpine';
  *   KEYCLOAK_POSTGRES_USER        - Postgres superuser backing Keycloak's DB
  *   KEYCLOAK_POSTGRES_PASSWORD    - Postgres superuser password
  *   SOLO_UI_DEFAULT_PASSWORD      - solo-admin/solo-reader/solo-writer bootstrap password
- *                                   (only required when soloUIClients.enabled is true)
+ *                                   (only required when soloUiClients.enabled is true)
  *   GRAFANA_REALM_ADMIN_USERNAME  - Grafana OIDC demo admin username (default: 'grafana-admin';
  *                                   only used when a 'grafana' realm is configured)
  *   GRAFANA_REALM_ADMIN_PASSWORD  - Grafana OIDC demo admin password (only required when a
@@ -69,8 +69,8 @@ export class KeycloakFeature extends Feature {
     this.createCertificate = config.tls?.createCertificate !== false;
     this.workloadClients = config.workloadClients || [];
     this.postgres = config.postgres || null;
-    this.soloUIClients = config.soloUIClients || null;
-    this.soloUIRealm = config.soloUIClients?.realm || 'solo-ui';
+    this.soloUiClients = config.soloUiClients || null;
+    this.soloUiRealm = config.soloUiClients?.realm || 'solo-ui';
     this.loginTheme = config.loginTheme || null;
     this.adminUsername = process.env.KEYCLOAK_ADMIN_USERNAME || '';
     this.adminPassword = process.env.KEYCLOAK_ADMIN_PASSWORD || '';
@@ -88,7 +88,7 @@ export class KeycloakFeature extends Feature {
       !this.adminPassword && 'KEYCLOAK_ADMIN_PASSWORD',
       !this.postgresUser && 'KEYCLOAK_POSTGRES_USER',
       !this.postgresPassword && 'KEYCLOAK_POSTGRES_PASSWORD',
-      this.soloUIClients?.enabled && !this.soloUiDefaultPassword && 'SOLO_UI_DEFAULT_PASSWORD',
+      this.soloUiClients?.enabled && !this.soloUiDefaultPassword && 'SOLO_UI_DEFAULT_PASSWORD',
       this.hasGrafanaRealm && !this.grafanaAdminPassword && 'GRAFANA_REALM_ADMIN_PASSWORD',
     ].filter(Boolean);
     if (missing.length > 0) {
@@ -731,12 +731,12 @@ export class KeycloakFeature extends Feature {
   // ---------------------------------------------------------------------------
 
   async createSoloUIRealm(baseUrl, token) {
-    if (await this.realmExists(baseUrl, token, this.soloUIRealm)) {
-      this.log(`Realm '${this.soloUIRealm}' already exists, skipping creation`, 'info');
+    if (await this.realmExists(baseUrl, token, this.soloUiRealm)) {
+      this.log(`Realm '${this.soloUiRealm}' already exists, skipping creation`, 'info');
     } else {
-      this.log(`Creating Solo UI realm '${this.soloUIRealm}'...`, 'info');
+      this.log(`Creating Solo UI realm '${this.soloUiRealm}'...`, 'info');
       await this.kcApi('POST', `${baseUrl}/admin/realms`, token, {
-        realm: this.soloUIRealm,
+        realm: this.soloUiRealm,
         enabled: true,
         displayName: 'Solo Enterprise UI',
         loginWithEmailAllowed: true,
@@ -746,7 +746,7 @@ export class KeycloakFeature extends Feature {
         bruteForceProtected: false,
       });
     }
-    await this.ensureRealmLoginTheme(baseUrl, token, this.soloUIRealm);
+    await this.ensureRealmLoginTheme(baseUrl, token, this.soloUiRealm);
   }
 
   async createSoloUIClients(baseUrl, token) {
@@ -838,7 +838,7 @@ export class KeycloakFeature extends Feature {
   }
 
   async createSoloUIGroups(baseUrl, token) {
-    const realm = this.soloUIRealm;
+    const realm = this.soloUiRealm;
     const groupNames = ['admins', 'readers', 'writers'];
     const groupsUrl = `${baseUrl}/admin/realms/${realm}/groups`;
 
@@ -863,7 +863,7 @@ export class KeycloakFeature extends Feature {
   }
 
   async createSoloUIUsers(baseUrl, token, groupIds) {
-    const realm = this.soloUIRealm;
+    const realm = this.soloUiRealm;
     const users = [
       {
         username: 'solo-admin',

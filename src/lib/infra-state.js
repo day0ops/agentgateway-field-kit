@@ -162,6 +162,8 @@ export class InfraStateManager {
       cluster: cluster.cluster || null,
       kubeconfig: cluster.kubeconfig || null,
       provisioned: true,
+      ...(cluster.iam ? { iam: cluster.iam } : {}),
+      ...(cluster.network ? { network: cluster.network } : {}),
     }));
 
     // Clear any previous error state
