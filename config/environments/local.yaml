@@ -14,15 +14,24 @@ spec:
     scheme: http
 
   soloUi:
-    version: 0.5.8
+    version: 0.5.10
 
-  telemetry:
-    version:
-      kube-prom-stack: 91.5.0
-      loki: 7.3.0
-      tempo: 1.61.3
-      alloy: 1.12.1
-      otel: 0.173.1
+  addons:
+    cert-manager:
+      version: 1.21.2
+    external-dns:
+      version: 1.23.0
+    telemetry:
+      kube-prom-stack:
+        version: 91.5.0
+      loki:
+        version: 7.3.0
+      tempo:
+        version: 1.61.3
+      alloy:
+        version: 1.13.0
+      otel:
+        version: 0.175.1
 
   # Custom demo images, built and pushed to this GAR repo. Each value is a full
   # repo:tag reference - bump the tag here to roll every usecase forward at once.

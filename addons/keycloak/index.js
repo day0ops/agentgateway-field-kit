@@ -5,6 +5,7 @@ import {
   CertificateHelper,
   CommandRunner,
   waitForPublicUrl,
+  nlbSourceRangeAnnotations,
 } from '../../src/lib/common.js';
 import { readFile } from 'fs/promises';
 import { join, dirname } from 'path';
@@ -57,6 +58,7 @@ export class KeycloakFeature extends Feature {
     this.postgresVersion = config.postgresVersion || POSTGRES_VERSION;
     this.keycloakNamespace = config.keycloakNamespace || 'keycloak';
     this.hostname = config.hostname || 'keycloak.keycloak.svc.cluster.local';
+    this.sourceRanges = config.sourceRanges || null;
     this.protocol = config.protocol || 'https';
     this.realm = config.realm || 'agw-dev';
     this.clientId = config.clientId || 'agw-client';
@@ -118,6 +120,17 @@ export class KeycloakFeature extends Feature {
     await this.waitForPostgres();
     await this.initPostgresDb();
     await this.applyTemplate('keycloak.yaml');
+    await KubernetesHelper.kubectl([
+      'annotate',
+      'service',
+      'keycloak',
+      '-n',
+      this.keycloakNamespace,
+      ...Object.entries(nlbSourceRangeAnnotations(this.sourceRanges)).map(
+        ([key, value]) => `${key}=${value}`
+      ),
+      '--overwrite',
+    ]);
     await this.waitForKeycloak();
     await this.setupLocalDns();
 
@@ -1726,7 +1739,7 @@ export class KeycloakFeature extends Feature {
     );
     if (result.exitCode !== 0) {
       throw new Error(
-        `could not reach Keycloak to look up client '${clientId}' (curl exit ${result.exitCode})`
+        `${result.exitCode === 22 ? 'Keycloak returned an error' : 'could not reach Keycloak'} to look up client '${clientId}' (curl exit ${result.exitCode})`
       );
     }
     if (!result.stdout) return null;
@@ -1853,7 +1866,7 @@ export class KeycloakFeature extends Feature {
     );
     if (result.exitCode !== 0) {
       throw new Error(
-        `could not reach Keycloak to look up user '${username}' (curl exit ${result.exitCode})`
+        `${result.exitCode === 22 ? 'Keycloak returned an error' : 'could not reach Keycloak'} to look up user '${username}' (curl exit ${result.exitCode})`
       );
     }
     if (!result.stdout) return null;

@@ -4,6 +4,7 @@ import {
   SpinnerLogger,
   CertificateHelper,
   waitForPublicUrl,
+  nlbSourceRangeAnnotations,
 } from './common.js';
 import { EnvironmentManager } from './environment.js';
 import { readFile, writeFile, unlink } from 'fs/promises';
@@ -628,6 +629,7 @@ export class AgentGatewayManager {
     }
 
     const gatewayHostname = profile?.gateway?.hostname;
+    const gatewaySourceRanges = profile?.gateway?.sourceRanges;
 
     // Wire the HTTPS listener + client-cert validation the gateway-mtls addon's CA chain
     // and server cert support, so profiles that opt in get an mTLS-ready Gateway from
@@ -720,7 +722,7 @@ export class AgentGatewayManager {
           gatewayName,
           '-n',
           AGENTGATEWAY_NAMESPACE,
-          `external-dns.alpha.kubernetes.io/hostname=${gatewayHostname}`,
+          `external-dns.kubernetes.io/hostname=${gatewayHostname}`,
           '--overwrite',
         ]);
         spinner.info(`Annotated Service for DNS: ${gatewayHostname}`);
@@ -728,6 +730,23 @@ export class AgentGatewayManager {
         Logger.warn(
           'Could not annotate Service for external-dns — DNS record may not be created automatically'
         );
+      }
+
+      try {
+        await KubernetesHelper.kubectl([
+          'annotate',
+          'service',
+          gatewayName,
+          '-n',
+          AGENTGATEWAY_NAMESPACE,
+          ...Object.entries(nlbSourceRangeAnnotations(gatewaySourceRanges)).map(
+            ([key, value]) => `${key}=${value}`
+          ),
+          '--overwrite',
+        ]);
+        spinner.info('Annotated Service for AWS NLB source-range gating');
+      } catch {
+        Logger.warn('Could not annotate Service for NLB source-range gating');
       }
     }
 

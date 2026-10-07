@@ -4,6 +4,7 @@ import {
   CommandRunner,
   CertificateHelper,
   waitForPublicUrl,
+  nlbSourceRangeAnnotations,
 } from '../../src/lib/common.js';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -89,6 +90,7 @@ export class SoloUIFeature extends Feature {
     this.applyGatewayTracingPolicy = config.applyGatewayTracingPolicy !== false;
     this.clickhouse = config.clickhouse || null;
     this.hostname = config.hostname || null;
+    this.sourceRanges = config.sourceRanges || null;
     this.tls = config.tls || null;
     this.oidc = config.oidc || null;
     this.costManagement = config.features?.costManagement || null;
@@ -401,6 +403,7 @@ export class SoloUIFeature extends Feature {
             },
           },
         ],
+        infrastructure: { annotations: nlbSourceRangeAnnotations(this.sourceRanges) },
       },
     });
 

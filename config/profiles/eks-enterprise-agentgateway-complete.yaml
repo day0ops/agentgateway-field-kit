@@ -14,17 +14,17 @@ spec:
   infra: eks-single-cluster
 
   agentgateway:
-    version: v2026.9.1
+    version: v2026.9.3
     ociRegistry: oci://us-docker.pkg.dev/solo-public/enterprise-agentgateway/charts
 
   agentgateway-crds:
-    version: v2026.9.1
+    version: v2026.9.3
     ociRegistry: oci://us-docker.pkg.dev/solo-public/enterprise-agentgateway/charts
     helmValues:
       installAgentgatewayModelCRD: true
 
   gatewayApi:
-    version: v1.6.2
+    version: v1.6.3
     channel: experimental
 
   helmValues:
@@ -73,6 +73,7 @@ spec:
 
   gateway:
     hostname: '{{env.domains.core.agentgateway}}'
+    sourceRanges: '{{env.security.vpnSourceRanges}}'
 
   resources:
     - agentgateway-with-keycloak/enterprise-agentgateway-sharedext-params.yaml
@@ -87,7 +88,7 @@ spec:
   addons:
     - name: cert-manager
       description: Certificate management for TLS
-      version: 1.21.2
+      version: '{{env.addons.cert-manager.version}}'
       namespace: cert-manager
       config:
         letsencrypt:
@@ -97,7 +98,7 @@ spec:
 
     - name: external-dns
       description: Automatic DNS record management via Route53
-      version: 1.22.0
+      version: '{{env.addons.external-dns.version}}'
       namespace: external-dns
       config:
         provider: route53
@@ -117,6 +118,7 @@ spec:
             size: 5Gi
         keycloakNamespace: keycloak
         hostname: '{{env.domains.core.keycloak}}'
+        sourceRanges: '{{env.security.vpnSourceRanges}}'
         protocol: '{{env.keycloak.scheme}}'
         loginTheme: '{{env.keycloak.loginTheme}}'
         tls:
@@ -498,6 +500,7 @@ spec:
             size: 50Gi
         serviceType: ClusterIP
         hostname: '{{env.domains.core.soloUi}}'
+        sourceRanges: '{{env.security.vpnSourceRanges}}'
         tls:
           enabled: true
           secretName: solo-ui-tls
@@ -516,7 +519,7 @@ spec:
     - name: telemetry
       description: OpenTelemetry observability stack (Prometheus, Grafana, Loki, Tempo)
       namespace: telemetry
-      chartVersions: '{{env.telemetry.version}}'
+      chartVersions: '{{env.addons.telemetry}}'
       config:
         gatewayNamespace: agentgateway-system
         database:
@@ -524,6 +527,7 @@ spec:
           storageSize: 100Gi
         retention: 120h
         grafanaHostname: '{{env.domains.core.grafana}}'
+        sourceRanges: '{{env.security.vpnSourceRanges}}'
         grafanaTls:
           enabled: true
           secretName: grafana-tls
