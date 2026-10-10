@@ -29,7 +29,7 @@ spec:
         - name: sidecar-agent
           config:
             agentName: sidecar-agent-a
-            agentImage: '{{env.images.sidecar-agent}}'
+            agentImage: '{{env.images.routing.sidecar-agent}}'
             agentPort: 8081
             model: gpt-4o-mini
             llmPath: /openai
@@ -48,7 +48,7 @@ spec:
         - name: sidecar-agent
           config:
             agentName: sidecar-agent-b
-            agentImage: '{{env.images.sidecar-agent}}'
+            agentImage: '{{env.images.routing.sidecar-agent}}'
             agentPort: 8081
             model: gpt-4o
             llmPath: /openai

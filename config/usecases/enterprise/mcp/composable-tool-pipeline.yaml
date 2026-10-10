@@ -32,7 +32,7 @@ spec:
             mcpPath: /mcp
             servers:
               - name: stock-server-mcp
-                image: '{{env.images.stock-server-mcp}}'
+                image: '{{env.images.common.stock-server-mcp}}'
                 serverPort: 8000
                 servicePort: 80
             targets:

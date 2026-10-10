@@ -47,11 +47,11 @@ spec:
             prefixMode: Never
             servers:
               - name: stock-server-mcp
-                image: '{{env.images.stock-server-mcp}}'
+                image: '{{env.images.common.stock-server-mcp}}'
                 serverPort: 8000
                 servicePort: 80
               - name: currency-server-mcp
-                image: '{{env.images.currency-server-mcp}}'
+                image: '{{env.images.common.currency-server-mcp}}'
                 serverPort: 8000
                 servicePort: 80
             targets:

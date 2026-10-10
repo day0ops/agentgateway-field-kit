@@ -27,7 +27,7 @@ spec:
                 model: gpt-4o-mini
               - name: routing-by-name-anthropic
                 providerName: anthropic
-                model: claude-3-5-sonnet-20241022
+                model: claude-sonnet-5
 
     - title: Pre-provision dynamic-tier backends
       description: |
@@ -68,7 +68,7 @@ spec:
       features:
         - name: agentgateway-demo-wizard
           config:
-            image: '{{env.images.agentgateway-demo-wizard}}'
+            image: '{{env.images.wizard.agentgateway-demo-wizard}}'
             agwHost: '{{env.domains.core.agentgateway}}'
             keycloakHost: '{{env.domains.core.keycloak}}'
             hostname: '{{env.domains.app.wizard}}'

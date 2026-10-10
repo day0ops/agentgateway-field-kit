@@ -59,7 +59,7 @@ spec:
         - name: mcp-server
           config:
             deployServer: true
-            image: '{{env.images.fd-server-mcp}}'
+            image: '{{env.images.fdLoan.fd-server-mcp}}'
             serverName: fd-server-mcp
             serverPort: 8000
             servicePort: 80
@@ -146,7 +146,7 @@ spec:
         - name: workload-agent
           config:
             agentName: fd-agent
-            image: '{{env.images.fd-agent}}'
+            image: '{{env.images.fdLoan.fd-agent}}'
             pathPrefix: /fd-agent
             pathRewrite: /
             routeName: fd-agent
@@ -180,7 +180,7 @@ spec:
         - name: workload-agent
           config:
             agentName: loan-agent
-            image: '{{env.images.loan-agent}}'
+            image: '{{env.images.fdLoan.loan-agent}}'
             pathPrefix: /loan-agent
             routeName: loan-agent
             clientId: loan-agent
