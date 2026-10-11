@@ -31,6 +31,20 @@ spec:
       RM-->>You: answer + chain
 
   steps:
+    - title: Deploy LLM provider
+      description: |
+        Expose an OpenAI LLM provider at /openai so the four agents can route
+        completions through the gateway. Found missing live: without this route,
+        every agent's first real (non-stub) LLM call fails outright - there is
+        no backend behind LLM_BASE_URL at all.
+      features:
+        - name: providers
+          config:
+            providers:
+              - name: openai
+                providerName: openai
+                pathPrefix: /openai
+
     - title: Deploy Postgres for the ops-agents token exchange service
       description: |
         A dedicated Postgres instance for this usecase's own STS database - required
