@@ -69,6 +69,15 @@ const DEFAULT_CLIENT_AUTH_METHOD = 'ClientSecretBasic';
  * }
  */
 export class OauthTokenExchangeFeature extends Feature {
+  // This feature targets the Enterprise CRDs' backend.auth.oauthTokenExchange
+  // (EnterpriseAgentgatewayPolicy/EnterpriseAgentgatewayBackend), for consistency
+  // with this repo's other enterprise-agentgateway usecases. The underlying
+  // capability isn't Enterprise-exclusive, though: OSS agentgateway has its own,
+  // separately-implemented backendAuth.oauthTokenExchange field on its own
+  // (non-Enterprise) policy CRD that solves the same proxy-native exchange
+  // problem - this feature just doesn't target it. Contrast with
+  // token-exchange/obo-token-exchange (STS-based), which have no OSS equivalent
+  // at all, since they depend on the Enterprise control-plane's STS listener.
   static SUPPORTED_EDITIONS = ['enterprise'];
 
   get prefix() {

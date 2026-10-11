@@ -73,7 +73,13 @@ spec:
 
   gateway:
     hostname: '{{env.domains.core.agentgateway}}'
-    sourceRanges: '{{env.security.vpnSourceRanges}}'
+    sourceRanges:
+      - '{{env.security.vpnSourceRanges}}'
+      - '{{infra.clusters.demo.network.natGatewayIp}}/32'
+    mtls:
+      enabled: true
+    publicHttps:
+      enabled: true
 
   resources:
     - agentgateway-with-keycloak/enterprise-agentgateway-sharedext-params.yaml
@@ -102,6 +108,16 @@ spec:
           enabled: true
           email: '{{env.acme.email}}'
           region: '{{env.aws.region}}'
+
+    - name: gateway-mtls
+      description: CA chain and server certificate for the Gateway's mTLS listener
+      config:
+        dnsNames:
+          - '{{env.domains.core.agentgateway}}'
+        publicHttps:
+          enabled: true
+          dnsNames:
+            - '{{env.domains.core.agentgateway}}'
 
     - name: external-dns
       description: Automatic DNS record management via Route53
