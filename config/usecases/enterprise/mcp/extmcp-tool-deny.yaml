@@ -29,7 +29,7 @@ spec:
         - name: mcp-server
           config:
             deployServer: true
-            image: '{{env.images.stock-server-mcp}}'
+            image: '{{env.images.common.stock-server-mcp}}'
             serverName: stock-server-mcp
             serverPort: 8000
             servicePort: 80
@@ -44,7 +44,7 @@ spec:
       features:
         - name: mcp-guardrails
           config:
-            image: '{{env.images.ext-mcp-guardrail}}'
+            image: '{{env.images.guardrails.ext-mcp-guardrail}}'
             backendName: mcp-backend
             backendKind: EnterpriseAgentgatewayBackend
             deniedTools: get_stock_history

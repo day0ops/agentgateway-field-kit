@@ -52,7 +52,7 @@ spec:
         - name: mcp-server
           config:
             deployServer: true
-            image: '{{env.images.stock-server-mcp}}'
+            image: '{{env.images.common.stock-server-mcp}}'
             serverName: stock-server-mcp
             serverPort: 8000
             servicePort: 80
@@ -99,7 +99,7 @@ spec:
       features:
         - name: agent
           config:
-            image: '{{env.images.stock-agent}}'
+            image: '{{env.images.agentChaining.stock-agent}}'
             agentName: stock-agent
             model: gpt-4o-mini
             llmBaseUrl: '{{env.internal.agentgateway}}/openai'
@@ -115,7 +115,7 @@ spec:
         - name: workload-agent
           config:
             agentName: caller-agent
-            image: '{{env.images.caller-agent}}'
+            image: '{{env.images.agentChaining.caller-agent}}'
             pathPrefix: /caller-agent
             routeName: caller-agent
             clientId: caller-agent

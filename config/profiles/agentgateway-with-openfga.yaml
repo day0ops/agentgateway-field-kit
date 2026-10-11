@@ -14,4 +14,4 @@ spec:
       description: OpenFGA ReBAC authorization server
       namespace: openfga
       config:
-        image: '{{env.images.openfga-engine}}'
+        image: '{{env.images.openfga.openfga-engine}}'

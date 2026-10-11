@@ -32,7 +32,7 @@ spec:
         - name: opa
           config:
             namespace: opa
-            image: '{{env.images.opa-ext-authz}}'
+            image: '{{env.images.opaAuthz.opa-ext-authz}}'
 
     - title: Deploy MCP server
       description: |
@@ -41,7 +41,7 @@ spec:
         - name: mcp-server
           config:
             deployServer: true
-            image: '{{env.images.stock-server-mcp}}'
+            image: '{{env.images.common.stock-server-mcp}}'
             serverName: stock-server-mcp
             serverPort: 8000
             servicePort: 80

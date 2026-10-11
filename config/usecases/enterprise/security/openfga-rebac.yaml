@@ -36,7 +36,7 @@ spec:
         - name: openfga
           config:
             namespace: openfga
-            image: '{{env.images.openfga-engine}}'
+            image: '{{env.images.openfga.openfga-engine}}'
 
     - title: Deploy LLM providers
       description: |
@@ -75,7 +75,7 @@ spec:
         - name: openfga-authz
           config:
             policyName: openfga-rebac-policy
-            adapterImage: '{{env.images.openfga-ext-authz}}'
+            adapterImage: '{{env.images.openfga.openfga-ext-authz}}'
             targetRefs:
               - group: gateway.networking.k8s.io
                 kind: HTTPRoute

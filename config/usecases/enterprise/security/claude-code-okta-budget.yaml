@@ -107,8 +107,8 @@ spec:
       features:
         - name: quota-budget
           config:
-            extprocImage: '{{env.images.quota-budget-extproc}}'
-            uiImage: '{{env.images.quota-management-ui}}'
+            extprocImage: '{{env.images.quotaManagement.quota-budget-extproc}}'
+            uiImage: '{{env.images.quotaManagement.quota-management-ui}}'
             uiPath: /
             deployInfra: true
             providerRoutes:

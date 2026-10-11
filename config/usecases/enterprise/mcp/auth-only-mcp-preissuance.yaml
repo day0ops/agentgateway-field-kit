@@ -92,7 +92,7 @@ spec:
                 - user1
               deniedRedirect: https://example.com/access-denied
               extAuthz:
-                image: '{{env.images.preissuance-ext-authz}}'
+                image: '{{env.images.preissuance.preissuance-ext-authz}}'
 
   tests:
     - name: test-unauthenticated-request-rejected

@@ -54,7 +54,7 @@ spec:
         - name: openfga
           config:
             namespace: openfga
-            image: '{{env.images.openfga-engine}}'
+            image: '{{env.images.openfga.openfga-engine}}'
 
     - title: Configure the /chat endpoint
       description: |
@@ -151,7 +151,7 @@ spec:
         - name: openfga-authz
           config:
             policyName: tiered-cost-control-authz
-            adapterImage: '{{env.images.openfga-ext-authz}}'
+            adapterImage: '{{env.images.openfga.openfga-ext-authz}}'
             targetRefs:
               - group: gateway.networking.k8s.io
                 kind: HTTPRoute

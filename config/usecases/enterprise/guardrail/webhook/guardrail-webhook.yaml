@@ -48,7 +48,7 @@ spec:
           description: Opik-powered webhook guardrails with full trace observability
           config:
             webhook:
-              image: '{{env.images.opik-guardrail-webhook}}'
+              image: '{{env.images.guardrails.opik-guardrail-webhook}}'
               port: 8000
               serviceName: opik-guardrail-webhook
 

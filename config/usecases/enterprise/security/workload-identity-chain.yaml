@@ -58,7 +58,7 @@ spec:
         - name: mcp-server
           config:
             deployServer: true
-            image: '{{env.images.stock-server-mcp}}'
+            image: '{{env.images.common.stock-server-mcp}}'
             serverName: stock-server-mcp
             serverPort: 8000
             servicePort: 80
@@ -123,7 +123,7 @@ spec:
         - name: workload-agent
           config:
             agentName: stock-agent
-            image: '{{env.images.stock-agent}}'
+            image: '{{env.images.agentChaining.stock-agent}}'
             pathPrefix: /agent
             routeName: stock-agent
             clientId: chain-stock-agent
@@ -142,7 +142,7 @@ spec:
         - name: workload-agent
           config:
             agentName: caller-agent
-            image: '{{env.images.caller-agent}}'
+            image: '{{env.images.agentChaining.caller-agent}}'
             pathPrefix: /caller-agent
             routeName: caller-agent
             clientId: chain-caller-agent
