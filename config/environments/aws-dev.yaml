@@ -98,11 +98,11 @@ spec:
     routing:
       sidecar-agent: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/sidecar-agent:0.1.1
     opsAgents:
-      repo-server-mcp: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/repo-server:v0.1.1
-      repo-agent: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/repo-agent:v0.1.1
-      release-manager-agent: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/release-manager-agent:v0.1.1
-      deploy-agent: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/deploy-agent:v0.1.1
-      github-agent: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/github-agent:v0.1.1
+      repo-server-mcp: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/repo-server:v0.1.2
+      repo-agent: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/repo-agent:v0.1.2
+      release-manager-agent: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/release-manager-agent:v0.1.2
+      deploy-agent: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/deploy-agent:v0.1.2
+      github-agent: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/github-agent:v0.1.2
 
   # Entra ID (Azure AD) tenant/app registration
   entra:
