@@ -6,6 +6,7 @@ const PROVIDER_DEFAULTS = {
     authorizeUrl: 'https://github.com/login/oauth/authorize',
     accessTokenUrl: 'https://github.com/login/oauth/access_token',
     scopes: ['read:user', 'repo'],
+    upstreamPath: '/mcp/',
   },
   google: {
     authorizeUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
@@ -58,6 +59,7 @@ const PROVIDER_DEFAULTS = {
  *   upstream: {
  *     host: string,                  // Upstream API host (e.g., 'api.github.com')
  *     port: number,                  // Upstream port (default: 443)
+ *     path: string,                  // Upstream MCP path (default: provider default, e.g. '/mcp/' for github)
  *     tls: boolean,                  // Enable TLS (default: true)
  *     insecureSkipVerify: boolean,   // Skip TLS verification (default: false)
  *   },
@@ -95,6 +97,7 @@ export class ElicitationBackendFeature extends Feature {
     const upstream = config.upstream || {};
     this.upstreamHost = upstream.host || 'api.github.com';
     this.upstreamPort = upstream.port || 443;
+    this.upstreamPath = upstream.path || defaults.upstreamPath || '';
     this.upstreamTls = upstream.tls !== false;
     this.upstreamInsecureSkipVerify = upstream.insecureSkipVerify || false;
   }
@@ -135,6 +138,13 @@ export class ElicitationBackendFeature extends Feature {
   }
 
   async deployBackend() {
+    // Must be a proper MCP target (spec.mcp.targets[]), not a bare spec.static -
+    // static/mcp/entMcp are mutually exclusive backend-type fields, and the
+    // token-exchange/elicitation subsystem only attaches to mcp/entMcp targets.
+    // A bare static backend silently fails every exchange with "token exchange
+    // required but not configured", regardless of how the Policy is written
+    // (live-verified against the working repo-mcp-standard-backend, which uses
+    // this same mcp.targets[] shape).
     const backend = {
       apiVersion: `${BACKEND_API_GROUP[this.edition]}/v1alpha1`,
       kind: BACKEND_KIND[this.edition],
@@ -147,11 +157,20 @@ export class ElicitationBackendFeature extends Feature {
         },
       },
       spec: {
-        static: {
-          host: this.upstreamHost,
-          port: this.upstreamPort,
+        mcp: {
+          targets: [
+            {
+              name: this.backendName,
+              static: {
+                host: this.upstreamHost,
+                port: this.upstreamPort,
+                protocol: 'StreamableHTTP',
+                ...(this.upstreamPath && { path: this.upstreamPath }),
+                ...(this.upstreamTls && { policies: { tls: { sni: this.upstreamHost } } }),
+              },
+            },
+          ],
         },
-        ...(this.upstreamTls && { policies: { tls: { sni: this.upstreamHost } } }),
       },
     };
 
@@ -198,9 +217,14 @@ export class ElicitationBackendFeature extends Feature {
           // (live-verified: confirmed via CRD schema + Solo's own httpbin reference
           // example at docs.solo.io/agentgateway/latest/mcp/token-exchange/elicitations/setup).
           // ElicitationOnly stores the upstream (GitHub) token without replacing the
-          // caller's own IdP bearer token.
+          // caller's own IdP bearer token. elicitation.secretName is also required by
+          // the CRD schema - omitting it fails every request with "token exchange
+          // required but not configured" (live-verified: 503 from agentgateway itself).
           tokenExchange: {
             mode: 'ElicitationOnly',
+            elicitation: {
+              secretName: this.secretName,
+            },
           },
         },
       },
