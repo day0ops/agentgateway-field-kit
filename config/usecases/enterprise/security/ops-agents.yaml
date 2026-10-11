@@ -1,0 +1,64 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: ops-agents
+  description: |
+    Real ADK agents and MCP servers demonstrating every agent-facing auth pattern
+    agentgateway supports: Standard/Impersonation exchange, STS/Delegation exchange,
+    a two-hop re-exchange chain (chain-of-custody via a nested act claim), and
+    Elicitation against a real external API (GitHub).
+  docs: https://docs.solo.io/agentgateway/latest/mcp/token-exchange/
+
+spec:
+  diagram: |
+    sequenceDiagram
+      participant You
+      participant RM as Release Manager Agent
+      participant STS
+      participant DA as Deploy Agent
+      participant AGW as agentgateway
+      participant MCP as Repo MCP server
+      You->>RM: "deploy payments-service to staging"
+      RM->>STS: exchange (subject=your token, actor=RM's SA token)
+      STS-->>RM: T1 (sub=you, act=release-manager-agent)
+      RM->>DA: forward T1
+      DA->>STS: exchange (subject=T1, actor=DA's SA token)
+      STS-->>DA: T2 (sub=you, act=deploy-agent, act.act=release-manager-agent)
+      DA->>AGW: MCP call (Bearer T2)
+      AGW->>MCP: forward
+      MCP-->>DA: tool result
+      DA-->>RM: answer + decoded chain
+      RM-->>You: answer + chain
+
+  steps:
+    - title: Deploy Postgres for the ops-agents token exchange service
+      description: |
+        A dedicated Postgres instance for this usecase's own STS database - required
+        because token-exchange's Helm upgrades never clear a previous usecase's
+        database.postgres.url, only ever set it.
+      features:
+        - name: postgres
+          config:
+            name: ops-agents-postgres
+
+    - title: Enable the Security Token Service (STS)
+      description: |
+        Enables the agentgateway control plane's STS at port 7777. skipMayActClaimValidation
+        is set because this usecase's agents authenticate as their own Kubernetes
+        ServiceAccount (validated via the k8s actorValidator) rather than a Keycloak
+        client with a registered may_act claim.
+      features:
+        - name: token-exchange
+          config:
+            keycloak:
+              realm: agw-dev
+              serviceName: keycloak
+              serviceNamespace: keycloak
+            tokenExpiration: 1h
+            skipMayActClaimValidation: true
+            callbackUrl: 'https://{{env.domains.core.soloUi}}/age/elicitations'
+            database:
+              postgres:
+                url: postgres://tokenexchange:tokenexchange@ops-agents-postgres.agentgateway-system.svc.cluster.local:5432/tokenexchange?sslmode=disable
+
+  tests: []
