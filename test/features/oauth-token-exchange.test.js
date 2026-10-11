@@ -92,6 +92,12 @@ describe('OauthTokenExchangeFeature policy shape', () => {
     const policy = findDoc(docs, 'EnterpriseAgentgatewayPolicy', 'oauth-token-exchange');
     expect(policy.spec.targetRefs).toEqual(targetRefs);
 
+    // Required alongside backend.auth.oauthTokenExchange: by default the gateway strips
+    // the JWT after validating it, so the exchange finds no subject_token and every
+    // request fails with 400 "invalid request" (live-verified against this wizard's own
+    // auth pillar).
+    expect(policy.spec.traffic.jwtAuthentication.preserveToken).toBe(true);
+
     // Not the early, now-rejected `backend.tokenExchange.oauth` shape.
     expect(policy.spec.backend.tokenExchange).toBeUndefined();
     expect(policy.spec.backend.auth.oauthTokenExchange).toBeTruthy();

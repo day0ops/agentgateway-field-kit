@@ -231,6 +231,10 @@ export class OauthTokenExchangeFeature extends Feature {
         traffic: {
           jwtAuthentication: {
             mode: this.jwtAuth.mode || 'Strict',
+            // Required alongside backend.auth.oauthTokenExchange below: by default the
+            // gateway strips the JWT after validating it, so the exchange finds no
+            // subject_token and every request fails with 400 "invalid request".
+            preserveToken: true,
             providers: [
               {
                 issuer: this.jwtAuth.issuer,
