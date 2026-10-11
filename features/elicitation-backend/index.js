@@ -35,10 +35,10 @@ const PROVIDER_DEFAULTS = {
  * This feature:
  * - Creates an AgentgatewayBackend for the external API
  * - Creates an EnterpriseAgentgatewayPolicy with `backend.entElicitation.interactive`
- *   (the Solo Enterprise UI drives the OAuth consent flow), referencing the client
- *   secret created by elicitation-secret. `backend.tokenExchange.elicitation`
- *   (the opaque-Secret shape) is deprecated in favor of this typed field, per
- *   Solo's migration notes - only the client secret still lives in a Secret.
+ *   (the Solo Enterprise UI drives the OAuth consent flow) plus
+ *   `backend.entTokenExchange.solo.elicitation` (required to actually engage the
+ *   STS lookup/injection path - see deployPolicy()), referencing the client secret
+ *   created by elicitation-secret.
  * - Creates an HTTPRoute for the backend
  *
  * Configuration:
@@ -213,17 +213,17 @@ export class ElicitationBackendFeature extends Feature {
           },
           // Required alongside entElicitation - without it the proxy never engages the
           // STS lookup/injection path for this backend's traffic at all, so requests
-          // pass straight through regardless of whether an upstream token exists
-          // (live-verified: confirmed via CRD schema + Solo's own httpbin reference
-          // example at docs.solo.io/agentgateway/latest/mcp/token-exchange/elicitations/setup).
-          // ElicitationOnly stores the upstream (GitHub) token without replacing the
-          // caller's own IdP bearer token. elicitation.secretName is also required by
-          // the CRD schema - omitting it fails every request with "token exchange
-          // required but not configured" (live-verified: 503 from agentgateway itself).
-          tokenExchange: {
-            mode: 'ElicitationOnly',
-            elicitation: {
-              secretName: this.secretName,
+          // pass straight through regardless of whether an upstream token exists.
+          // entTokenExchange.solo.elicitation is the shape that actually works -
+          // live-verified against docs.solo.io's Interactive/GitHub worked example.
+          // The previous tokenExchange.elicitation.secretName field is mutually
+          // exclusive with entElicitation - the K8s admission webhook rejects any
+          // policy combining both outright ("entElicitation is mutually exclusive
+          // with the deprecated tokenExchange.elicitation"), so this feature could
+          // never have deployed successfully as written.
+          entTokenExchange: {
+            solo: {
+              elicitation: {},
             },
           },
         },
