@@ -146,4 +146,71 @@ spec:
                 kind: HTTPRoute
                 name: repo-mcp-delegation
 
+    - title: Deploy the Repo Agent (single-hop, Standard + Delegation modes)
+      features:
+        - name: workload-agent
+          config:
+            agentName: repo-agent
+            image: '{{env.images.opsAgents.repo-agent}}'
+            pathPrefix: /repo-agent
+            routeName: repo-agent
+            useTokenExchange: true
+            saTokenAudience: agentgateway
+            llmBaseUrl: '{{env.internal.agentgateway}}/openai'
+            additionalEnv:
+              - name: STS_URL
+                value: '{{env.internal.sts}}'
+              - name: MCP_STANDARD_URL
+                value: '{{env.internal.agentgateway}}/repo-mcp-standard/mcp'
+              - name: MCP_DELEGATION_URL
+                value: '{{env.internal.agentgateway}}/repo-mcp-delegation/mcp'
+
+    - title: Deploy the Release Manager Agent (hop 1 of the delegation chain)
+      features:
+        - name: workload-agent
+          config:
+            agentName: release-manager-agent
+            image: '{{env.images.opsAgents.release-manager-agent}}'
+            pathPrefix: /release-manager-agent
+            routeName: release-manager-agent
+            useTokenExchange: true
+            saTokenAudience: agentgateway
+            llmBaseUrl: '{{env.internal.agentgateway}}/openai'
+            additionalEnv:
+              - name: STS_URL
+                value: '{{env.internal.sts}}'
+              - name: DEPLOY_AGENT_URL
+                value: '{{env.internal.agentgateway}}/deploy-agent/run'
+
+    - title: Deploy the Deploy Agent (hop 2, re-exchanges and surfaces the chain)
+      features:
+        - name: workload-agent
+          config:
+            agentName: deploy-agent
+            image: '{{env.images.opsAgents.deploy-agent}}'
+            pathPrefix: /deploy-agent
+            routeName: deploy-agent
+            useTokenExchange: true
+            saTokenAudience: agentgateway
+            llmBaseUrl: '{{env.internal.agentgateway}}/openai'
+            additionalEnv:
+              - name: STS_URL
+                value: '{{env.internal.sts}}'
+              - name: MCP_URL
+                value: '{{env.internal.agentgateway}}/repo-mcp-delegation/mcp'
+
+    - title: Deploy the GitHub Agent (Elicitation)
+      features:
+        - name: workload-agent
+          config:
+            agentName: github-agent
+            image: '{{env.images.opsAgents.github-agent}}'
+            pathPrefix: /github-agent
+            routeName: github-agent
+            useTokenExchange: false
+            llmBaseUrl: '{{env.internal.agentgateway}}/openai'
+            additionalEnv:
+              - name: MCP_GITHUB_URL
+                value: '{{env.internal.agentgateway}}/mcp-github'
+
   tests: []
