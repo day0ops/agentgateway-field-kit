@@ -1526,16 +1526,25 @@ export class KeycloakFeature extends Feature {
       );
 
       if (id) {
-        if (realm.customAttributes?.length) {
+        if (realm.customAttributes?.length || client.audienceMappers?.length) {
           const existingMapperNames = await this.listProtocolMapperNames(
             baseUrl,
             token,
             id,
             realm.realm
           );
-          for (const attrName of realm.customAttributes) {
+          for (const attrName of realm.customAttributes || []) {
             if (existingMapperNames.has(attrName)) continue;
             await this.addAttributeMapper(baseUrl, token, id, realm.realm, attrName);
+          }
+          // audienceMappers: other clientIds this client's tokens must carry in
+          // `aud` - e.g. a confidential client doing Standard Token Exchange on
+          // this client's tokens requires itself to already be in the subject
+          // token's audience, or Keycloak rejects the exchange with
+          // not_allowed/"client is not within the token audience".
+          for (const audience of client.audienceMappers || []) {
+            if (existingMapperNames.has(`audience-${audience}`)) continue;
+            await this.addAudienceMapper(baseUrl, token, id, audience);
           }
         }
       } else {

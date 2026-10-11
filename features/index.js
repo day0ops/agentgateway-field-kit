@@ -67,6 +67,7 @@ import { HttpbinBackendFeature } from './httpbin-backend/index.js';
 import { OauthIssuerRouteFeature } from './oauth-issuer-route/index.js';
 import { AuthOnlyMcpFeature } from './auth-only-mcp/index.js';
 import { PostgresFeature } from './postgres/index.js';
+import { AgentgatewayDemoWizardFeature } from './agentgateway-demo-wizard/index.js';
 
 // Register all features
 FeatureManager.register('gateway', GatewayFeature);
@@ -127,6 +128,7 @@ FeatureManager.register('httpbin-backend', HttpbinBackendFeature);
 FeatureManager.register('postgres', PostgresFeature);
 FeatureManager.register('oauth-issuer-route', OauthIssuerRouteFeature);
 FeatureManager.register('auth-only-mcp', AuthOnlyMcpFeature);
+FeatureManager.register('agentgateway-demo-wizard', AgentgatewayDemoWizardFeature);
 
 // Export the FeatureManager and PolicyRegistry for use in other modules
 export { FeatureManager, PolicyRegistry };

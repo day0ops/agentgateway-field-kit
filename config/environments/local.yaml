@@ -35,6 +35,8 @@ spec:
 
   # Custom demo images, built and pushed to this GAR repo. Each value is a full
   # repo:tag reference - bump the tag here to roll every usecase forward at once.
+  # Grouped by demo/role family; "common" holds generic sample backends reused
+  # across many unrelated usecases.
   images:
     common:
       stock-server-mcp: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/stock-server-mcp:0.1.1

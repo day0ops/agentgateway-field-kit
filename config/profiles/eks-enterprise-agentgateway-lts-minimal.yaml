@@ -70,7 +70,9 @@ spec:
 
   gateway:
     hostname: '{{env.domains.core.agentgateway}}'
-    sourceRanges: '{{env.security.vpnSourceRanges}}'
+    sourceRanges:
+      - '{{env.security.vpnSourceRanges}}'
+      - '{{infra.clusters.demo.network.natGatewayIp}}/32'
     mtls:
       enabled: true
     publicHttps:

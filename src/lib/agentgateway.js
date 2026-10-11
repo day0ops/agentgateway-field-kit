@@ -738,11 +738,17 @@ export class AgentGatewayManager {
       }
     }
 
-    // Wait for DNS to propagate for the public gateway hostname
+    // Wait for DNS to propagate for the public gateway hostname. Prefer the public HTTPS
+    // listener (trusted cert, no client-cert requirement) when enabled, so this actually
+    // verifies TLS end-to-end instead of only ever checking the plain HTTP listener. The
+    // mTLS listener can't be probed this way since it requires a client cert to complete
+    // the handshake.
     if (gatewayHostname && CertificateHelper.isExternalHostname(gatewayHostname)) {
+      const reachability = publicHttps?.enabled
+        ? { protocol: 'https', port: publicHttps.port || 443 }
+        : { protocol: 'http', port: 8080 };
       await waitForPublicUrl(gatewayHostname, {
-        protocol: 'http',
-        port: 8080,
+        ...reachability,
         spinner,
         log: (msg, level) => {
           const fn = Logger[level] || Logger.info;

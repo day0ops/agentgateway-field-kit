@@ -89,11 +89,14 @@ export class GatewayFeature extends Feature {
     );
 
     if (!this.dryRun) {
-      const port = specOverrides.listeners?.[0]?.port ?? 8080;
+      const firstListener = specOverrides.listeners?.[0];
+      const port = firstListener?.port ?? 8080;
+      const protocol = firstListener?.protocol === 'HTTPS' ? 'https' : 'http';
       await this.waitForGatewayReachable(
         overrides.metadata.name,
         overrides.metadata.namespace,
-        port
+        port,
+        protocol
       );
     }
   }
@@ -104,7 +107,7 @@ export class GatewayFeature extends Feature {
   // deploy see "Could not resolve host" until it does. Cloud providers that hand out a
   // bare IP (GKE/AKS) don't need this: an IP resolves immediately, so this only waits on
   // hostnames.
-  async waitForGatewayReachable(name, namespace, port) {
+  async waitForGatewayReachable(name, namespace, port, protocol = 'http') {
     this.log(`Waiting for Gateway '${name}' load balancer address...`, 'info');
     let address;
     try {
@@ -121,7 +124,7 @@ export class GatewayFeature extends Feature {
     const timedOut = Symbol('timeout');
     const result = await Promise.race([
       waitForPublicUrl(address, {
-        protocol: 'http',
+        protocol,
         port,
         log: (msg, level) => this.log(msg, level),
       }),
@@ -129,7 +132,7 @@ export class GatewayFeature extends Feature {
     ]);
     if (result === timedOut) {
       this.log(
-        `Timed out waiting for DNS/HTTP on '${address}' - it may still be propagating`,
+        `Timed out waiting for DNS/${protocol.toUpperCase()} on '${address}' - it may still be propagating`,
         'warn'
       );
     }

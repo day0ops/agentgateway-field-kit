@@ -1,0 +1,78 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: agentgateway-demo-wizard
+  description: |
+    Deploys the agentgateway-demo-wizard clickops demo app (github.com/day0ops/agentgateway-demo-wizard), publicly reachable but locked to VPN source ranges behind its own HTTPS Gateway, and pre-provisions the LLM provider backends its routing pillar expects to find already configured rather than create itself.
+spec:
+  diagram: |
+    flowchart LR
+      Presenter -->|HTTPS, VPN only| Wizard[agentgateway-demo-wizard]
+      Wizard -->|clickops Apply/Revert| AGW[agentgateway]
+      AGW --> OpenAI[OpenAI]
+      AGW --> Anthropic[Anthropic]
+
+  steps:
+    - title: Pre-provision routing-by-name backends
+      description: |
+        Create the OpenAI and Anthropic backends the wizard's model-by-name routing step displays read-only, with body-based routing already wired so the route is live from the start.
+      features:
+        - name: providers
+          config:
+            bodyRouting: true
+            pathPrefix: /chat/by-name
+            providers:
+              - name: routing-by-name-openai
+                providerName: openai
+                model: gpt-4o-mini
+              - name: routing-by-name-anthropic
+                providerName: anthropic
+                model: claude-sonnet-5
+
+    - title: Pre-provision dynamic-tier backends
+      description: |
+        Create the fast/premium backends the wizard's dynamic-tier routing step displays read-only. No route here - the agentgateway-demo-wizard feature bundles the X-Model-Tier header-matched HTTPRoute itself.
+      features:
+        - name: providers
+          config:
+            createRoute: false
+            providers:
+              - name: routing-dynamic-fast
+                providerName: openai
+                model: gpt-4o-mini
+              - name: routing-dynamic-premium
+                providerName: openai
+                model: gpt-4o
+
+    - title: Pre-provision the fallback backend
+      description: |
+        Create the priority-grouped fallback backend the wizard's automatic-fallback step displays read-only.
+      features:
+        - name: providers
+          config:
+            createRoute: false
+            name: routing-fallback
+            groups:
+              - providers:
+                  - name: routing-fallback-cheap
+                    providerName: openai
+                    model: gpt-4o-mini
+              - providers:
+                  - name: routing-fallback-premium
+                    providerName: openai
+                    model: gpt-4o
+
+    - title: Deploy the wizard
+      description: |
+        Deploy the wizard app itself: Deployment, Service, scoped RBAC, and its own VPN-locked HTTPS Gateway - plus the dynamic-tier HTTPRoute from the previous step's backends.
+      features:
+        - name: agentgateway-demo-wizard
+          config:
+            image: '{{env.images.wizard.agentgateway-demo-wizard}}'
+            agwHost: '{{env.domains.core.agentgateway}}'
+            keycloakHost: '{{env.domains.core.keycloak}}'
+            hostname: '{{env.domains.app.wizard}}'
+            sourceRanges: '{{env.security.vpnSourceRanges}}'
+            tls:
+              enabled: true
+              issuer: '{{env.tls.issuer}}'

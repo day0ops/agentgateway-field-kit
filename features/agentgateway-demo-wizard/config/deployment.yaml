@@ -1,0 +1,23 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agentgateway-demo-wizard
+  namespace: agentgateway-system
+  labels:
+    app: agentgateway-demo-wizard
+    app.kubernetes.io/managed-by: agentgateway-demo
+    agentgateway.dev/feature: agentgateway-demo-wizard
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: agentgateway-demo-wizard
+  template:
+    metadata:
+      labels:
+        app: agentgateway-demo-wizard
+    spec:
+      serviceAccountName: agentgateway-demo-wizard
+      containers:
+        - name: wizard
+          image: placeholder

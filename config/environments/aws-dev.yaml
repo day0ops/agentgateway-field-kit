@@ -25,9 +25,9 @@ spec:
     issuer: letsencrypt-dns
 
   # CIDR allowlist applied to public-facing NLBs (aws-load-balancer-source-ranges).
-  # Checkpoint Harmony SASE documented egress range.
   security:
     vpnSourceRanges:
+      # Checkpoint Harmony SASE documented egress range.
       - 165.99.148.61/32
       - 64.226.138.86/32
 
@@ -103,6 +103,8 @@ spec:
       release-manager-agent: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/release-manager-agent:v0.1.2
       deploy-agent: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/deploy-agent:v0.1.2
       github-agent: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/github-agent:v0.1.2
+    wizard:
+      agentgateway-demo-wizard: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/agentgateway-demo-wizard:v0.6.1
 
   # Entra ID (Azure AD) tenant/app registration
   entra:
@@ -129,3 +131,4 @@ spec:
       agentgateway: agentgateway.demo.kasunt.apac.fe.solo.io
     app:
       quotaManagement: quota-management.demo.kasunt.apac.fe.solo.io
+      wizard: wizard.demo.kasunt.apac.fe.solo.io
