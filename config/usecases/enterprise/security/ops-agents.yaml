@@ -229,14 +229,14 @@ spec:
 
     - title: Create the GitHub OAuth client secret
       description: |
-        Placeholder until a real GitHub OAuth App is registered - set GITHUB_CLIENT_ID
-        and GITHUB_CLIENT_SECRET in the environment before deploying for real.
+        Placeholder until a real GitHub OAuth App is registered - set AGW_DEMO_GITHUB_CLIENT_ID
+        and AGW_DEMO_GITHUB_CLIENT_SECRET in the environment before deploying for real.
       features:
         - name: elicitation-secret
           config:
             secretName: ops-agents-github-oauth
             provider: github
-            clientSecretEnvVar: GITHUB_CLIENT_SECRET
+            clientSecretEnvVar: AGW_DEMO_GITHUB_CLIENT_SECRET
 
     - title: Configure the GitHub MCP backend with Elicitation
       description: |
@@ -253,7 +253,7 @@ spec:
             pathPrefix: /mcp-github
             secretName: ops-agents-github-oauth
             provider: github
-            clientIdEnvVar: GITHUB_CLIENT_ID
+            clientIdEnvVar: AGW_DEMO_GITHUB_CLIENT_ID
             scopes: ['read:user', 'repo']
             redirectUri: 'https://{{env.domains.core.soloUi}}/age/elicitations'
             upstream:
