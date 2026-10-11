@@ -128,7 +128,7 @@ spec:
                 name: repo-mcp-standard
             jwtAuthentication:
               issuer: 'https://{{env.domains.core.keycloak}}/realms/agw-dev'
-              audiences: [agentgateway]
+              audiences: [account]
               jwks:
                 host: '{{env.domains.core.keycloak}}'
                 path: realms/agw-dev/protocol/openid-connect/certs
