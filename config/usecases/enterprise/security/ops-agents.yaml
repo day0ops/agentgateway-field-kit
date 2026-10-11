@@ -213,4 +213,38 @@ spec:
               - name: MCP_GITHUB_URL
                 value: '{{env.internal.agentgateway}}/mcp-github'
 
+    - title: Create the GitHub OAuth client secret
+      description: |
+        Placeholder until a real GitHub OAuth App is registered - set GITHUB_CLIENT_ID
+        and GITHUB_CLIENT_SECRET in the environment before deploying for real.
+      features:
+        - name: elicitation-secret
+          config:
+            secretName: ops-agents-github-oauth
+            provider: github
+            clientSecretEnvVar: GITHUB_CLIENT_SECRET
+
+    - title: Configure the GitHub MCP backend with Elicitation
+      description: |
+        Points agentgateway at GitHub's own real remote MCP server. The first call from a
+        user with no stored GitHub token returns a pending consent URL; after the user
+        completes OAuth in the Solo UI, the STS injects a real GitHub token into every
+        subsequent call automatically.
+      features:
+        - name: elicitation-backend
+          config:
+            backendName: github-mcp-backend
+            policyName: github-mcp-elicitation
+            routeName: mcp-github
+            pathPrefix: /mcp-github
+            secretName: ops-agents-github-oauth
+            provider: github
+            clientIdEnvVar: GITHUB_CLIENT_ID
+            scopes: ['read:user', 'repo']
+            redirectUri: 'https://{{env.domains.core.soloUi}}/age/elicitations'
+            upstream:
+              host: api.githubcopilot.com
+              port: 443
+              tls: true
+
   tests: []
