@@ -1,4 +1,4 @@
-import { test, expect, describe } from 'bun:test';
+import { test, expect, describe, beforeEach } from 'bun:test';
 import yaml from 'js-yaml';
 import '../../features/index.js';
 import { FeatureManager } from '../../src/lib/feature.js';
@@ -6,6 +6,14 @@ import { FeatureManager } from '../../src/lib/feature.js';
 function findDoc(docs, kind, name) {
   return docs.map(d => yaml.load(d)).find(d => d.kind === kind && d.metadata.name === name);
 }
+
+// FeatureManager.gatewayRef is a static, process-wide field other test files
+// (e.g. sidecar-agent.test.js) mutate via setGatewayRef() without resetting -
+// reset it here so these tests' expectations of the default gateway name
+// don't depend on which other test files already ran in this process.
+beforeEach(() => {
+  FeatureManager.gatewayRef = null;
+});
 
 const ORIGINAL_ENV = { ...process.env };
 function withEnv(vars, fn) {
