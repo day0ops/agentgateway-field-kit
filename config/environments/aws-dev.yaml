@@ -86,6 +86,12 @@ spec:
     openfga-ext-authz: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/openfga-ext-authz:0.1.1
     ext-mcp-guardrail: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/ext-mcp-guardrail:0.1.2
     preissuance-ext-authz: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/preissuance-ext-authz:0.1.0
+    opsAgents:
+      repo-server-mcp: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/repo-server:v0.1.0
+      repo-agent: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/repo-agent:v0.1.0
+      release-manager-agent: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/release-manager-agent:v0.1.0
+      deploy-agent: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/deploy-agent:v0.1.0
+      github-agent: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/github-agent:v0.1.0
 
   # Entra ID (Azure AD) tenant/app registration
   entra:
