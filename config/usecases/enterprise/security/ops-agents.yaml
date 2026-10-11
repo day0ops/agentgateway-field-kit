@@ -1,0 +1,250 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: ops-agents
+  description: |
+    Real ADK agents and MCP servers demonstrating every agent-facing auth pattern
+    agentgateway supports: Standard/Impersonation exchange, STS/Delegation exchange,
+    a two-hop re-exchange chain (chain-of-custody via a nested act claim), and
+    Elicitation against a real external API (GitHub).
+  docs: https://docs.solo.io/agentgateway/latest/mcp/token-exchange/
+
+spec:
+  diagram: |
+    sequenceDiagram
+      participant You
+      participant RM as Release Manager Agent
+      participant STS
+      participant DA as Deploy Agent
+      participant AGW as agentgateway
+      participant MCP as Repo MCP server
+      You->>RM: "deploy payments-service to staging"
+      RM->>STS: exchange (subject=your token, actor=RM's SA token)
+      STS-->>RM: T1 (sub=you, act=release-manager-agent)
+      RM->>DA: forward T1
+      DA->>STS: exchange (subject=T1, actor=DA's SA token)
+      STS-->>DA: T2 (sub=you, act=deploy-agent, act.act=release-manager-agent)
+      DA->>AGW: MCP call (Bearer T2)
+      AGW->>MCP: forward
+      MCP-->>DA: tool result
+      DA-->>RM: answer + decoded chain
+      RM-->>You: answer + chain
+
+  steps:
+    - title: Deploy Postgres for the ops-agents token exchange service
+      description: |
+        A dedicated Postgres instance for this usecase's own STS database - required
+        because token-exchange's Helm upgrades never clear a previous usecase's
+        database.postgres.url, only ever set it.
+      features:
+        - name: postgres
+          config:
+            name: ops-agents-postgres
+
+    - title: Enable the Security Token Service (STS)
+      description: |
+        Enables the agentgateway control plane's STS at port 7777. skipMayActClaimValidation
+        is set because this usecase's agents authenticate as their own Kubernetes
+        ServiceAccount (validated via the k8s actorValidator) rather than a Keycloak
+        client with a registered may_act claim.
+      features:
+        - name: token-exchange
+          config:
+            keycloak:
+              realm: agw-dev
+              serviceName: keycloak
+              serviceNamespace: keycloak
+            tokenExpiration: 1h
+            skipMayActClaimValidation: true
+            callbackUrl: 'https://{{env.domains.core.soloUi}}/age/elicitations'
+            database:
+              postgres:
+                url: postgres://tokenexchange:tokenexchange@ops-agents-postgres.agentgateway-system.svc.cluster.local:5432/tokenexchange?sslmode=disable
+
+    - title: Deploy the repo MCP server
+      description: |
+        Deploys repo-server (Task A2) and exposes it at /repo-mcp-standard. This route
+        will carry the Standard/Impersonation exchange.
+      features:
+        - name: mcp-server
+          config:
+            deployServer: true
+            image: '{{env.images.opsAgents.repo-server-mcp}}'
+            serverName: repo-server-mcp
+            serverPort: 8000
+            servicePort: 80
+            protocol: StreamableHTTP
+            mcpPath: /mcp
+            pathPrefix: /repo-mcp-standard
+            backendName: repo-mcp-standard-backend
+            targetName: repo-mcp-standard-target
+            routeName: repo-mcp-standard
+
+    - title: Expose a second route to the same repo MCP server for the Delegation path
+      description: |
+        Same pod, a different gateway route and backend - this one carries only
+        STS-issued (Delegation) tokens, never a raw Keycloak token.
+      features:
+        - name: mcp-server
+          config:
+            deployServer: false
+            backendName: repo-mcp-delegation-backend
+            targetName: repo-mcp-delegation-target
+            routeName: repo-mcp-delegation
+            pathPrefix: /repo-mcp-delegation
+            targets:
+              - name: repo-mcp-delegation-target
+                host: repo-server-mcp.agentgateway-system.svc.cluster.local
+                port: 80
+                protocol: StreamableHTTP
+                path: /mcp
+
+    - title: Protect the standard route with the proxy-native Impersonation exchange
+      description: |
+        Reuses the same agw-token-exchange Keycloak client and OAUTH_TOKEN_EXCHANGE_CLIENT_SECRET
+        already provisioned for this wizard's own auth pillar (see
+        internal/manifests/templates/auth/token-exchange-standard.yaml.tmpl in the wizard repo).
+      features:
+        - name: oauth-token-exchange
+          config:
+            name: repo-mcp-standard-exchange
+            targetRefs:
+              - group: gateway.networking.k8s.io
+                kind: HTTPRoute
+                name: repo-mcp-standard
+            jwtAuthentication:
+              issuer: 'https://{{env.domains.core.keycloak}}/realms/agw-dev'
+              audiences: [agentgateway]
+              jwks:
+                host: '{{env.domains.core.keycloak}}'
+                path: realms/agw-dev/protocol/openid-connect/certs
+            tokenEndpoint:
+              host: '{{env.domains.core.keycloak}}'
+              path: /realms/agw-dev/protocol/openid-connect/token
+            clientAuth:
+              clientId: agw-token-exchange
+
+    - title: Protect the delegation route with STS-issued-token validation
+      description: |
+        No exchange happens at this boundary - the caller (an agent) already exchanged
+        at the STS before arriving. This policy only validates that the token was
+        actually issued by the STS.
+      features:
+        - name: obo-token-exchange
+          config:
+            policyName: repo-mcp-delegation-jwt-policy
+            issuer: '{{env.internal.stsIssuer}}'
+            jwksPath: /.well-known/jwks.json
+            jwksBackend:
+              name: enterprise-agentgateway
+              namespace: agentgateway-system
+              port: 7777
+            audiences: [agentgateway]
+            jwtMode: Strict
+            targetRefs:
+              - group: gateway.networking.k8s.io
+                kind: HTTPRoute
+                name: repo-mcp-delegation
+
+    - title: Deploy the Repo Agent (single-hop, Standard + Delegation modes)
+      features:
+        - name: workload-agent
+          config:
+            agentName: repo-agent
+            image: '{{env.images.opsAgents.repo-agent}}'
+            pathPrefix: /repo-agent
+            routeName: repo-agent
+            useTokenExchange: true
+            saTokenAudience: agentgateway
+            llmBaseUrl: '{{env.internal.agentgateway}}/openai'
+            additionalEnv:
+              - name: STS_URL
+                value: '{{env.internal.sts}}'
+              - name: MCP_STANDARD_URL
+                value: '{{env.internal.agentgateway}}/repo-mcp-standard/mcp'
+              - name: MCP_DELEGATION_URL
+                value: '{{env.internal.agentgateway}}/repo-mcp-delegation/mcp'
+
+    - title: Deploy the Release Manager Agent (hop 1 of the delegation chain)
+      features:
+        - name: workload-agent
+          config:
+            agentName: release-manager-agent
+            image: '{{env.images.opsAgents.release-manager-agent}}'
+            pathPrefix: /release-manager-agent
+            routeName: release-manager-agent
+            useTokenExchange: true
+            saTokenAudience: agentgateway
+            llmBaseUrl: '{{env.internal.agentgateway}}/openai'
+            additionalEnv:
+              - name: STS_URL
+                value: '{{env.internal.sts}}'
+              - name: DEPLOY_AGENT_URL
+                value: '{{env.internal.agentgateway}}/deploy-agent/run'
+
+    - title: Deploy the Deploy Agent (hop 2, re-exchanges and surfaces the chain)
+      features:
+        - name: workload-agent
+          config:
+            agentName: deploy-agent
+            image: '{{env.images.opsAgents.deploy-agent}}'
+            pathPrefix: /deploy-agent
+            routeName: deploy-agent
+            useTokenExchange: true
+            saTokenAudience: agentgateway
+            llmBaseUrl: '{{env.internal.agentgateway}}/openai'
+            additionalEnv:
+              - name: STS_URL
+                value: '{{env.internal.sts}}'
+              - name: MCP_URL
+                value: '{{env.internal.agentgateway}}/repo-mcp-delegation/mcp'
+
+    - title: Deploy the GitHub Agent (Elicitation)
+      features:
+        - name: workload-agent
+          config:
+            agentName: github-agent
+            image: '{{env.images.opsAgents.github-agent}}'
+            pathPrefix: /github-agent
+            routeName: github-agent
+            useTokenExchange: false
+            llmBaseUrl: '{{env.internal.agentgateway}}/openai'
+            additionalEnv:
+              - name: MCP_GITHUB_URL
+                value: '{{env.internal.agentgateway}}/mcp-github'
+
+    - title: Create the GitHub OAuth client secret
+      description: |
+        Placeholder until a real GitHub OAuth App is registered - set GITHUB_CLIENT_ID
+        and GITHUB_CLIENT_SECRET in the environment before deploying for real.
+      features:
+        - name: elicitation-secret
+          config:
+            secretName: ops-agents-github-oauth
+            provider: github
+            clientSecretEnvVar: GITHUB_CLIENT_SECRET
+
+    - title: Configure the GitHub MCP backend with Elicitation
+      description: |
+        Points agentgateway at GitHub's own real remote MCP server. The first call from a
+        user with no stored GitHub token returns a pending consent URL; after the user
+        completes OAuth in the Solo UI, the STS injects a real GitHub token into every
+        subsequent call automatically.
+      features:
+        - name: elicitation-backend
+          config:
+            backendName: github-mcp-backend
+            policyName: github-mcp-elicitation
+            routeName: mcp-github
+            pathPrefix: /mcp-github
+            secretName: ops-agents-github-oauth
+            provider: github
+            clientIdEnvVar: GITHUB_CLIENT_ID
+            scopes: ['read:user', 'repo']
+            redirectUri: 'https://{{env.domains.core.soloUi}}/age/elicitations'
+            upstream:
+              host: api.githubcopilot.com
+              port: 443
+              tls: true
+
+  tests: []
