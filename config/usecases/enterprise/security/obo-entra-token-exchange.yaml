@@ -35,7 +35,7 @@ spec:
     - name: mcp-server
       config:
         serverName: graph-me-tool
-        image: '{{env.images.mcp-graph-me-tool}}'
+        image: '{{env.images.common.mcp-graph-me-tool}}'
         serverPort: 8080
         servicePort: 80
         protocol: StreamableHTTP

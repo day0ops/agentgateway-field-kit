@@ -14,4 +14,4 @@ spec:
       description: OPA authorization server (Rego policies bundled)
       namespace: opa
       config:
-        image: '{{env.images.opa-ext-authz}}'
+        image: '{{env.images.opaAuthz.opa-ext-authz}}'
