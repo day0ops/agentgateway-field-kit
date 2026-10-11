@@ -61,4 +61,89 @@ spec:
               postgres:
                 url: postgres://tokenexchange:tokenexchange@ops-agents-postgres.agentgateway-system.svc.cluster.local:5432/tokenexchange?sslmode=disable
 
+    - title: Deploy the repo MCP server
+      description: |
+        Deploys repo-server (Task A2) and exposes it at /repo-mcp-standard. This route
+        will carry the Standard/Impersonation exchange.
+      features:
+        - name: mcp-server
+          config:
+            deployServer: true
+            image: '{{env.images.opsAgents.repo-server-mcp}}'
+            serverName: repo-server-mcp
+            serverPort: 8000
+            servicePort: 80
+            protocol: StreamableHTTP
+            mcpPath: /mcp
+            pathPrefix: /repo-mcp-standard
+            backendName: repo-mcp-standard-backend
+            targetName: repo-mcp-standard-target
+            routeName: repo-mcp-standard
+
+    - title: Expose a second route to the same repo MCP server for the Delegation path
+      description: |
+        Same pod, a different gateway route and backend - this one carries only
+        STS-issued (Delegation) tokens, never a raw Keycloak token.
+      features:
+        - name: mcp-server
+          config:
+            deployServer: false
+            backendName: repo-mcp-delegation-backend
+            targetName: repo-mcp-delegation-target
+            routeName: repo-mcp-delegation
+            pathPrefix: /repo-mcp-delegation
+            targets:
+              - name: repo-mcp-delegation-target
+                host: repo-server-mcp.agentgateway-system.svc.cluster.local
+                port: 80
+                protocol: StreamableHTTP
+                path: /mcp
+
+    - title: Protect the standard route with the proxy-native Impersonation exchange
+      description: |
+        Reuses the same agw-token-exchange Keycloak client and OAUTH_TOKEN_EXCHANGE_CLIENT_SECRET
+        already provisioned for this wizard's own auth pillar (see
+        internal/manifests/templates/auth/token-exchange-standard.yaml.tmpl in the wizard repo).
+      features:
+        - name: oauth-token-exchange
+          config:
+            name: repo-mcp-standard-exchange
+            targetRefs:
+              - group: gateway.networking.k8s.io
+                kind: HTTPRoute
+                name: repo-mcp-standard
+            jwtAuthentication:
+              issuer: 'https://{{env.domains.core.keycloak}}/realms/agw-dev'
+              audiences: [agentgateway]
+              jwks:
+                host: '{{env.domains.core.keycloak}}'
+                path: realms/agw-dev/protocol/openid-connect/certs
+            tokenEndpoint:
+              host: '{{env.domains.core.keycloak}}'
+              path: /realms/agw-dev/protocol/openid-connect/token
+            clientAuth:
+              clientId: agw-token-exchange
+
+    - title: Protect the delegation route with STS-issued-token validation
+      description: |
+        No exchange happens at this boundary - the caller (an agent) already exchanged
+        at the STS before arriving. This policy only validates that the token was
+        actually issued by the STS.
+      features:
+        - name: obo-token-exchange
+          config:
+            policyName: repo-mcp-delegation-jwt-policy
+            issuer: '{{env.internal.stsIssuer}}'
+            jwksPath: /.well-known/jwks.json
+            jwksBackend:
+              name: enterprise-agentgateway
+              namespace: agentgateway-system
+              port: 7777
+            audiences: [agentgateway]
+            jwtMode: Strict
+            targetRefs:
+              - group: gateway.networking.k8s.io
+                kind: HTTPRoute
+                name: repo-mcp-delegation
+
   tests: []
