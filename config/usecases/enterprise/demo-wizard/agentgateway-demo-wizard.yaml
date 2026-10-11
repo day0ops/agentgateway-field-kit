@@ -63,21 +63,6 @@ spec:
                     providerName: openai
                     model: gpt-4o
 
-    - title: Deploy the wizard
-      description: |
-        Deploy the wizard app itself: Deployment, Service, scoped RBAC, and its own VPN-locked HTTPS Gateway - plus the dynamic-tier HTTPRoute from the previous step's backends.
-      features:
-        - name: agentgateway-demo-wizard
-          config:
-            image: '{{env.images.wizard.agentgateway-demo-wizard}}'
-            agwHost: '{{env.domains.core.agentgateway}}'
-            keycloakHost: '{{env.domains.core.keycloak}}'
-            hostname: '{{env.domains.app.wizard}}'
-            sourceRanges: '{{env.security.vpnSourceRanges}}'
-            tls:
-              enabled: true
-              issuer: '{{env.tls.issuer}}'
-
     - title: Deploy LLM provider
       description: |
         Expose an OpenAI LLM provider at /openai so the four agents can route
@@ -307,5 +292,20 @@ spec:
               host: api.githubcopilot.com
               port: 443
               tls: true
+
+    - title: Deploy the wizard
+      description: |
+        Deploy the wizard app itself: Deployment, Service, scoped RBAC, and its own VPN-locked HTTPS Gateway - plus the dynamic-tier HTTPRoute from the previous step's backends.
+      features:
+        - name: agentgateway-demo-wizard
+          config:
+            image: '{{env.images.wizard.agentgateway-demo-wizard}}'
+            agwHost: '{{env.domains.core.agentgateway}}'
+            keycloakHost: '{{env.domains.core.keycloak}}'
+            hostname: '{{env.domains.app.wizard}}'
+            sourceRanges: '{{env.security.vpnSourceRanges}}'
+            tls:
+              enabled: true
+              issuer: '{{env.tls.issuer}}'
 
   tests: []
