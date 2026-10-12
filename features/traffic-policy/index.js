@@ -3,11 +3,10 @@ import { Feature } from '../../src/lib/feature.js';
 /**
  * Traffic Policy Feature
  *
- * Applies an EnterpriseAgentgatewayPolicy (spec.traffic.timeouts/retry) to an
- * existing HTTPRoute (or other targetRef) created by another feature - e.g. a
+ * Applies an EnterpriseAgentgatewayPolicy (spec.traffic.timeouts/retry/headerModifiers)
+ * to an existing HTTPRoute (or other targetRef) created by another feature - e.g. a
  * mock-provider or providers route. Kept separate from those features so any
- * route can pick up timeout/retry behavior without coupling to how the route
- * itself was created.
+ * route can pick up this behavior without coupling to how the route itself was created.
  *
  * Configuration:
  * {
@@ -24,10 +23,22 @@ import { Feature } from '../../src/lib/feature.js';
  *     backoff: string,   // e.g. '25ms' (optional)
  *     codes: number[],   // HTTP status codes that trigger a retry, e.g. [503] (optional)
  *   },
+ *   headerModifiers: {   // Literal header add/set/remove, applied before the request/response
+ *     request: {         // leaves the gateway - e.g. stripping Sec-WebSocket-Extensions so
+ *       add: [{ name, value }],    // permessage-deflate never negotiates on a WebSocket upgrade.
+ *       set: [{ name, value }],
+ *       remove: [string],
+ *     },
+ *     response: {
+ *       add: [{ name, value }],
+ *       set: [{ name, value }],
+ *       remove: [string],
+ *     },
+ *   },
  * }
  */
 export class TrafficPolicyFeature extends Feature {
-  // spec.traffic.timeouts/retry are enterprise-only policy fields, no OSS equivalent exists.
+  // spec.traffic.timeouts/retry/headerModifiers are enterprise-only policy fields, no OSS equivalent exists.
   static SUPPORTED_EDITIONS = ['enterprise'];
 
   constructor(name, config) {
@@ -36,14 +47,17 @@ export class TrafficPolicyFeature extends Feature {
     this.targetRef = config.targetRef || {};
     this.timeouts = config.timeouts || null;
     this.retry = config.retry || null;
+    this.headerModifiers = config.headerModifiers || null;
   }
 
   validate() {
     if (!this.targetRef.name) {
       throw new Error('traffic-policy requires targetRef.name in config');
     }
-    if (!this.timeouts && !this.retry) {
-      throw new Error('traffic-policy requires at least one of timeouts or retry in config');
+    if (!this.timeouts && !this.retry && !this.headerModifiers) {
+      throw new Error(
+        'traffic-policy requires at least one of timeouts, retry, or headerModifiers in config'
+      );
     }
     return true;
   }
@@ -75,6 +89,7 @@ export class TrafficPolicyFeature extends Feature {
         traffic: {
           ...(this.timeouts && { timeouts: this.timeouts }),
           ...(this.retry && { retry: this.retry }),
+          ...(this.headerModifiers && { headerModifiers: this.headerModifiers }),
         },
       },
     };
