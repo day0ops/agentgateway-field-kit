@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
  * Manual, interactive tester for the openai-realtime-voice usecase
- * (config/usecases/enterprise/routing/provider/openai/openai-realtime-voice.yaml).
+ * (config/usecases/enterprise/routing/audio/openai-realtime-voice.yaml).
  *
  * Not wired into `agw usecase test` - that runner asserts deterministic
  * request/response steps, and a live voice turn has no pass/fail condition and
