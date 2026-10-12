@@ -361,8 +361,9 @@ export class Prompts {
   }
 
   /**
-   * Raw-mode multi-select with numbered [✔]/[ ] checkboxes.
-   * Space/Enter to toggle, Enter on last confirm confirms all, Ctrl+D to finish.
+   * Raw-mode multi-select with [✔]/[ ] checkboxes, windowed and filterable
+   * once the list exceeds WINDOW_THRESHOLD items.
+   * Space toggles, typing filters, Enter confirms, Ctrl+C exits.
    * @param {string} message
    * @param {Array<{name: string, value: *, checked?: boolean}>} choices
    * @returns {Promise<Array<*>>} Selected values
