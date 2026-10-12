@@ -525,20 +525,24 @@ export class Prompts {
         } else if (key.name === 'down' && visible.length > 0) {
           pointer = (pointer + 1) % visible.length;
           render();
-        } else if (key.name === 'space' && visible.length > 0) {
-          const si = visible[pointer];
-          if (checked.has(si)) {
-            checked.delete(si);
-          } else {
-            checked.add(si);
+        } else if (key.name === 'space') {
+          if (visible.length > 0) {
+            const si = visible[pointer];
+            if (checked.has(si)) {
+              checked.delete(si);
+            } else {
+              checked.add(si);
+            }
+            render();
           }
-          render();
         } else if (key.name === 'return') {
           finish();
-        } else if (key.name === 'backspace' && filterable && filterQuery) {
-          filterQuery = filterQuery.slice(0, -1);
-          applyFilter();
-          render();
+        } else if (key.name === 'backspace') {
+          if (filterable && filterQuery) {
+            filterQuery = filterQuery.slice(0, -1);
+            applyFilter();
+            render();
+          }
         } else if (key.name === 'c' && key.ctrl) {
           stdout.write('\x1B[?25h');
           stdin.removeListener('keypress', onKeypress);
