@@ -97,8 +97,24 @@ export class Prompts {
         }
       });
 
+      // Maps a selectable-array index to its position within `choices`, so the
+      // window can be computed over the full list (keeping separators attached
+      // to their group) while the pointer still only ever indexes `selectable`.
+      const choiceIndexOf = [];
+      {
+        let si = 0;
+        choices.forEach((c, i) => {
+          if (!(c instanceof inquirer.Separator) && c.type !== 'separator') {
+            choiceIndexOf[si] = i;
+            si++;
+          }
+        });
+      }
+
       let pointer = Math.min(defaultIndex, selectable.length - 1);
       let linesRendered = 0;
+      let scrollTop = 0;
+      const windowed = selectable.length > WINDOW_THRESHOLD;
 
       const render = () => {
         if (linesRendered > 0) {
@@ -113,9 +129,30 @@ export class Prompts {
             chalk.yellow('  (enter/space to select' + (allowBack ? ', esc to go back' : '') + ')')
         );
 
+        let viewStart = 0;
+        let viewEnd = choices.length;
+        if (windowed) {
+          const viewportSize = computeViewportSize(choices.length, stdout.rows, 4);
+          scrollTop = computeScrollTop(
+            scrollTop,
+            choiceIndexOf[pointer],
+            choices.length,
+            viewportSize
+          );
+          viewStart = scrollTop;
+          viewEnd = Math.min(choices.length, scrollTop + viewportSize);
+          if (viewStart > 0) lines.push(chalk.dim(`  ↑ ${viewStart} more above`));
+        }
+
         let itemIdx = 0;
-        for (const choice of choices) {
-          if (choice instanceof inquirer.Separator || choice.type === 'separator') {
+        for (let i = 0; i < choices.length; i++) {
+          const choice = choices[i];
+          const isSeparator = choice instanceof inquirer.Separator || choice.type === 'separator';
+          if (i < viewStart || i >= viewEnd) {
+            if (!isSeparator) itemIdx++;
+            continue;
+          }
+          if (isSeparator) {
             lines.push(chalk.dim(' ────────────────'));
           } else {
             const active = itemIdx === pointer;
@@ -129,6 +166,10 @@ export class Prompts {
             }
             itemIdx++;
           }
+        }
+
+        if (windowed && viewEnd < choices.length) {
+          lines.push(chalk.dim(`  ↓ ${choices.length - viewEnd} more below`));
         }
 
         stdout.write(lines.join('\n') + '\n');
