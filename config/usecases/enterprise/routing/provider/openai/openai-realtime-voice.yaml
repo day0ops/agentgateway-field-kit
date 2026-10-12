@@ -7,9 +7,10 @@ metadata:
 
     - `/v1/realtime` mapped as Realtime — agentgateway parses the WebSocket frames in both directions to extract usage and apply streaming guardrails
     - `*` mapped as Passthrough — covers `/v1/realtime/client_secrets` (ephemeral token minting) and any other realtime sub-path, forwarded unmodified
-    - Sec-WebSocket-Extensions is stripped on the upgrade request so permessage-deflate never negotiates; agentgateway's frame parser only understands uncompressed frames, so a negotiated compression extension would silently break usage tracking and guardrails on the stream
+    - Sec-WebSocket-Extensions is stripped on the upgrade request via `traffic.transformation` (not `headerModifiers`, which the LLM proxy pipeline doesn't consult) so permessage-deflate never negotiates; agentgateway's frame parser only understands uncompressed frames, so a negotiated compression extension would silently break usage tracking and guardrails on the stream
     - Single AgentgatewayBackend and HTTPRoute at `/openai`
     - The automated tests below only cover the client_secrets passthrough; for a real voice round trip, run `bun scripts/realtime-voice-demo.js` after deploying (live mic, or `--file <wav>` for a one-shot test without a mic)
+    - Known gap on enterprise-agentgateway 2026.9.3: route-type resolution correctly picks Realtime, but the backend connection to OpenAI never performs the actual protocol upgrade, so the WebSocket leg itself doesn't yet work end-to-end; client_secrets passthrough is unaffected
   docs: https://developers.openai.com/api/docs/guides/realtime
 
 spec:
@@ -50,7 +51,7 @@ spec:
       config:
         targetRef:
           name: openai
-        headerModifiers:
+        transformation:
           request:
             remove:
               - sec-websocket-extensions

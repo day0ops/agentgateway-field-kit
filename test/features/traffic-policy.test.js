@@ -12,11 +12,11 @@ describe('TrafficPolicyFeature', () => {
     expect(() => feature.validate()).toThrow(/targetRef.name/);
   });
 
-  test('validate() throws without timeouts, retry, or headerModifiers', () => {
+  test('validate() throws without timeouts, retry, headerModifiers, or transformation', () => {
     const feature = new TrafficPolicyFeature('traffic-policy', {
       targetRef: { name: 'openai' },
     });
-    expect(() => feature.validate()).toThrow(/timeouts, retry, or headerModifiers/);
+    expect(() => feature.validate()).toThrow(/timeouts, retry, headerModifiers, or transformation/);
   });
 
   test('emits spec.traffic.headerModifiers for a header-remove config', async () => {
@@ -46,5 +46,16 @@ describe('TrafficPolicyFeature', () => {
     const policy = yaml.load(docs[0]);
     expect(policy.spec.traffic.timeouts).toEqual(config.timeouts);
     expect(policy.spec.traffic.headerModifiers).toEqual(config.headerModifiers);
+  });
+
+  test('emits spec.traffic.transformation for a header-remove config', async () => {
+    const config = {
+      targetRef: { name: 'openai' },
+      transformation: { request: { remove: ['sec-websocket-extensions'] } },
+    };
+    const docs = await FeatureManager.deploy('traffic-policy', config, { dryRun: true });
+    const policy = yaml.load(docs[0]);
+    expect(policy.spec.traffic.transformation).toEqual(config.transformation);
+    expect(policy.spec.traffic.headerModifiers).toBeUndefined();
   });
 });
