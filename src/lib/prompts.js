@@ -12,6 +12,56 @@ function _countLeaves(node) {
   return node.children.reduce((sum, child) => sum + _countLeaves(child), 0);
 }
 
+export const WINDOW_THRESHOLD = 30;
+
+/**
+ * How many list rows fit on screen at once, leaving room for header/footer chrome.
+ * @param {number} itemCount - total number of lines that could be shown
+ * @param {number} terminalRows - process.stdout.rows (may be undefined/0 off-TTY)
+ * @param {number} overhead - lines reserved for header/footer/scroll indicators
+ * @returns {number}
+ */
+export function computeViewportSize(itemCount, terminalRows, overhead) {
+  const available = Math.max(10, (terminalRows || 24) - overhead);
+  return Math.min(itemCount, available);
+}
+
+/**
+ * Edge-scrolled window offset: only moves when the pointer would otherwise
+ * leave the visible window, rather than recentering on every keystroke.
+ * @param {number} scrollTop - current window start
+ * @param {number} pointerIndex - index the pointer is now at
+ * @param {number} totalLines - total number of lines in the full list
+ * @param {number} viewportSize - number of lines visible at once
+ * @returns {number}
+ */
+export function computeScrollTop(scrollTop, pointerIndex, totalLines, viewportSize) {
+  if (totalLines <= viewportSize) return 0;
+  let next = scrollTop;
+  if (pointerIndex < next) {
+    next = pointerIndex;
+  } else if (pointerIndex > next + viewportSize - 1) {
+    next = pointerIndex - viewportSize + 1;
+  }
+  return Math.max(0, Math.min(next, totalLines - viewportSize));
+}
+
+/**
+ * Indices into `selectable` whose name matches `query` (case-insensitive substring).
+ * @param {Array<{name: string}>} selectable
+ * @param {string} query
+ * @returns {number[]}
+ */
+export function filterChoiceIndices(selectable, query) {
+  if (!query) return selectable.map((_, i) => i);
+  const q = query.toLowerCase();
+  const indices = [];
+  selectable.forEach((choice, i) => {
+    if (String(choice.name).toLowerCase().includes(q)) indices.push(i);
+  });
+  return indices;
+}
+
 /**
  * Base prompt utilities for interactive CLI
  * Provides generic prompt methods that can be used throughout the application
