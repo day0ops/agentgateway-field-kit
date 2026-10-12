@@ -135,6 +135,7 @@ export class Prompts {
         let viewStart = 0;
         let viewEnd = choices.length;
         if (windowed) {
+          // overhead: header + 2 scroll indicators + margin
           const viewportSize = computeViewportSize(choices.length, stdout.rows, 4);
           scrollTop = computeScrollTop(
             scrollTop,
@@ -436,6 +437,7 @@ export class Prompts {
           lines.push(chalk.dim('  No matches'));
         } else if (filterQuery) {
           // Flat filtered view: no separators, window directly over `visible`.
+          // overhead: header + filter line + 2 scroll indicators + blank line + footer
           const viewportSize = computeViewportSize(visible.length, stdout.rows, 6);
           scrollTop = computeScrollTop(scrollTop, pointer, visible.length, viewportSize);
           if (scrollTop > 0) lines.push(chalk.dim(`  ↑ ${scrollTop} more above`));
@@ -460,6 +462,7 @@ export class Prompts {
           let viewStart = 0;
           let viewEnd = choices.length;
           if (windowed) {
+            // overhead: header + filter line + 2 scroll indicators + blank line + footer
             const viewportSize = computeViewportSize(choices.length, stdout.rows, 6);
             scrollTop = computeScrollTop(
               scrollTop,
