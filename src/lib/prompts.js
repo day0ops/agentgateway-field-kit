@@ -383,9 +383,37 @@ export class Prompts {
         }
       });
 
-      const checked = new Set(selectable.filter(c => c.checked).map((_, i) => i));
+      const checked = new Set(selectable.map((_, i) => i).filter(i => selectable[i].checked));
+      const filterable = selectable.length > WINDOW_THRESHOLD;
+
+      // Maps a selectable-array index to its position within `choices` (see
+      // _rawSelect for why: keeps separators attached to their group while
+      // windowing over the grouped, unfiltered view).
+      const choiceIndexOf = [];
+      {
+        let si = 0;
+        choices.forEach((c, i) => {
+          if (!(c instanceof inquirer.Separator) && c.type !== 'separator') {
+            choiceIndexOf[si] = i;
+            si++;
+          }
+        });
+      }
+
+      let filterQuery = '';
+      // Indices into `selectable` that match the current filter. `pointer`
+      // always indexes into `visible`, never directly into `selectable`, so
+      // checked state (keyed by selectable index) survives filtering.
+      let visible = selectable.map((_, i) => i);
       let pointer = 0;
+      let scrollTop = 0;
       let linesRendered = 0;
+
+      const applyFilter = () => {
+        visible = filterChoiceIndices(selectable, filterQuery);
+        pointer = Math.min(pointer, Math.max(0, visible.length - 1));
+        scrollTop = 0;
+      };
 
       const render = () => {
         if (linesRendered > 0) {
@@ -393,26 +421,78 @@ export class Prompts {
         }
 
         const lines = [];
-        lines.push(
-          chalk.green('?') +
-            ' ' +
-            chalk.bold(message) +
-            chalk.yellow('  (space to toggle, enter to confirm)')
-        );
+        const hint = filterable
+          ? 'space to toggle, type to filter, enter to confirm'
+          : 'space to toggle, enter to confirm';
+        lines.push(chalk.green('?') + ' ' + chalk.bold(message) + chalk.yellow(`  (${hint})`));
+        if (filterQuery) {
+          lines.push(chalk.dim(`  Filter: ${filterQuery}`));
+        }
 
-        let selectableIdx = 0;
-        for (const choice of choices) {
-          if (choice instanceof inquirer.Separator || choice.type === 'separator') {
-            const text = choice.separator || '';
-            lines.push(text.trim() ? ` ${text}` : '');
-          } else {
-            const active = selectableIdx === pointer;
-            const isChecked = checked.has(selectableIdx);
+        if (visible.length === 0) {
+          lines.push(chalk.dim('  No matches'));
+        } else if (filterQuery) {
+          // Flat filtered view: no separators, window directly over `visible`.
+          const viewportSize = computeViewportSize(visible.length, stdout.rows, 6);
+          scrollTop = computeScrollTop(scrollTop, pointer, visible.length, viewportSize);
+          if (scrollTop > 0) lines.push(chalk.dim(`  ↑ ${scrollTop} more above`));
+          const viewEnd = Math.min(visible.length, scrollTop + viewportSize);
+          for (let vi = scrollTop; vi < viewEnd; vi++) {
+            const si = visible[vi];
+            const choice = selectable[si];
+            const active = vi === pointer;
+            const isChecked = checked.has(si);
             const box = isChecked ? chalk.green('[✔]') : chalk.dim('[ ]');
             const label = active ? chalk.cyan(choice.name) : choice.name;
             const prefix = active ? chalk.cyan('❯') : ' ';
             lines.push(`${prefix} ${box} ${label}`);
-            selectableIdx++;
+          }
+          if (viewEnd < visible.length) {
+            lines.push(chalk.dim(`  ↓ ${visible.length - viewEnd} more below`));
+          }
+        } else {
+          // Grouped view: window over the full `choices` array so separators
+          // stay attached to their items.
+          const windowed = selectable.length > WINDOW_THRESHOLD;
+          let viewStart = 0;
+          let viewEnd = choices.length;
+          if (windowed) {
+            const viewportSize = computeViewportSize(choices.length, stdout.rows, 6);
+            scrollTop = computeScrollTop(
+              scrollTop,
+              choiceIndexOf[pointer],
+              choices.length,
+              viewportSize
+            );
+            viewStart = scrollTop;
+            viewEnd = Math.min(choices.length, scrollTop + viewportSize);
+            if (viewStart > 0) lines.push(chalk.dim(`  ↑ ${viewStart} more above`));
+          }
+
+          let selectableIdx = 0;
+          for (let i = 0; i < choices.length; i++) {
+            const choice = choices[i];
+            const isSeparator = choice instanceof inquirer.Separator || choice.type === 'separator';
+            if (i < viewStart || i >= viewEnd) {
+              if (!isSeparator) selectableIdx++;
+              continue;
+            }
+            if (isSeparator) {
+              const text = choice.separator || '';
+              lines.push(text.trim() ? ` ${text}` : '');
+            } else {
+              const active = selectableIdx === pointer;
+              const isChecked = checked.has(selectableIdx);
+              const box = isChecked ? chalk.green('[✔]') : chalk.dim('[ ]');
+              const label = active ? chalk.cyan(choice.name) : choice.name;
+              const prefix = active ? chalk.cyan('❯') : ' ';
+              lines.push(`${prefix} ${box} ${label}`);
+              selectableIdx++;
+            }
+          }
+
+          if (windowed && viewEnd < choices.length) {
+            lines.push(chalk.dim(`  ↓ ${choices.length - viewEnd} more below`));
           }
         }
 
@@ -436,30 +516,39 @@ export class Prompts {
         resolve(selectable.filter((_, i) => checked.has(i)).map(c => c.value));
       };
 
-      const onKeypress = (_ch, key) => {
+      const onKeypress = (ch, key) => {
         if (!key) return;
 
-        if (key.name === 'up') {
-          pointer = (pointer - 1 + selectable.length) % selectable.length;
+        if (key.name === 'up' && visible.length > 0) {
+          pointer = (pointer - 1 + visible.length) % visible.length;
           render();
-        } else if (key.name === 'down') {
-          pointer = (pointer + 1) % selectable.length;
+        } else if (key.name === 'down' && visible.length > 0) {
+          pointer = (pointer + 1) % visible.length;
           render();
-        } else if (key.name === 'space') {
-          if (checked.has(pointer)) {
-            checked.delete(pointer);
+        } else if (key.name === 'space' && visible.length > 0) {
+          const si = visible[pointer];
+          if (checked.has(si)) {
+            checked.delete(si);
           } else {
-            checked.add(pointer);
+            checked.add(si);
           }
           render();
         } else if (key.name === 'return') {
           finish();
+        } else if (key.name === 'backspace' && filterable && filterQuery) {
+          filterQuery = filterQuery.slice(0, -1);
+          applyFilter();
+          render();
         } else if (key.name === 'c' && key.ctrl) {
           stdout.write('\x1B[?25h');
           stdin.removeListener('keypress', onKeypress);
           stdin.setRawMode(false);
           stdin.pause();
           process.exit(0);
+        } else if (filterable && ch && ch.length === 1 && !key.ctrl && !key.meta) {
+          filterQuery += ch;
+          applyFilter();
+          render();
         }
       };
 
