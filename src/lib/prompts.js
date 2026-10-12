@@ -13,7 +13,7 @@ function _countLeaves(node) {
 }
 
 export const WINDOW_THRESHOLD = 30;
-export const MAX_VIEWPORT_SIZE = 20;
+export const MAX_VIEWPORT_SIZE = 25;
 
 /**
  * How many list rows fit on screen at once, leaving room for header/footer chrome.

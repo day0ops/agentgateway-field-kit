@@ -14,8 +14,8 @@ describe('WINDOW_THRESHOLD', () => {
 });
 
 describe('MAX_VIEWPORT_SIZE', () => {
-  test('is 20', () => {
-    expect(MAX_VIEWPORT_SIZE).toBe(20);
+  test('is 25', () => {
+    expect(MAX_VIEWPORT_SIZE).toBe(25);
   });
 });
 
@@ -29,7 +29,7 @@ describe('computeViewportSize', () => {
   });
 
   test('never exceeds MAX_VIEWPORT_SIZE even on a very tall terminal', () => {
-    expect(computeViewportSize(200, 60, 6)).toBe(20);
+    expect(computeViewportSize(200, 60, 6)).toBe(25);
   });
 
   test('never goes below a floor of 10 rows even on a tiny terminal', () => {
