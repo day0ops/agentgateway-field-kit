@@ -8,9 +8,9 @@ metadata:
     - `/v1/realtime` mapped as Realtime — agentgateway parses the WebSocket frames in both directions to extract usage and apply streaming guardrails
     - `*` mapped as Passthrough — covers `/v1/realtime/client_secrets` (ephemeral token minting) and any other realtime sub-path, forwarded unmodified
     - Sec-WebSocket-Extensions is stripped on the upgrade request via `traffic.transformation` (not `headerModifiers`, which the LLM proxy pipeline doesn't consult) so permessage-deflate never negotiates; agentgateway's frame parser only understands uncompressed frames, so a negotiated compression extension would silently break usage tracking and guardrails on the stream
+    - The backend pins `policies.http.version: HTTP1`; without it, ALPN lets OpenAI's edge negotiate h2 for the connection, and HTTP/2 has no Connection/Upgrade mechanism, so the WebSocket handshake silently degrades into a plain (rejected) GET
     - Single AgentgatewayBackend and HTTPRoute at `/openai`
     - The automated tests below only cover the client_secrets passthrough; for a real voice round trip, run `bun scripts/realtime-voice-demo.js` after deploying (live mic, or `--file <wav>` for a one-shot test without a mic)
-    - Known gap on enterprise-agentgateway 2026.9.3: route-type resolution correctly picks Realtime, but the backend connection to OpenAI never performs the actual protocol upgrade, so the WebSocket leg itself doesn't yet work end-to-end; client_secrets passthrough is unaffected
   docs: https://developers.openai.com/api/docs/guides/realtime
 
 spec:
@@ -24,7 +24,7 @@ spec:
       OAI-->>AGW: { value: "ek_...", session: {...} }
       AGW-->>Client: ephemeral client secret
       Client->>AGW: GET /openai/v1/realtime?model=gpt-realtime-1.5 (Upgrade: websocket)
-      AGW->>AGW: strip Sec-WebSocket-Extensions
+      AGW->>AGW: strip Sec-WebSocket-Extensions, force HTTP/1.1 (ALPN)
       AGW->>OAI: Upgrade: websocket
       OAI-->>AGW: 101 Switching Protocols
       AGW-->>Client: 101 Switching Protocols
@@ -45,6 +45,8 @@ spec:
                 routes:
                   '/v1/realtime': 'Realtime'
                   '*': 'Passthrough'
+              http:
+                version: HTTP1
 
     - name: traffic-policy
       description: Strip Sec-WebSocket-Extensions so permessage-deflate never negotiates on the realtime WebSocket upgrade

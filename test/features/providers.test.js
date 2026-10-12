@@ -132,4 +132,24 @@ describe('ProvidersFeature createRoute flag', () => {
         findDoc(docs, 'EnterpriseAgentgatewayBackend', 'routing-by-name-anthropic')
       ).toBeTruthy();
     }));
+
+  test('policies.http is passed through to the backend (e.g. forcing HTTP1 for WebSocket upgrades)', () =>
+    withEnv({ OPENAI_API_KEY: 'sk-test' }, async () => {
+      const docs = await FeatureManager.deploy(
+        'providers',
+        {
+          namespace: 'agentgateway-system',
+          providers: [
+            {
+              name: 'openai',
+              model: 'gpt-realtime-1.5',
+              policies: { http: { version: 'HTTP1' } },
+            },
+          ],
+        },
+        { dryRun: true }
+      );
+      const backend = findDoc(docs, 'EnterpriseAgentgatewayBackend', 'openai');
+      expect(backend.spec.policies.http).toEqual({ version: 'HTTP1' });
+    }));
 });

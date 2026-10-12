@@ -648,6 +648,10 @@ export class ProvidersFeature extends Feature {
             provider.policies?.ai
           );
           if (aiPolicy) p.ai = aiPolicy;
+          // e.g. { version: 'HTTP1' } - forces ALPN to http/1.1 so a WebSocket upgrade can
+          // reach a backend (like OpenAI's Realtime API) that otherwise negotiates h2, which
+          // has no Connection/Upgrade mechanism and silently downgrades the upgrade attempt.
+          if (provider.policies?.http) p.http = provider.policies.http;
           return Object.values(p).some(v => v !== undefined) ? p : undefined;
         })(),
       },
