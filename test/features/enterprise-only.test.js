@@ -21,6 +21,7 @@ const ENTERPRISE_ONLY_FEATURES = [
   'budget-limits',
   'mcp-enterprise',
   'mcp-guardrails',
+  'traffic-policy',
 ];
 
 describe('Enterprise-only feature tagging', () => {

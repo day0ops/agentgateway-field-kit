@@ -71,13 +71,6 @@ export const UseCaseAdapter = {
       }
 
       for (const featureRef of step.features || []) {
-        if (featureRef.name === 'providers') {
-          // Skip — providers are defined in Lab 1
-          lines.push('> Providers already deployed in Lab 1. No action required.');
-          lines.push('');
-          continue;
-        }
-
         const yamlDocs = await _getFeatureYaml(
           featureRef.name,
           featureRef.config || {},

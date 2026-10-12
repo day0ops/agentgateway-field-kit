@@ -26,16 +26,26 @@ describe('UseCaseAdapter', () => {
     expect(section).toContain('sequenceDiagram');
   });
 
-  test('generate(apikey-auth) skips providers step and adds note', async () => {
+  test('generate(apikey-auth) still shows the Lab 1 prerequisite banner', async () => {
     const section = await UseCaseAdapter.generate({
       name: 'apikey-auth',
       labNum: 2,
       deployedProviders: ['openai'],
     });
-    // Should NOT show a full providers deploy block
-    // Should contain a reference back to providers lab
-    expect(section.toLowerCase()).toContain('providers');
     expect(section).toContain('Lab 1');
+  });
+
+  test('generate(apikey-auth) renders the providers feature YAML rather than skipping it', async () => {
+    const section = await UseCaseAdapter.generate({
+      name: 'apikey-auth',
+      labNum: 2,
+      deployedProviders: ['openai'],
+    });
+    // A usecase's own providers config (e.g. realtime route types, http.version) can
+    // diverge from whatever was deployed in Lab 1, so it must always be rendered -
+    // never silently assumed redundant.
+    expect(section).not.toContain('No action required');
+    expect(section).toContain('EnterpriseAgentgatewayBackend');
   });
 
   test('generate(apikey-auth) contains step headings', async () => {

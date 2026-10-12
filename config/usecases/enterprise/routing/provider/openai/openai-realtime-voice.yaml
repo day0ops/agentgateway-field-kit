@@ -1,0 +1,82 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: openai-realtime-voice
+  description: |
+    OpenAI provider configured for the GA Realtime API (gpt-realtime-1.5), a speech-to-speech model for low-latency voice agents.
+
+    - `/v1/realtime` mapped as Realtime — agentgateway parses the WebSocket frames in both directions to extract usage and apply streaming guardrails
+    - `*` mapped as Passthrough — covers `/v1/realtime/client_secrets` (ephemeral token minting) and any other realtime sub-path, forwarded unmodified
+    - Sec-WebSocket-Extensions is stripped on the upgrade request via `traffic.transformation` (not `headerModifiers`, which the LLM proxy pipeline doesn't consult) so permessage-deflate never negotiates; agentgateway's frame parser only understands uncompressed frames, so a negotiated compression extension would silently break usage tracking and guardrails on the stream
+    - The backend pins `policies.http.version: HTTP1`; without it, ALPN lets OpenAI's edge negotiate h2 for the connection, and HTTP/2 has no Connection/Upgrade mechanism, so the WebSocket handshake silently degrades into a plain (rejected) GET
+    - Single AgentgatewayBackend and HTTPRoute at `/openai`
+    - The automated tests below only cover the client_secrets passthrough; for a real voice round trip, run `bun scripts/realtime-voice-demo.js` after deploying (live mic, or `--file <wav>` for a one-shot test without a mic)
+  docs: https://developers.openai.com/api/docs/guides/realtime
+
+spec:
+  diagram: |
+    sequenceDiagram
+      participant Client
+      participant AGW as agentgateway
+      participant OAI as OpenAI Realtime
+      Client->>AGW: POST /openai/v1/realtime/client_secrets
+      AGW->>OAI: passthrough
+      OAI-->>AGW: { value: "ek_...", session: {...} }
+      AGW-->>Client: ephemeral client secret
+      Client->>AGW: GET /openai/v1/realtime?model=gpt-realtime-1.5 (Upgrade: websocket)
+      AGW->>AGW: strip Sec-WebSocket-Extensions, force HTTP/1.1 (ALPN)
+      AGW->>OAI: Upgrade: websocket
+      OAI-->>AGW: 101 Switching Protocols
+      AGW-->>Client: 101 Switching Protocols
+      Client->>OAI: audio frames (speech-to-speech)
+      OAI-->>Client: audio + text frames
+
+  features:
+    - name: providers
+      config:
+        providers:
+          - name: openai
+            providerName: openai
+            pathPrefix: /openai
+            pathRewrite: /
+            model: gpt-realtime-1.5
+            policies:
+              ai:
+                routes:
+                  '/v1/realtime': 'Realtime'
+                  '*': 'Passthrough'
+              http:
+                version: HTTP1
+
+    - name: traffic-policy
+      description: Strip Sec-WebSocket-Extensions so permessage-deflate never negotiates on the realtime WebSocket upgrade
+      config:
+        targetRef:
+          name: openai
+        transformation:
+          request:
+            remove:
+              - sec-websocket-extensions
+
+  tests:
+    - name: test-create-client-secret
+      description: Mint an ephemeral client secret for a browser/mobile Realtime session (passthrough)
+      steps:
+        - action: send-request
+          endpoint: /openai/v1/realtime/client_secrets
+          body: '{"session": {"type": "realtime", "model": "gpt-realtime-1.5"}}'
+        - action: verify
+          expect:
+            status: success
+            contains: 'ek_'
+
+    - name: test-create-client-secret-with-instructions
+      description: Mint a client secret carrying custom session instructions
+      steps:
+        - action: send-request
+          endpoint: /openai/v1/realtime/client_secrets
+          body: '{"session": {"type": "realtime", "model": "gpt-realtime-1.5", "instructions": "You are a concise voice assistant."}}'
+        - action: verify
+          expect:
+            status: success
+            contains: 'ek_'
