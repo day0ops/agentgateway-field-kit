@@ -13,9 +13,12 @@ function _countLeaves(node) {
 }
 
 export const WINDOW_THRESHOLD = 30;
+export const MAX_VIEWPORT_SIZE = 20;
 
 /**
  * How many list rows fit on screen at once, leaving room for header/footer chrome.
+ * Capped at MAX_VIEWPORT_SIZE even on a tall terminal, so a long list always
+ * reads as a scrollable window rather than a wall of text.
  * @param {number} itemCount - total number of lines that could be shown
  * @param {number} terminalRows - process.stdout.rows (may be undefined/0 off-TTY)
  * @param {number} overhead - lines reserved for header/footer/scroll indicators
@@ -23,7 +26,7 @@ export const WINDOW_THRESHOLD = 30;
  */
 export function computeViewportSize(itemCount, terminalRows, overhead) {
   const available = Math.max(10, (terminalRows || 24) - overhead);
-  return Math.min(itemCount, available);
+  return Math.min(itemCount, available, MAX_VIEWPORT_SIZE);
 }
 
 /**

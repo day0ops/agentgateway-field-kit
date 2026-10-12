@@ -1,6 +1,7 @@
 import { test, expect, describe } from 'bun:test';
 import {
   WINDOW_THRESHOLD,
+  MAX_VIEWPORT_SIZE,
   computeViewportSize,
   computeScrollTop,
   filterChoiceIndices,
@@ -12,13 +13,23 @@ describe('WINDOW_THRESHOLD', () => {
   });
 });
 
+describe('MAX_VIEWPORT_SIZE', () => {
+  test('is 20', () => {
+    expect(MAX_VIEWPORT_SIZE).toBe(20);
+  });
+});
+
 describe('computeViewportSize', () => {
   test('returns itemCount when it fits in the terminal', () => {
     expect(computeViewportSize(5, 40, 6)).toBe(5);
   });
 
   test('clips to available terminal rows minus overhead', () => {
-    expect(computeViewportSize(200, 30, 6)).toBe(24);
+    expect(computeViewportSize(200, 25, 6)).toBe(19);
+  });
+
+  test('never exceeds MAX_VIEWPORT_SIZE even on a very tall terminal', () => {
+    expect(computeViewportSize(200, 60, 6)).toBe(20);
   });
 
   test('never goes below a floor of 10 rows even on a tiny terminal', () => {
