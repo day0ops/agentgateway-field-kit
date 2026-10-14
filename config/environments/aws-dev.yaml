@@ -98,11 +98,11 @@ spec:
     routing:
       sidecar-agent: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/sidecar-agent:0.1.1
     opsAgents:
-      repo-server-mcp: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/repo-server:v0.1.2
-      repo-agent: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/repo-agent:v0.1.2
-      release-manager-agent: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/release-manager-agent:v0.1.2
-      deploy-agent: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/deploy-agent:v0.1.2
-      github-agent: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/github-agent:v0.1.6
+      core-banking: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/core-banking:v0.2.0
+      accounts-agent: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/accounts-agent:v0.2.0
+      transfer-orchestrator-agent: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/transfer-orchestrator-agent:v0.2.0
+      settlement-agent: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/settlement-agent:v0.2.0
+      statements-agent: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/statements-agent:v0.2.0
     wizard:
       agentgateway-demo-wizard: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/agentgateway-demo-wizard:v0.6.1
 
