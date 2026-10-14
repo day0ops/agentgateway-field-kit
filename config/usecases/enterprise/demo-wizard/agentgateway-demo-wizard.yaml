@@ -86,7 +86,14 @@ spec:
         is set because this usecase's agents authenticate as their own Kubernetes
         ServiceAccount (validated via the k8s actorValidator) rather than a Keycloak
         client with a registered may_act claim. callbackUrl points at the Solo UI
-        elicitations page for the Interactive elicitation flow.
+        elicitations page for the Interactive elicitation flow. oauthIssuerConfig
+        turns on the gateway's own OAuth issuer with its consent screen enabled -
+        required for the Brokered Stripe elicitation step below. downstream_server
+        reuses the agw-token-exchange client (public, PKCE, no secret) the wizard's
+        own "Real login" step already authenticates against; the issuer's agent-flow
+        path (used by Brokered) never actually drives this downstream leg since the
+        user already has a token by the time Brokered runs, but the controller
+        validates it unconditionally at startup, so it must still be well-formed.
       features:
         - name: token-exchange
           config:
@@ -100,6 +107,20 @@ spec:
             database:
               postgres:
                 url: postgres://tokenexchange:tokenexchange@ops-agents-postgres.agentgateway-system.svc.cluster.local:5432/tokenexchange?sslmode=disable
+            oauthIssuerConfig:
+              downstream_server:
+                name: agw-dev
+                client_id: agw-token-exchange
+                authorize_url: 'https://{{env.domains.core.keycloak}}/realms/agw-dev/protocol/openid-connect/auth'
+                token_url: 'https://{{env.domains.core.keycloak}}/realms/agw-dev/protocol/openid-connect/token'
+                scopes: [openid, profile]
+              gateway_config:
+                base_url: 'https://{{env.domains.core.agentgateway}}/oauth-issuer'
+              par_config:
+                enabled: true
+              consent:
+                enabled: true
+                platform_name: Agentgateway Demo Console
 
     - title: Deploy the Core Banking MCP server
       description: |
@@ -352,10 +373,10 @@ spec:
         instead of the after-the-fact Solo UI flow: because the user already
         authenticated, the issuer brokers only the upstream Stripe credential inline
         (DCR + PKCE against mcp.stripe.com) and shows its own consent screen.
-        Requires the gateway OAuth issuer to be enabled with a consent block via
-        token-exchange's oauthIssuerConfig - wired in and confirmed live during
-        deploy (plan Task 0.B); the policy/route below deploy safely without it and
-        begin working once the issuer is enabled.
+        Requires the gateway OAuth issuer's consent block from the STS step above -
+        wired in declaratively; still needs a live round-trip to confirm the
+        consent screen renders and the Stripe credential is actually banked and
+        injected on retry (plan Task 0.B).
       features:
         - name: elicitation-backend
           config:
