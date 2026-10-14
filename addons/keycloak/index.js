@@ -874,7 +874,11 @@ export class KeycloakFeature extends Feature {
         this.log(`Skipping Solo UI group '${group}' for '${username}': user not found`, 'warn');
         continue;
       }
-      await this.kcApi('PUT', `${baseUrl}/admin/realms/${realm}/users/${userId}/groups/${groupId}`, token);
+      await this.kcApi(
+        'PUT',
+        `${baseUrl}/admin/realms/${realm}/users/${userId}/groups/${groupId}`,
+        token
+      );
       this.log(`Added '${username}' to Solo UI group '${group}'`, 'info');
     }
   }
