@@ -6,13 +6,6 @@ metadata:
     Deploys the agentgateway-demo-wizard clickops demo app (github.com/day0ops/agentgateway-demo-wizard), publicly reachable but locked to VPN source ranges behind its own HTTPS Gateway, pre-provisions the LLM provider backends its routing pillar expects to find already configured, and deploys the real ADK agents and MCP infrastructure backing its auth pillar: Standard/Impersonation exchange, STS/Delegation exchange, a two-hop re-exchange chain (chain-of-custody via a nested act claim), and Elicitation against a real external API (GitHub).
   docs: https://docs.solo.io/agentgateway/latest/mcp/token-exchange/
 spec:
-  diagram: |
-    flowchart LR
-      Presenter -->|HTTPS, VPN only| Wizard[agentgateway-demo-wizard]
-      Wizard -->|clickops Apply/Revert| AGW[agentgateway]
-      AGW --> OpenAI[OpenAI]
-      AGW --> Anthropic[Anthropic]
-
   steps:
     - title: Pre-provision routing-by-name backends
       description: |
@@ -286,6 +279,13 @@ spec:
             secretName: ops-agents-github-oauth
             provider: github
             clientIdEnvVar: AGW_DEMO_GITHUB_CLIENT_ID
+            # repo (not public_repo) is required: search_repositories/search_code in
+            # GitHub's MCP server hard-require the full repo scope, with no public-only
+            # equivalent (confirmed against github/github-mcp-server's README and the
+            # public_repo scope-widening issue #3136, which covers only 6 write tools,
+            # not search). Public-only is enforced at the agent prompt level instead
+            # (see github_agent's INSTRUCTION) since GitHub's classic OAuth App model has
+            # no "repo scope, public-only" token-level restriction.
             scopes: ['read:user', 'repo']
             redirectUri: 'https://{{env.domains.core.soloUi}}/age/elicitations'
             upstream:
