@@ -159,7 +159,6 @@ spec:
           frontendClientId: solo-ui-frontend
         realms:
           - realm: agw-dev
-            defaultPassword: Password1!
             clients:
               - clientId: agw-client
                 type: confidential
@@ -278,7 +277,6 @@ spec:
 
           - realm: org-acme
             orgId: acme
-            defaultPassword: Password1!
             teams:
               - teamId: team-eng
                 clientId: acme-team-eng
@@ -313,7 +311,6 @@ spec:
 
           - realm: org-globex
             orgId: globex
-            defaultPassword: Password1!
             teams:
               - teamId: team-ops
                 clientId: globex-team-ops
@@ -340,7 +337,6 @@ spec:
 
           - realm: org-initech
             orgId: initech
-            defaultPassword: Password1!
             teams:
               - teamId: team-dev
                 clientId: initech-team-dev
@@ -367,7 +363,6 @@ spec:
 
           - realm: org-umbrella
             orgId: umbrella
-            defaultPassword: Password1!
             teams:
               - teamId: team-research
                 clientId: umbrella-team-research
@@ -393,7 +388,6 @@ spec:
                       team_id: team-security
 
           - realm: workforce-idp
-            defaultPassword: Password1!
             clients:
               - clientId: workforce-agent
                 type: confidential
@@ -427,7 +421,6 @@ spec:
                   department: engineering
 
           - realm: partner-idp
-            defaultPassword: Password1!
             clients:
               - clientId: partner-agent
                 type: confidential

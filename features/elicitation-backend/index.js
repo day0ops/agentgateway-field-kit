@@ -34,11 +34,15 @@ const PROVIDER_DEFAULTS = {
  *
  * This feature:
  * - Creates an AgentgatewayBackend for the external API
- * - Creates an EnterpriseAgentgatewayPolicy with `backend.entElicitation.interactive`
- *   (the Solo Enterprise UI drives the OAuth consent flow), referencing the client
- *   secret created by elicitation-secret. `backend.tokenExchange.elicitation`
- *   (the opaque-Secret shape) is deprecated in favor of this typed field, per
- *   Solo's migration notes - only the client secret still lives in a Secret.
+ * - Creates an EnterpriseAgentgatewayPolicy with either
+ *   `backend.entElicitation.interactive` (mode: 'interactive', default - the Solo
+ *   Enterprise UI drives the OAuth consent flow, referencing the client secret
+ *   created by elicitation-secret) or `backend.entElicitation.brokered`
+ *   (mode: 'brokered' - the gateway's own OAuth issuer coordinates discovery,
+ *   dynamic client registration and PKCE with the upstream provider; fits
+ *   DCR+PKCE-only providers like Stripe). Both modes also set
+ *   `backend.entTokenExchange.solo.elicitation` (required to actually engage the
+ *   STS lookup/injection path - see deployPolicy()).
  * - Creates an HTTPRoute for the backend
  *
  * Configuration:
@@ -47,6 +51,9 @@ const PROVIDER_DEFAULTS = {
  *   policyName: string,              // EnterpriseAgentgatewayPolicy name (default: 'elicitation-policy')
  *   routeName: string,               // HTTPRoute name (default: 'elicitation-route')
  *   pathPrefix: string,              // Route path prefix (default: '/api')
+ *   mode: string,                    // 'interactive' (default) or 'brokered'
+ *
+ *   // mode: 'interactive' (UI-driven consent flow)
  *   secretName: string,              // Secret holding client_secret, created by elicitation-secret (required)
  *   provider: string,                // Provider defaults for authorizeUrl/accessTokenUrl/scopes (default: 'github')
  *   clientId: string,                // OAuth client ID (required, or use env var)
@@ -56,6 +63,24 @@ const PROVIDER_DEFAULTS = {
  *   scopes: Array<string>,           // OAuth scopes requested during the flow
  *   redirectUri: string,             // OAuth redirect URI, registered with the provider
  *                                     // (default: 'http://localhost:4000/age/elicitations')
+ *
+ *   // mode: 'brokered' (gateway-owned OAuth issuer; discovery + DCR + PKCE)
+ *   brokered: {
+ *     mcpResourcePath: string,       // RFC 9728 protected-resource path (required, must start with '/')
+ *     chainedAuth: {                 // the upstream leg; omit for downstream-only
+ *       baseUrl: string,             // discovery + dynamic client registration + PKCE base URL
+ *       authorizeUrl: string,        // alternative to baseUrl: explicit authorize URL
+ *       accessTokenUrl: string,      // alternative to baseUrl: explicit token URL
+ *       clientId: string,            // optional - omit to use dynamic client registration
+ *       clientSecretRef: object,     // optional - { name: string }
+ *       scopes: Array<string>,       // optional
+ *       registrationUrl: string,     // optional - DCR endpoint override
+ *       clientName: string,          // optional - name presented during DCR
+ *       pkce: object,                // optional - PKCE overrides
+ *       consent: object,             // optional - { disabled?, platformName?, logoUrl?, legalText? }
+ *     },
+ *   },
+ *
  *   upstream: {
  *     host: string,                  // Upstream API host (e.g., 'api.github.com')
  *     port: number,                  // Upstream port (default: 443)
@@ -65,7 +90,7 @@ const PROVIDER_DEFAULTS = {
  *   },
  * }
  *
- * Supported providers with defaults:
+ * Supported providers with defaults (mode: 'interactive'):
  * - github: GitHub OAuth
  * - google: Google OAuth
  * - custom: Requires authorizeUrl and accessTokenUrl
@@ -84,6 +109,7 @@ export class ElicitationBackendFeature extends Feature {
     this.pathPrefix = config.pathPrefix || '/api';
     this.secretName = config.secretName || 'elicitation-oauth';
     this.provider = (config.provider || 'github').toLowerCase();
+    this.mode = (config.mode || 'interactive').toLowerCase();
 
     const clientIdEnvVar = config.clientIdEnvVar || `${this.provider.toUpperCase()}_CLIENT_ID`;
     this.clientId = config.clientId || process.env[clientIdEnvVar] || '';
@@ -93,6 +119,8 @@ export class ElicitationBackendFeature extends Feature {
     this.accessTokenUrl = config.accessTokenUrl || defaults.accessTokenUrl || '';
     this.scopes = config.scopes || defaults.scopes || [];
     this.redirectUri = config.redirectUri || 'http://localhost:4000/age/elicitations';
+
+    this.brokered = config.brokered || {};
 
     const upstream = config.upstream || {};
     this.upstreamHost = upstream.host || 'api.github.com';
@@ -107,6 +135,21 @@ export class ElicitationBackendFeature extends Feature {
   }
 
   validate() {
+    if (this.mode === 'brokered') {
+      if (!this.upstreamHost) {
+        throw new Error('Elicitation backend requires upstream.host');
+      }
+      if (!this.brokered.mcpResourcePath) {
+        throw new Error('Elicitation backend (brokered mode) requires brokered.mcpResourcePath');
+      }
+      if (!this.brokered.mcpResourcePath.startsWith('/')) {
+        throw new Error(
+          'Elicitation backend (brokered mode) requires brokered.mcpResourcePath to start with "/"'
+        );
+      }
+      return true;
+    }
+
     if (!this.secretName) {
       throw new Error('Elicitation backend requires secretName');
     }
@@ -178,6 +221,36 @@ export class ElicitationBackendFeature extends Feature {
     this.log(`${BACKEND_KIND[this.edition]} '${this.backendName}' created`, 'info');
   }
 
+  /**
+   * Builds the `entElicitation.brokered` block for mode: 'brokered'. The gateway owns
+   * discovery/DCR/PKCE with the upstream provider (no redirectUri - that's an
+   * interactive-only field), so only fields explicitly provided in config.brokered are
+   * emitted.
+   * @returns {{brokered: {mcpResourcePath: string, chainedAuth?: object}}}
+   */
+  buildBrokeredElicitation() {
+    const { mcpResourcePath, chainedAuth } = this.brokered;
+    const brokered = { mcpResourcePath };
+
+    if (chainedAuth) {
+      const oauth = {};
+      if (chainedAuth.baseUrl) oauth.baseUrl = chainedAuth.baseUrl;
+      if (chainedAuth.authorizeUrl) oauth.authorizeUrl = chainedAuth.authorizeUrl;
+      if (chainedAuth.accessTokenUrl) oauth.accessTokenUrl = chainedAuth.accessTokenUrl;
+      if (chainedAuth.clientId) oauth.clientId = chainedAuth.clientId;
+      if (chainedAuth.clientSecretRef) oauth.clientSecretRef = chainedAuth.clientSecretRef;
+      if (chainedAuth.scopes) oauth.scopes = chainedAuth.scopes;
+      if (chainedAuth.registrationUrl) oauth.registrationUrl = chainedAuth.registrationUrl;
+      if (chainedAuth.clientName) oauth.clientName = chainedAuth.clientName;
+      if (chainedAuth.pkce) oauth.pkce = chainedAuth.pkce;
+      if (chainedAuth.consent) oauth.consent = chainedAuth.consent;
+
+      brokered.chainedAuth = { oauth };
+    }
+
+    return { brokered };
+  }
+
   async deployPolicy() {
     const policy = {
       apiVersion: 'enterpriseagentgateway.solo.io/v1alpha1',
@@ -199,31 +272,34 @@ export class ElicitationBackendFeature extends Feature {
           },
         ],
         backend: {
-          entElicitation: {
-            interactive: {
-              oauth: {
-                clientId: this.clientId,
-                clientSecretRef: { name: this.secretName },
-                scopes: this.scopes,
-                redirectUri: this.redirectUri,
-                authorizeUrl: this.authorizeUrl,
-                accessTokenUrl: this.accessTokenUrl,
-              },
-            },
-          },
+          entElicitation:
+            this.mode === 'brokered'
+              ? this.buildBrokeredElicitation()
+              : {
+                  interactive: {
+                    oauth: {
+                      clientId: this.clientId,
+                      clientSecretRef: { name: this.secretName },
+                      scopes: this.scopes,
+                      redirectUri: this.redirectUri,
+                      authorizeUrl: this.authorizeUrl,
+                      accessTokenUrl: this.accessTokenUrl,
+                    },
+                  },
+                },
           // Required alongside entElicitation - without it the proxy never engages the
           // STS lookup/injection path for this backend's traffic at all, so requests
-          // pass straight through regardless of whether an upstream token exists
-          // (live-verified: confirmed via CRD schema + Solo's own httpbin reference
-          // example at docs.solo.io/agentgateway/latest/mcp/token-exchange/elicitations/setup).
-          // ElicitationOnly stores the upstream (GitHub) token without replacing the
-          // caller's own IdP bearer token. elicitation.secretName is also required by
-          // the CRD schema - omitting it fails every request with "token exchange
-          // required but not configured" (live-verified: 503 from agentgateway itself).
-          tokenExchange: {
-            mode: 'ElicitationOnly',
-            elicitation: {
-              secretName: this.secretName,
+          // pass straight through regardless of whether an upstream token exists.
+          // entTokenExchange.solo.elicitation is the shape that actually works -
+          // live-verified against docs.solo.io's Interactive/GitHub worked example.
+          // The previous tokenExchange.elicitation.secretName field is mutually
+          // exclusive with entElicitation - the K8s admission webhook rejects any
+          // policy combining both outright ("entElicitation is mutually exclusive
+          // with the deprecated tokenExchange.elicitation"), so this feature could
+          // never have deployed successfully as written.
+          entTokenExchange: {
+            solo: {
+              elicitation: {},
             },
           },
         },

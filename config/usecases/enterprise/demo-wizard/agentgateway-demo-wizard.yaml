@@ -3,15 +3,9 @@ kind: UseCase
 metadata:
   name: agentgateway-demo-wizard
   description: |
-    Deploys the agentgateway-demo-wizard clickops demo app (github.com/day0ops/agentgateway-demo-wizard), publicly reachable but locked to VPN source ranges behind its own HTTPS Gateway, and pre-provisions the LLM provider backends its routing pillar expects to find already configured rather than create itself.
+    Deploys the agentgateway-demo-wizard clickops demo app (github.com/day0ops/agentgateway-demo-wizard), publicly reachable but locked to VPN source ranges behind its own HTTPS Gateway, pre-provisions the LLM provider backends its routing pillar expects to find already configured, and deploys the real ADK agents and MCP infrastructure backing its banking auth pillar: Impersonation (Accounts Agent reads the core-banking ledger), MCP tool-level RBAC (admin-only account detail; transfers only via the delegation chain), Delegation with a nested act chain of custody (Transfer Orchestrator -> Settlement -> core-banking), and Elicitation against a real external processor (Stripe sandbox), both Interactive and Brokered.
+  docs: https://docs.solo.io/agentgateway/latest/mcp/token-exchange/
 spec:
-  diagram: |
-    flowchart LR
-      Presenter -->|HTTPS, VPN only| Wizard[agentgateway-demo-wizard]
-      Wizard -->|clickops Apply/Revert| AGW[agentgateway]
-      AGW --> OpenAI[OpenAI]
-      AGW --> Anthropic[Anthropic]
-
   steps:
     - title: Pre-provision routing-by-name backends
       description: |
@@ -62,6 +56,325 @@ spec:
                     providerName: openai
                     model: gpt-4o
 
+    - title: Deploy LLM provider
+      description: |
+        Expose an OpenAI LLM provider at /openai so the four agents can route
+        completions through the gateway. Without this route, every agent's first
+        real (non-stub) LLM call fails outright - there is no backend behind
+        LLM_BASE_URL at all.
+      features:
+        - name: providers
+          config:
+            providers:
+              - name: openai
+                providerName: openai
+                pathPrefix: /openai
+
+    - title: Deploy Postgres for the ops-agents token exchange service
+      description: |
+        A dedicated Postgres instance for this usecase's own STS database - required
+        because token-exchange's Helm upgrades never clear a previous usecase's
+        database.postgres.url, only ever set it.
+      features:
+        - name: postgres
+          config:
+            name: ops-agents-postgres
+
+    - title: Enable the Security Token Service (STS)
+      description: |
+        Enables the agentgateway control plane's STS at port 7777. skipMayActClaimValidation
+        is set because this usecase's agents authenticate as their own Kubernetes
+        ServiceAccount (validated via the k8s actorValidator) rather than a Keycloak
+        client with a registered may_act claim. callbackUrl points at the Solo UI
+        elicitations page for the Interactive elicitation flow.
+      features:
+        - name: token-exchange
+          config:
+            keycloak:
+              realm: agw-dev
+              serviceName: keycloak
+              serviceNamespace: keycloak
+            tokenExpiration: 1h
+            skipMayActClaimValidation: true
+            callbackUrl: 'https://{{env.domains.core.soloUi}}/age/elicitations'
+            database:
+              postgres:
+                url: postgres://tokenexchange:tokenexchange@ops-agents-postgres.agentgateway-system.svc.cluster.local:5432/tokenexchange?sslmode=disable
+
+    - title: Deploy the Core Banking MCP server
+      description: |
+        Deploys the internal core-banking MCP (a fake-but-relatable ledger) and
+        exposes it at /core-banking-standard. This route carries the
+        Standard/Impersonation exchange - the Accounts Agent reads through it.
+      features:
+        - name: mcp-server
+          config:
+            deployServer: true
+            image: '{{env.images.opsAgents.core-banking}}'
+            serverName: core-banking
+            serverPort: 8000
+            servicePort: 80
+            protocol: StreamableHTTP
+            mcpPath: /mcp
+            pathPrefix: /core-banking-standard
+            backendName: core-banking-standard-backend
+            targetName: core-banking-standard-target
+            routeName: core-banking-standard
+
+    - title: Expose a second route to the Core Banking MCP for the Delegation path
+      description: |
+        Same pod, a different gateway route and backend - this one carries only
+        STS-issued (Delegation) tokens, never a raw Keycloak token. The Settlement
+        Agent calls transfer through it.
+      features:
+        - name: mcp-server
+          config:
+            deployServer: false
+            backendName: core-banking-delegation-backend
+            targetName: core-banking-delegation-target
+            routeName: core-banking-delegation
+            pathPrefix: /core-banking-delegation
+            targets:
+              - name: core-banking-delegation-target
+                host: core-banking.agentgateway-system.svc.cluster.local
+                port: 80
+                protocol: StreamableHTTP
+                path: /mcp
+
+    - title: Protect the standard route with the proxy-native Impersonation exchange
+      description: |
+        Reuses the same agw-token-exchange Keycloak client already provisioned for
+        this wizard's auth pillar. The Accounts Agent presents the user's token
+        as-is; agentgateway performs the RFC 8693 Impersonation exchange here
+        (same identity, re-signed, no act claim) before forwarding.
+      features:
+        - name: oauth-token-exchange
+          config:
+            name: core-banking-standard-exchange
+            targetRefs:
+              - group: gateway.networking.k8s.io
+                kind: HTTPRoute
+                name: core-banking-standard
+            jwtAuthentication:
+              issuer: 'https://{{env.domains.core.keycloak}}/realms/agw-dev'
+              audiences: [account]
+              jwks:
+                host: '{{env.domains.core.keycloak}}'
+                path: realms/agw-dev/protocol/openid-connect/certs
+            tokenEndpoint:
+              host: '{{env.domains.core.keycloak}}'
+              path: /realms/agw-dev/protocol/openid-connect/token
+            clientAuth:
+              clientId: agw-token-exchange
+
+    - title: Protect the delegation route with STS-issued-token validation
+      description: |
+        No exchange happens at this boundary - the caller (the Settlement Agent)
+        already exchanged at the STS before arriving. This policy only validates
+        that the token was actually issued by the STS, so the act chain it carries
+        can be trusted by the RBAC gate below.
+      features:
+        - name: obo-token-exchange
+          config:
+            policyName: core-banking-delegation-jwt-policy
+            issuer: '{{env.internal.stsIssuer}}'
+            jwksPath: /.well-known/jwks.json
+            jwksBackend:
+              name: enterprise-agentgateway
+              namespace: agentgateway-system
+              port: 7777
+            audiences: [agentgateway]
+            jwtMode: Strict
+            targetRefs:
+              - group: gateway.networking.k8s.io
+                kind: HTTPRoute
+                name: core-banking-delegation
+
+    - title: Restrict account-detail reads to admins (MCP RBAC)
+      description: |
+        Tool-level RBAC on the standard/impersonation route: any authenticated
+        customer may list accounts and read transactions, but only an org admin
+        (is_org_admin claim) may read full account and routing numbers via
+        get_account_detail. transfer is deliberately not in the allow-list here,
+        so it cannot be invoked on the impersonation route at all - transfers must
+        go through the delegation chain (next gate).
+      features:
+        - name: mcp-tool-access
+          config:
+            policyName: core-banking-standard-rbac
+            backendName: core-banking-standard-backend
+            action: Allow
+            matchExpressions:
+              - 'mcp.tool.name == "list_accounts"'
+              - 'mcp.tool.name == "get_transactions"'
+              - 'mcp.tool.name == "get_account_detail" && jwt.is_org_admin == "true"'
+
+    - title: Require the delegation chain for transfers (MCP RBAC)
+      description: |
+        Tool-level RBAC on the delegation route: the transfer tool is callable only
+        when the token's nested actor chain proves the call arrived via the Transfer
+        Orchestrator (jwt.act.act.sub = the Orchestrator's ServiceAccount). A raw
+        direct transfer, even by the same user, is denied because it lacks that
+        chain. Identity alone is insufficient; the delegation path is part of the
+        authorization decision.
+      features:
+        - name: mcp-tool-access
+          config:
+            policyName: core-banking-delegation-rbac
+            backendName: core-banking-delegation-backend
+            action: Allow
+            matchExpressions:
+              - 'mcp.tool.name == "transfer" && jwt.act.act.sub == "system:serviceaccount:agentgateway-system:transfer-orchestrator-agent"'
+
+    - title: Deploy the Accounts Agent (read-only, Impersonation)
+      description: |
+        Reads the customer's own balances and transactions. Presents the user's
+        token unchanged; the gateway's Impersonation exchange on the standard route
+        re-signs it before forwarding to core-banking.
+      features:
+        - name: workload-agent
+          config:
+            agentName: accounts-agent
+            image: '{{env.images.opsAgents.accounts-agent}}'
+            pathPrefix: /accounts-agent
+            routeName: accounts-agent
+            useTokenExchange: false
+            llmBaseUrl: '{{env.internal.agentgateway}}/openai'
+            additionalEnv:
+              - name: MCP_CORE_BANKING_URL
+                value: '{{env.internal.agentgateway}}/core-banking-standard/mcp'
+
+    - title: Deploy the Transfer Orchestrator Agent (hop 1 of the delegation chain)
+      description: |
+        Exchanges the user's token at the STS (actor = its own ServiceAccount),
+        then delegates the actual ledger operation to the Settlement Agent, passing
+        the exchanged token.
+      features:
+        - name: workload-agent
+          config:
+            agentName: transfer-orchestrator-agent
+            image: '{{env.images.opsAgents.transfer-orchestrator-agent}}'
+            pathPrefix: /transfer-orchestrator-agent
+            routeName: transfer-orchestrator-agent
+            useTokenExchange: true
+            saTokenAudience: agentgateway
+            llmBaseUrl: '{{env.internal.agentgateway}}/openai'
+            additionalEnv:
+              - name: STS_URL
+                value: '{{env.internal.sts}}'
+              - name: SETTLEMENT_AGENT_URL
+                value: '{{env.internal.agentgateway}}/settlement-agent/run'
+
+    - title: Deploy the Settlement Agent (hop 2, re-exchanges and surfaces the chain)
+      description: |
+        Re-exchanges the incoming delegated token at the STS (actor = its own
+        ServiceAccount), producing a nested act chain, then calls the core-banking
+        transfer tool on the delegation route and reports the full chain of custody.
+      features:
+        - name: workload-agent
+          config:
+            agentName: settlement-agent
+            image: '{{env.images.opsAgents.settlement-agent}}'
+            pathPrefix: /settlement-agent
+            routeName: settlement-agent
+            useTokenExchange: true
+            saTokenAudience: agentgateway
+            llmBaseUrl: '{{env.internal.agentgateway}}/openai'
+            additionalEnv:
+              - name: STS_URL
+                value: '{{env.internal.sts}}'
+              - name: MCP_CORE_BANKING_DELEGATION_URL
+                value: '{{env.internal.agentgateway}}/core-banking-delegation/mcp'
+
+    - title: Deploy the Statements Agent (Elicitation)
+      description: |
+        Reaches the external payment processor (Stripe sandbox) on the customer's
+        behalf. The gateway has no Stripe credential for the user yet, so the first
+        call triggers elicitation (Interactive or Brokered, below).
+      features:
+        - name: workload-agent
+          config:
+            agentName: statements-agent
+            image: '{{env.images.opsAgents.statements-agent}}'
+            pathPrefix: /statements-agent
+            routeName: statements-agent
+            useTokenExchange: false
+            llmBaseUrl: '{{env.internal.agentgateway}}/openai'
+            additionalEnv:
+              - name: MCP_STRIPE_URL
+                value: '{{env.internal.agentgateway}}/mcp-stripe'
+
+    - title: Create the Stripe OAuth client secret
+      description: |
+        For the Interactive elicitation path. Register a Stripe MCP OAuth client
+        (DCR: POST https://access.stripe.com/mcp/oauth2/register with redirect_uris
+        set to the Solo UI elicitations URL) and set AGW_DEMO_STRIPE_CLIENT_ID /
+        AGW_DEMO_STRIPE_CLIENT_SECRET in the environment before deploying.
+      features:
+        - name: elicitation-secret
+          config:
+            secretName: ops-agents-stripe-oauth
+            provider: stripe
+            clientSecretEnvVar: AGW_DEMO_STRIPE_CLIENT_SECRET
+
+    - title: Configure the Stripe MCP backend with Interactive Elicitation
+      description: |
+        Points agentgateway at Stripe's real remote MCP server (sandbox). The first
+        call from a user with no stored Stripe token returns a pending consent URL;
+        after the user completes OAuth in the Solo UI, the STS injects a real Stripe
+        token into every subsequent call. Stripe endpoints/upstream path are
+        confirmed live during deploy; if Stripe rejects the non-PKCE interactive
+        flow, this step falls back to the proven GitHub backend (see plan Task 0.C).
+      features:
+        - name: elicitation-backend
+          config:
+            mode: interactive
+            backendName: stripe-mcp-backend
+            policyName: stripe-mcp-elicitation
+            routeName: mcp-stripe
+            pathPrefix: /mcp-stripe
+            secretName: ops-agents-stripe-oauth
+            provider: stripe
+            clientIdEnvVar: AGW_DEMO_STRIPE_CLIENT_ID
+            scopes: ['mcp']
+            authorizeUrl: https://access.stripe.com/mcp/oauth2/authorize
+            accessTokenUrl: https://access.stripe.com/mcp/oauth2/token
+            redirectUri: 'https://{{env.domains.core.soloUi}}/age/elicitations'
+            upstream:
+              host: mcp.stripe.com
+              port: 443
+              path: /
+              tls: true
+
+    - title: Configure the Stripe MCP backend with Brokered Elicitation
+      description: |
+        The same external processor, reached via the gateway's own OAuth issuer
+        instead of the after-the-fact Solo UI flow: because the user already
+        authenticated, the issuer brokers only the upstream Stripe credential inline
+        (DCR + PKCE against mcp.stripe.com) and shows its own consent screen.
+        Requires the gateway OAuth issuer to be enabled with a consent block via
+        token-exchange's oauthIssuerConfig - wired in and confirmed live during
+        deploy (plan Task 0.B); the policy/route below deploy safely without it and
+        begin working once the issuer is enabled.
+      features:
+        - name: elicitation-backend
+          config:
+            mode: brokered
+            backendName: stripe-mcp-brokered-backend
+            policyName: stripe-mcp-brokered
+            routeName: mcp-stripe-brokered
+            pathPrefix: /mcp-stripe-brokered
+            upstream:
+              host: mcp.stripe.com
+              port: 443
+              path: /
+              tls: true
+            brokered:
+              mcpResourcePath: /mcp-stripe-brokered
+              chainedAuth:
+                baseUrl: https://mcp.stripe.com
+                scopes: ['mcp']
+
     - title: Deploy the wizard
       description: |
         Deploy the wizard app itself: Deployment, Service, scoped RBAC, and its own VPN-locked HTTPS Gateway - plus the dynamic-tier HTTPRoute from the previous step's backends.
@@ -76,3 +389,5 @@ spec:
             tls:
               enabled: true
               issuer: '{{env.tls.issuer}}'
+
+  tests: []

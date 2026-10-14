@@ -147,9 +147,15 @@ spec:
           enabled: true
           secretName: keycloak-tls
           createCertificate: true
+        soloUiClients:
+          enabled: true
+          realm: agw-dev
+          hostname: https://{{env.domains.core.soloUi}}
+          backendClientId: solo-ui-backend
+          backendClientSecret: solo-ui-backend-secret
+          frontendClientId: solo-ui-frontend
         realms:
           - realm: agw-dev
-            defaultPassword: Password1!
             clients:
               - clientId: agw-client
                 type: confidential
@@ -200,6 +206,9 @@ spec:
                 firstName: Alpha
                 lastName: User
                 email: user1@acme-corp.demo
+                # Temporary: testing whether global.Reader is sufficient for a tenant
+                # user to view/approve their own pending elicitation in Solo UI.
+                soloUiGroup: readers
                 attributes:
                   org_id: acme-corp
                   team_id: team-alpha
@@ -266,190 +275,6 @@ spec:
                 lastName: Service
                 email: mcp-user@acme-corp.demo
 
-          - realm: org-acme
-            orgId: acme
-            defaultPassword: Password1!
-            teams:
-              - teamId: team-eng
-                clientId: acme-team-eng
-                clientSecret: acme-team-eng-secret
-                users:
-                  - username: acme-eng-user1
-                    firstName: Acme Eng
-                    lastName: User
-                    email: acme-eng-user1@org-acme.demo
-                    attributes:
-                      org_id: acme
-                      team_id: team-eng
-                  - username: acme-eng-admin
-                    firstName: Acme Eng
-                    lastName: Admin
-                    email: acme-eng-admin@org-acme.demo
-                    attributes:
-                      org_id: acme
-                      team_id: team-eng
-                      is_org_admin: 'true'
-              - teamId: team-finance
-                clientId: acme-team-finance
-                clientSecret: acme-team-finance-secret
-                users:
-                  - username: acme-finance-user1
-                    firstName: Acme Finance
-                    lastName: User
-                    email: acme-finance-user1@org-acme.demo
-                    attributes:
-                      org_id: acme
-                      team_id: team-finance
-
-          - realm: org-globex
-            orgId: globex
-            defaultPassword: Password1!
-            teams:
-              - teamId: team-ops
-                clientId: globex-team-ops
-                clientSecret: globex-team-ops-secret
-                users:
-                  - username: globex-ops-user1
-                    firstName: Globex Ops
-                    lastName: User
-                    email: globex-ops-user1@org-globex.demo
-                    attributes:
-                      org_id: globex
-                      team_id: team-ops
-              - teamId: team-sales
-                clientId: globex-team-sales
-                clientSecret: globex-team-sales-secret
-                users:
-                  - username: globex-sales-user1
-                    firstName: Globex Sales
-                    lastName: User
-                    email: globex-sales-user1@org-globex.demo
-                    attributes:
-                      org_id: globex
-                      team_id: team-sales
-
-          - realm: org-initech
-            orgId: initech
-            defaultPassword: Password1!
-            teams:
-              - teamId: team-dev
-                clientId: initech-team-dev
-                clientSecret: initech-team-dev-secret
-                users:
-                  - username: initech-dev-user1
-                    firstName: Initech Dev
-                    lastName: User
-                    email: initech-dev-user1@org-initech.demo
-                    attributes:
-                      org_id: initech
-                      team_id: team-dev
-              - teamId: team-qa
-                clientId: initech-team-qa
-                clientSecret: initech-team-qa-secret
-                users:
-                  - username: initech-qa-user1
-                    firstName: Initech QA
-                    lastName: User
-                    email: initech-qa-user1@org-initech.demo
-                    attributes:
-                      org_id: initech
-                      team_id: team-qa
-
-          - realm: org-umbrella
-            orgId: umbrella
-            defaultPassword: Password1!
-            teams:
-              - teamId: team-research
-                clientId: umbrella-team-research
-                clientSecret: umbrella-team-research-secret
-                users:
-                  - username: umbrella-research-user1
-                    firstName: Umbrella Research
-                    lastName: User
-                    email: umbrella-research-user1@org-umbrella.demo
-                    attributes:
-                      org_id: umbrella
-                      team_id: team-research
-              - teamId: team-security
-                clientId: umbrella-team-security
-                clientSecret: umbrella-team-security-secret
-                users:
-                  - username: umbrella-security-user1
-                    firstName: Umbrella Security
-                    lastName: User
-                    email: umbrella-security-user1@org-umbrella.demo
-                    attributes:
-                      org_id: umbrella
-                      team_id: team-security
-
-          - realm: workforce-idp
-            defaultPassword: Password1!
-            clients:
-              - clientId: workforce-agent
-                type: confidential
-                clientSecret: workforce-agent-secret
-                directAccessGrantsEnabled: true
-                flows: []
-            customAttributes:
-              - role
-              - department
-            users:
-              - username: alice-admin
-                firstName: Alice
-                lastName: Admin
-                email: alice-admin@workforce.demo
-                attributes:
-                  role: admin
-                  department: platform
-              - username: bob-manager
-                firstName: Bob
-                lastName: Manager
-                email: bob-manager@workforce.demo
-                attributes:
-                  role: manager
-                  department: engineering
-              - username: carol-employee
-                firstName: Carol
-                lastName: Employee
-                email: carol-employee@workforce.demo
-                attributes:
-                  role: employee
-                  department: engineering
-
-          - realm: partner-idp
-            defaultPassword: Password1!
-            clients:
-              - clientId: partner-agent
-                type: confidential
-                clientSecret: partner-agent-secret
-                directAccessGrantsEnabled: true
-                flows: []
-            customAttributes:
-              - partner_tier
-              - partner_id
-            users:
-              - username: acme-gold-user
-                firstName: Acme Gold
-                lastName: User
-                email: acme-gold-user@partner.demo
-                attributes:
-                  partner_tier: gold
-                  partner_id: acme-partner
-              - username: acme-silver-user
-                firstName: Acme Silver
-                lastName: User
-                email: acme-silver-user@partner.demo
-                attributes:
-                  partner_tier: silver
-                  partner_id: acme-partner
-              - username: acme-bronze-user
-                firstName: Acme Bronze
-                lastName: User
-                email: acme-bronze-user@partner.demo
-                attributes:
-                  partner_tier: bronze
-                  partner_id: acme-partner
-
         workloadClients:
           - clientId: caller-agent
             clientSecret: caller-agent-secret
@@ -476,3 +301,22 @@ spec:
             audience: agentgateway
             k8sSecretName: fd-agent-credentials
             k8sSecretNamespace: agentgateway-system
+
+    - name: solo-ui
+      description: Solo Enterprise UI
+      version: '{{env.soloUi.version}}'
+      namespace: agentgateway-system
+      config:
+        serviceType: ClusterIP
+        hostname: '{{env.domains.core.soloUi}}'
+        sourceRanges: '{{env.security.vpnSourceRanges}}'
+        tls:
+          enabled: true
+          secretName: solo-ui-tls
+          issuer: '{{env.tls.issuer}}'
+        oidc:
+          enabled: true
+          issuerUrl: https://{{env.domains.core.keycloak}}/realms/agw-dev
+          backendClientId: solo-ui-backend
+          backendClientSecret: solo-ui-backend-secret
+          frontendClientId: solo-ui-frontend

@@ -35,6 +35,11 @@ const POSTGRES_VERSION = '18.6-alpine';
  *   KEYCLOAK_ADMIN_PASSWORD       - Keycloak master realm bootstrap admin password
  *   KEYCLOAK_POSTGRES_USER        - Postgres superuser backing Keycloak's DB
  *   KEYCLOAK_POSTGRES_PASSWORD    - Postgres superuser password
+ *   KEYCLOAK_DEFAULT_PASSWORD     - Password for every demo user across every configured
+ *                                   realm (only required when config.realms is non-empty).
+ *                                   There is no in-repo default - realm config no longer
+ *                                   accepts a plaintext `defaultPassword` field at all, so
+ *                                   this is the only source.
  *   SOLO_UI_DEFAULT_PASSWORD      - solo-admin/solo-reader/solo-writer bootstrap password
  *                                   (only required when soloUiClients.enabled is true)
  *   GRAFANA_REALM_ADMIN_USERNAME  - Grafana OIDC demo admin username (default: 'grafana-admin';
@@ -76,6 +81,13 @@ export class KeycloakFeature extends Feature {
     this.adminPassword = process.env.KEYCLOAK_ADMIN_PASSWORD || '';
     this.postgresUser = process.env.KEYCLOAK_POSTGRES_USER || '';
     this.postgresPassword = process.env.KEYCLOAK_POSTGRES_PASSWORD || '';
+    this.defaultPassword = process.env.KEYCLOAK_DEFAULT_PASSWORD || '';
+    this.hasRealms = (config.realms || []).length > 0;
+    // Populated by setupStandardRealm() for any user with a `soloUiGroup` field,
+    // then applied once createSoloUIClients() has created the admins/readers/writers
+    // groups - group assignment has to happen after those groups exist, but standard
+    // realm users are created before createSoloUIClients() runs.
+    this.pendingSoloUiGroupAssignments = [];
     this.soloUiDefaultPassword = process.env.SOLO_UI_DEFAULT_PASSWORD || '';
     this.grafanaAdminUsername = process.env.GRAFANA_REALM_ADMIN_USERNAME || 'grafana-admin';
     this.grafanaAdminPassword = process.env.GRAFANA_REALM_ADMIN_PASSWORD || '';
@@ -88,6 +100,7 @@ export class KeycloakFeature extends Feature {
       !this.adminPassword && 'KEYCLOAK_ADMIN_PASSWORD',
       !this.postgresUser && 'KEYCLOAK_POSTGRES_USER',
       !this.postgresPassword && 'KEYCLOAK_POSTGRES_PASSWORD',
+      this.hasRealms && !this.defaultPassword && 'KEYCLOAK_DEFAULT_PASSWORD',
       this.soloUiClients?.enabled && !this.soloUiDefaultPassword && 'SOLO_UI_DEFAULT_PASSWORD',
       this.hasGrafanaRealm && !this.grafanaAdminPassword && 'GRAFANA_REALM_ADMIN_PASSWORD',
     ].filter(Boolean);
@@ -99,6 +112,7 @@ export class KeycloakFeature extends Feature {
           '  export KEYCLOAK_ADMIN_PASSWORD="<your-password>"\n' +
           '  export KEYCLOAK_POSTGRES_USER="postgres"\n' +
           '  export KEYCLOAK_POSTGRES_PASSWORD="<your-password>"\n' +
+          '  export KEYCLOAK_DEFAULT_PASSWORD="<your-password>"\n' +
           '  export SOLO_UI_DEFAULT_PASSWORD="<your-password>"\n' +
           '  export GRAFANA_REALM_ADMIN_PASSWORD="<your-password>"'
       );
@@ -833,8 +847,40 @@ export class KeycloakFeature extends Feature {
 
     const groupIds = await this.createSoloUIGroups(baseUrl, token);
     await this.createSoloUIUsers(baseUrl, token, groupIds);
+    await this.assignPendingSoloUiGroups(baseUrl, token, groupIds);
 
     this.log('Solo UI clients, groups, and users created', 'success');
+  }
+
+  // Assigns standard-realm users (e.g. user1) a Solo UI group, requested via their
+  // `soloUiGroup` config field and queued by setupStandardRealm(). Only applies to
+  // users in this.soloUiRealm - the groups don't exist anywhere else.
+  async assignPendingSoloUiGroups(baseUrl, token, groupIds) {
+    for (const { username, realm, group } of this.pendingSoloUiGroupAssignments) {
+      if (realm !== this.soloUiRealm) {
+        this.log(
+          `Skipping Solo UI group '${group}' for '${username}': realm '${realm}' is not the Solo UI realm '${this.soloUiRealm}'`,
+          'warn'
+        );
+        continue;
+      }
+      const groupId = groupIds[group];
+      if (!groupId) {
+        this.log(`Skipping Solo UI group assignment: unknown group '${group}'`, 'warn');
+        continue;
+      }
+      const userId = await this.lookupUserId(baseUrl, token, username, realm);
+      if (!userId) {
+        this.log(`Skipping Solo UI group '${group}' for '${username}': user not found`, 'warn');
+        continue;
+      }
+      await this.kcApi(
+        'PUT',
+        `${baseUrl}/admin/realms/${realm}/users/${userId}/groups/${groupId}`,
+        token
+      );
+      this.log(`Added '${username}' to Solo UI group '${group}'`, 'info');
+    }
   }
 
   async createSoloUIGroups(baseUrl, token) {
@@ -1553,13 +1599,13 @@ export class KeycloakFeature extends Feature {
     }
 
     const isGrafanaRealm = realm.realm === 'grafana';
-    const defaultPassword = isGrafanaRealm ? this.grafanaAdminPassword : realm.defaultPassword;
+    const defaultPassword = isGrafanaRealm ? this.grafanaAdminPassword : this.defaultPassword;
     for (const user of realm.users || []) {
       const username = isGrafanaRealm ? this.grafanaAdminUsername : user.username;
       const password = user.password || defaultPassword;
       if (!password) {
         throw new Error(
-          `No password for user '${username}' in realm '${realm.realm}'. Set defaultPassword or per-user password.`
+          `No password for user '${username}' in realm '${realm.realm}'. Set KEYCLOAK_DEFAULT_PASSWORD or a per-user password.`
         );
       }
       const userId = await this.createAndVerify(
@@ -1578,6 +1624,13 @@ export class KeycloakFeature extends Feature {
         { refreshFn: refreshToken }
       );
       if (!userId) realmOk = false;
+      if (userId && user.soloUiGroup) {
+        this.pendingSoloUiGroupAssignments.push({
+          username,
+          realm: realm.realm,
+          group: user.soloUiGroup,
+        });
+      }
     }
 
     if (realmOk) {
@@ -1611,7 +1664,7 @@ export class KeycloakFeature extends Feature {
     const orgAttrs = ['org_id', 'team_id', 'is_org_admin', 'is_team_admin'];
     await this.configureUserProfileForRealm(baseUrl, token, realm.realm, orgAttrs);
 
-    const defaultPassword = realm.defaultPassword;
+    const defaultPassword = this.defaultPassword;
 
     for (const team of realm.teams || []) {
       const payload = {
@@ -1661,7 +1714,7 @@ export class KeycloakFeature extends Feature {
         const password = user.password || defaultPassword;
         if (!password) {
           throw new Error(
-            `No password for user '${user.username}' in realm '${realm.realm}'. Set defaultPassword or per-user password.`
+            `No password for user '${user.username}' in realm '${realm.realm}'. Set KEYCLOAK_DEFAULT_PASSWORD or a per-user password.`
           );
         }
         const userId = await this.createAndVerify(
