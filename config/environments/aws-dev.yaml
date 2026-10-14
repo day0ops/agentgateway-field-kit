@@ -102,7 +102,7 @@ spec:
       repo-agent: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/repo-agent:v0.1.2
       release-manager-agent: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/release-manager-agent:v0.1.2
       deploy-agent: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/deploy-agent:v0.1.2
-      github-agent: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/github-agent:v0.1.2
+      github-agent: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/github-agent:v0.1.6
     wizard:
       agentgateway-demo-wizard: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/agentgateway-demo-wizard:v0.6.1
 
