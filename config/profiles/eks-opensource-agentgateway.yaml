@@ -84,7 +84,6 @@ spec:
           createCertificate: true
         realms:
           - realm: agw-dev
-            defaultPassword: Password1!
             clients:
               - clientId: agw-client
                 type: confidential
