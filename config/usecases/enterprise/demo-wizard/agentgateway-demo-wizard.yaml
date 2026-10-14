@@ -302,48 +302,52 @@ spec:
             llmBaseUrl: '{{env.internal.agentgateway}}/openai'
             additionalEnv:
               - name: MCP_STRIPE_URL
-                value: '{{env.internal.agentgateway}}/mcp-stripe'
+                value: '{{env.internal.agentgateway}}/mcp-stripe-brokered'
+              - name: MCP_PAYPAL_URL
+                value: '{{env.internal.agentgateway}}/mcp-paypal'
 
-    - title: Create the Stripe OAuth client secret
+    - title: Create the PayPal OAuth client secret
       description: |
-        For the Interactive elicitation path. Register a Stripe MCP OAuth client
-        (DCR: POST https://access.stripe.com/mcp/oauth2/register with redirect_uris
-        set to the Solo UI elicitations URL) and set AGW_DEMO_STRIPE_CLIENT_ID /
-        AGW_DEMO_STRIPE_CLIENT_SECRET in the environment before deploying.
+        For the Interactive elicitation path. Stripe's OAuth app is DCR+PKCE only
+        (confirmed live: it never issues a client secret), which Interactive can't
+        use, so this path targets PayPal sandbox instead - confirmed live to
+        support classic confidential clients. Register a PayPal MCP OAuth client
+        (DCR: POST https://mcp.sandbox.paypal.com/register with redirect_uris set
+        to the Solo UI elicitations URL and token_endpoint_auth_method:
+        client_secret_post) and set AGW_DEMO_PAYPAL_CLIENT_ID /
+        AGW_DEMO_PAYPAL_CLIENT_SECRET in the environment before deploying.
       features:
         - name: elicitation-secret
           config:
-            secretName: ops-agents-stripe-oauth
-            provider: stripe
-            clientSecretEnvVar: AGW_DEMO_STRIPE_CLIENT_SECRET
+            secretName: ops-agents-paypal-oauth
+            provider: paypal
+            clientSecretEnvVar: AGW_DEMO_PAYPAL_CLIENT_SECRET
 
-    - title: Configure the Stripe MCP backend with Interactive Elicitation
+    - title: Configure the PayPal MCP backend with Interactive Elicitation
       description: |
-        Points agentgateway at Stripe's real remote MCP server (sandbox). The first
-        call from a user with no stored Stripe token returns a pending consent URL;
-        after the user completes OAuth in the Solo UI, the STS injects a real Stripe
-        token into every subsequent call. Stripe endpoints/upstream path are
-        confirmed live during deploy; if Stripe rejects the non-PKCE interactive
-        flow, this step falls back to the proven GitHub backend (see plan Task 0.C).
+        Points agentgateway at PayPal's real remote MCP server (sandbox). The first
+        call from a user with no stored PayPal token returns a pending consent URL;
+        after the user completes OAuth in the Solo UI, the STS injects a real
+        PayPal token into every subsequent call. PayPal doesn't advertise OAuth
+        scopes for this server, so none are requested here.
       features:
         - name: elicitation-backend
           config:
             mode: interactive
-            backendName: stripe-mcp-backend
-            policyName: stripe-mcp-elicitation
-            routeName: mcp-stripe
-            pathPrefix: /mcp-stripe
-            secretName: ops-agents-stripe-oauth
-            provider: stripe
-            clientIdEnvVar: AGW_DEMO_STRIPE_CLIENT_ID
-            scopes: ['mcp']
-            authorizeUrl: https://access.stripe.com/mcp/oauth2/authorize
-            accessTokenUrl: https://access.stripe.com/mcp/oauth2/token
+            backendName: paypal-mcp-backend
+            policyName: paypal-mcp-elicitation
+            routeName: mcp-paypal
+            pathPrefix: /mcp-paypal
+            secretName: ops-agents-paypal-oauth
+            provider: paypal
+            clientIdEnvVar: AGW_DEMO_PAYPAL_CLIENT_ID
+            authorizeUrl: https://mcp.sandbox.paypal.com/authorize
+            accessTokenUrl: https://mcp.sandbox.paypal.com/token
             redirectUri: 'https://{{env.domains.core.soloUi}}/age/elicitations'
             upstream:
-              host: mcp.stripe.com
+              host: mcp.sandbox.paypal.com
               port: 443
-              path: /
+              path: /mcp
               tls: true
 
     - title: Configure the Stripe MCP backend with Brokered Elicitation
