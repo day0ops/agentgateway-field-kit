@@ -192,6 +192,14 @@ spec:
                 directAccessGrantsEnabled: false
                 flows:
                   - authorization-code
+                # agw-token-exchange does Standard Token Exchange on this
+                # client's tokens too (demo-wizard's auth pillar, Impersonation
+                # on the standard route) - Keycloak requires the exchanging
+                # client to already be in the subject token's own audience, or
+                # it rejects with not_allowed/"client is not within the token
+                # audience". See the same comment on agw-client-public above.
+                audienceMappers:
+                  - agw-token-exchange
             customAttributes:
               - org_id
               - team_id
