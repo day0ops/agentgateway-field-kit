@@ -199,10 +199,18 @@ describe('AgentgatewayDemoWizardFeature', () => {
         const route = findDoc(docs, 'HTTPRoute', 'agentgateway-demo-wizard');
         expect(route.spec.hostnames).toEqual(['wizard.demo.example.com']);
         expect(route.spec.rules[0].backendRefs[0].name).toBe('agentgateway-demo-wizard');
+
+        const secureRoute = findDoc(docs, 'HTTPRoute', 'agentgateway-demo-wizard-secure');
+        expect(secureRoute.spec.hostnames).toEqual(['wizard.demo.example.com']);
+        expect(secureRoute.spec.rules[0].backendRefs[0].name).toBe('agentgateway-demo-wizard');
+        expect(secureRoute.spec.rules[0].matches[0].path).toEqual({
+          type: 'PathPrefix',
+          value: '/secure',
+        });
       }
     ));
 
-  test('skips the dedicated Gateway/Certificate/Route entirely when hostname is unset (local/dev)', () =>
+  test('skips the dedicated Gateway/Certificate/Route/secure-route entirely when hostname is unset (local/dev)', () =>
     withEnv(
       {
         OPENAI_API_KEY: 'sk-test',
@@ -217,6 +225,7 @@ describe('AgentgatewayDemoWizardFeature', () => {
         );
         expect(findDoc(docs, 'Gateway', 'agentgateway-demo-wizard-https')).toBeFalsy();
         expect(findDoc(docs, 'HTTPRoute', 'agentgateway-demo-wizard')).toBeFalsy();
+        expect(findDoc(docs, 'HTTPRoute', 'agentgateway-demo-wizard-secure')).toBeFalsy();
       }
     ));
 });

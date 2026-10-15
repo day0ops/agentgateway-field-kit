@@ -20,7 +20,10 @@ const DEFAULT_IMAGE =
  *
  * Also bundles the 'routing-dynamic' HTTPRoute the wizard's dynamic-tier routing
  * step expects to find (X-Model-Tier header match against two pre-provisioned
- * backends) - see
+ * backends), and (when hostname+tls are set) a second, more specific HTTPRoute
+ * at PathPrefix /secure for the auth pillar's ext-auth-gated login/ops-agent
+ * endpoints - Gateway API's longest-path-match precedence leaves every other
+ * path resolving to the existing, ungated '/' route - see
  * docs/superpowers/specs/2026-10-08-demo-wizard-field-kit-integration-design.md
  * for the full naming contract this usecase and the wizard's own registry agree on.
  *
@@ -84,6 +87,7 @@ export class AgentgatewayDemoWizardFeature extends Feature {
 
     if (this.hostname && this.tls?.enabled) {
       await this.applyHttpsResources();
+      await this.deploySecureRoute();
     }
 
     this.accessHint = this.hostname
@@ -213,12 +217,25 @@ export class AgentgatewayDemoWizardFeature extends Feature {
     this.log('HTTPS resources applied', 'info');
   }
 
+  async deploySecureRoute() {
+    await this.applyYamlFile('secure-route.yaml', {
+      spec: {
+        hostnames: [this.hostname],
+      },
+    });
+    this.log(
+      'agentgateway-demo-wizard-secure HTTPRoute applied (ext-auth-gated /secure prefix)',
+      'info'
+    );
+  }
+
   async cleanup() {
     this.log('Cleaning up agentgateway-demo-wizard...', 'info');
 
     await this.deleteResource('HTTPRoute', 'routing-dynamic', this.namespace);
 
     if (this.hostname && this.tls?.enabled) {
+      await this.deleteResource('HTTPRoute', 'agentgateway-demo-wizard-secure', this.namespace);
       await this.deleteResource('HTTPRoute', 'agentgateway-demo-wizard', this.namespace);
       await this.deleteResource('Gateway', 'agentgateway-demo-wizard-https', this.namespace);
       await this.deleteResource('Certificate', 'agentgateway-demo-wizard-tls', this.namespace);
