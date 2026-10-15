@@ -78,6 +78,63 @@ describe('ProvidersFeature createRoute flag', () => {
       expect(findDoc(docs, 'HTTPRoute', 'providers-groups')).toBeFalsy();
     }));
 
+  test('groups mode providers get the default auth.secretRef wiring, matching single-provider mode', () =>
+    withEnv({ OPENAI_API_KEY: 'sk-test' }, async () => {
+      const docs = await FeatureManager.deploy(
+        'providers',
+        {
+          namespace: 'agentgateway-system',
+          name: 'routing-fallback',
+          groups: [
+            {
+              providers: [
+                { name: 'routing-fallback-cheap', providerName: 'openai', model: 'gpt-4o-mini' },
+              ],
+            },
+            {
+              providers: [
+                { name: 'routing-fallback-premium', providerName: 'openai', model: 'gpt-4o' },
+              ],
+            },
+          ],
+        },
+        { dryRun: true }
+      );
+      const backend = findDoc(docs, 'EnterpriseAgentgatewayBackend', 'routing-fallback');
+      for (const group of backend.spec.ai.groups) {
+        for (const provider of group.providers) {
+          expect(provider.policies.auth.secretRef.name).toBe('openai-secret');
+        }
+      }
+    }));
+
+  test('groups mode respects an explicit provider-level auth policy instead of the default', () =>
+    withEnv({}, async () => {
+      const docs = await FeatureManager.deploy(
+        'providers',
+        {
+          namespace: 'agentgateway-system',
+          name: 'routing-fallback',
+          groups: [
+            {
+              providers: [
+                {
+                  name: 'custom',
+                  providerName: 'openai-compatible',
+                  model: 'local-model',
+                  host: 'local-llm.internal',
+                  port: 8080,
+                },
+              ],
+            },
+          ],
+        },
+        { dryRun: true }
+      );
+      const backend = findDoc(docs, 'EnterpriseAgentgatewayBackend', 'routing-fallback');
+      expect(backend.spec.ai.groups[0].providers[0].policies?.auth).toBeUndefined();
+    }));
+
   test('groups mode name override renames the backend (default stays providers-groups)', () =>
     withEnv({ OPENAI_API_KEY: 'sk-test' }, async () => {
       const defaultNamed = await FeatureManager.deploy(
