@@ -340,7 +340,13 @@ export class OAuthAuthorizationCodeFeature extends Feature {
   async cleanup() {
     this.log('Cleaning up OAuth authorization code...', 'info');
 
-    await this.deleteResource('EnterpriseAgentgatewayPolicy', this.policyName);
+    // The policy is applied through the merge/commit pipeline (see
+    // FeatureManager.commit), which renames it to
+    // <contributor(s)>-<targetRef name> rather than this.policyName - delete
+    // by the label every merged policy carries instead of by configured name.
+    await this.deleteByLabel('EnterpriseAgentgatewayPolicy', {
+      'agentgateway.dev/feature': this.name,
+    });
     await this.deleteResource('AuthConfig', this.authConfigName);
     await this.deleteResource('Secret', this.secretName);
 
