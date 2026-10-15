@@ -44,7 +44,7 @@ spec:
       features:
         - name: providers
           config:
-            createRoute: false
+            pathPrefix: /chat/fallback
             name: routing-fallback
             groups:
               - providers:
