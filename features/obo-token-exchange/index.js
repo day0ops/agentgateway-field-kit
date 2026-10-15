@@ -57,6 +57,17 @@ const CONFIG_DIR = join(__dirname, 'config');
  *     kind: string,
  *     name: string,
  *   }>,
+ *   providers: Array<{                  // Trust MULTIPLE issuers on one route (OR'd by kid -
+ *                                       // spec.traffic.jwtAuthentication.providers accepts more
+ *                                       // than one entry, see rbac/multi-provider-tiered-rbac.yaml).
+ *                                       // Each entry falls back to the top-level issuer/jwksPath/
+ *                                       // jwksBackend/audiences above when omitted. Overrides the
+ *                                       // single-provider default entirely when set.
+ *     issuer: string,
+ *     jwksPath: string,
+ *     jwksBackend: { name: string, namespace: string, port: number },
+ *     audiences: Array<string>,
+ *   }>,
  * }
  */
 export class OboTokenExchangeFeature extends Feature {
@@ -86,6 +97,7 @@ export class OboTokenExchangeFeature extends Feature {
     this.audiences = config.audiences || null;
     this.cacheDuration = config.cacheDuration || '5m';
     this.targetRefs = config.targetRefs || null;
+    this.providers = config.providers || null;
   }
 
   getFeaturePath() {
@@ -121,11 +133,38 @@ export class OboTokenExchangeFeature extends Feature {
       },
     ];
 
-    const jwksBackendRef = this.jwksBackend || {
-      name: this.keycloakServiceName,
-      namespace: this.keycloakServiceNamespace,
-      port: this.keycloakServicePort,
-    };
+    const providerConfigs = this.providers || [
+      {
+        issuer: this.issuer,
+        jwksPath: this.jwksPath,
+        jwksBackend: this.jwksBackend,
+        audiences: this.audiences,
+      },
+    ];
+
+    const providers = providerConfigs.map(p => {
+      const jwksBackendRef = p.jwksBackend || {
+        name: this.keycloakServiceName,
+        namespace: this.keycloakServiceNamespace,
+        port: this.keycloakServicePort,
+      };
+      const audiences = p.audiences || null;
+      return {
+        issuer: p.issuer || this.issuer,
+        ...(audiences && { audiences }),
+        jwks: {
+          remote: {
+            jwksPath: p.jwksPath || this.jwksPath,
+            cacheDuration: this.cacheDuration,
+            backendRef: {
+              group: '',
+              kind: 'Service',
+              ...jwksBackendRef,
+            },
+          },
+        },
+      };
+    });
 
     const policy = {
       apiVersion: 'enterpriseagentgateway.solo.io/v1alpha1',
@@ -143,23 +182,7 @@ export class OboTokenExchangeFeature extends Feature {
         traffic: {
           jwtAuthentication: {
             mode: this.jwtMode,
-            providers: [
-              {
-                issuer: this.issuer,
-                ...(this.audiences && { audiences: this.audiences }),
-                jwks: {
-                  remote: {
-                    jwksPath: this.jwksPath,
-                    cacheDuration: this.cacheDuration,
-                    backendRef: {
-                      group: '',
-                      kind: 'Service',
-                      ...jwksBackendRef,
-                    },
-                  },
-                },
-              },
-            ],
+            providers,
           },
         },
       },
@@ -167,7 +190,8 @@ export class OboTokenExchangeFeature extends Feature {
 
     await this.applyResource(policy);
     this.log(
-      `JWT policy '${this.policyName}' targeting ${targetRefs.map(r => r.name).join(', ')}`,
+      `JWT policy '${this.policyName}' targeting ${targetRefs.map(r => r.name).join(', ')} ` +
+        `with ${providers.length} provider(s)`,
       'info'
     );
   }
