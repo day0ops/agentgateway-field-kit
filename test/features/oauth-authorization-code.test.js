@@ -3,7 +3,9 @@ import yaml from 'js-yaml';
 import '../../features/index.js';
 import { FeatureManager } from '../../src/lib/feature.js';
 
-const targetRefs = [{ group: 'gateway.networking.k8s.io', kind: 'HTTPRoute', name: 'wizard-secure' }];
+const targetRefs = [
+  { group: 'gateway.networking.k8s.io', kind: 'HTTPRoute', name: 'wizard-secure' },
+];
 const baseConfig = {
   namespace: 'agentgateway-system',
   targetRefs,

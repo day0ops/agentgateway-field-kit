@@ -1198,7 +1198,10 @@ export class KeycloakFeature extends Feature {
   async createExtAuthClient(baseUrl, token) {
     const clientSecret = process.env.KEYCLOAK_EXT_AUTH_CLIENT_SECRET || '';
     if (!clientSecret) {
-      this.log('KEYCLOAK_EXT_AUTH_CLIENT_SECRET not set - agw-ext-auth client will have no secret', 'warn');
+      this.log(
+        'KEYCLOAK_EXT_AUTH_CLIENT_SECRET not set - agw-ext-auth client will have no secret',
+        'warn'
+      );
     }
     this.log("Creating confidential client 'agw-ext-auth'...", 'info');
 
