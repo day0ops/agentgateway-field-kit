@@ -1306,6 +1306,19 @@ export class ProvidersFeature extends Feature {
         );
         const merged = { ...explicitPolicies };
         if (aiPolicy) merged.ai = aiPolicy;
+        // Default auth wiring, mirroring createProviderSecret()/createBackend()'s
+        // single-provider behavior - without this, a groups-mode provider with no
+        // explicit policies.auth reaches the real upstream with no credential injected.
+        if (!merged.auth) {
+          const secretName =
+            actualProviderName === 'gemini' ? 'google-secret' : `${actualProviderName}-secret`;
+          const defaultAuthPolicy = this.getBackendAuthPolicy(
+            actualProviderName,
+            secretName,
+            config
+          );
+          if (Object.keys(defaultAuthPolicy).length > 0) merged.auth = defaultAuthPolicy;
+        }
         if (merged.auth && !(merged.auth.secretRef || merged.auth.aws)) delete merged.auth;
         if (Object.keys(merged).length > 0) {
           namedProvider.policies = merged;
