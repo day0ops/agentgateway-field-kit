@@ -211,42 +211,6 @@ spec:
                 kind: HTTPRoute
                 name: core-banking-delegation
 
-    - title: Restrict account-detail reads to admins (MCP RBAC)
-      description: |
-        Tool-level RBAC on the standard/impersonation route: any authenticated
-        customer may list accounts and read transactions, but only an org admin
-        (is_org_admin claim) may read full account and routing numbers via
-        get_account_detail. transfer is deliberately not in the allow-list here,
-        so it cannot be invoked on the impersonation route at all - transfers must
-        go through the delegation chain (next gate).
-      features:
-        - name: mcp-tool-access
-          config:
-            policyName: core-banking-standard-rbac
-            backendName: core-banking-standard-backend
-            action: Allow
-            matchExpressions:
-              - 'mcp.tool.name == "list_accounts"'
-              - 'mcp.tool.name == "get_transactions"'
-              - 'mcp.tool.name == "get_account_detail" && jwt.is_org_admin == "true"'
-
-    - title: Require the delegation chain for transfers (MCP RBAC)
-      description: |
-        Tool-level RBAC on the delegation route: the transfer tool is callable only
-        when the token's nested actor chain proves the call arrived via the Transfer
-        Orchestrator (jwt.act.act.sub = the Orchestrator's ServiceAccount). A raw
-        direct transfer, even by the same user, is denied because it lacks that
-        chain. Identity alone is insufficient; the delegation path is part of the
-        authorization decision.
-      features:
-        - name: mcp-tool-access
-          config:
-            policyName: core-banking-delegation-rbac
-            backendName: core-banking-delegation-backend
-            action: Allow
-            matchExpressions:
-              - 'mcp.tool.name == "transfer" && jwt.act.act.sub == "system:serviceaccount:agentgateway-system:transfer-orchestrator-agent"'
-
     - title: Deploy the Accounts Agent (read-only, Impersonation)
       description: |
         Reads the customer's own balances and transactions. Presents the user's
