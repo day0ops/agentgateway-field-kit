@@ -78,7 +78,11 @@ describe('OboTokenExchangeFeature multi-provider (config.providers)', () => {
           {
             issuer: 'https://sts.internal/realms/agw-dev',
             jwksPath: '/.well-known/jwks.json',
-            jwksBackend: { name: 'enterprise-agentgateway', namespace: 'agentgateway-system', port: 7777 },
+            jwksBackend: {
+              name: 'enterprise-agentgateway',
+              namespace: 'agentgateway-system',
+              port: 7777,
+            },
             audiences: ['agentgateway'],
           },
           {
@@ -123,7 +127,11 @@ describe('OboTokenExchangeFeature multi-provider (config.providers)', () => {
           {
             issuer: 'https://sts.internal/realms/agw-dev',
             jwksPath: '/.well-known/jwks.json',
-            jwksBackend: { name: 'enterprise-agentgateway', namespace: 'agentgateway-system', port: 7777 },
+            jwksBackend: {
+              name: 'enterprise-agentgateway',
+              namespace: 'agentgateway-system',
+              port: 7777,
+            },
             audiences: ['agentgateway'],
           },
           {
@@ -166,7 +174,11 @@ describe('OboTokenExchangeFeature multi-provider (config.providers)', () => {
           {
             issuer: 'https://sts.internal/realms/agw-dev',
             jwksPath: '/.well-known/jwks.json',
-            jwksBackend: { name: 'enterprise-agentgateway', namespace: 'agentgateway-system', port: 7777 },
+            jwksBackend: {
+              name: 'enterprise-agentgateway',
+              namespace: 'agentgateway-system',
+              port: 7777,
+            },
             audiences: ['agentgateway'],
           },
           { audiences: ['account'] },
