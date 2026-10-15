@@ -458,6 +458,7 @@ export class KeycloakFeature extends Feature {
       await this.configureUserProfile(baseUrl, token);
       await this.createConfidentialClient(baseUrl, token);
       await this.createPublicClient(baseUrl, token);
+      await this.createExtAuthClient(baseUrl, token);
       await this.createQuotaManagementClient(baseUrl, token);
       await this.createUsers(baseUrl, token);
     }
@@ -1191,6 +1192,42 @@ export class KeycloakFeature extends Feature {
       await this.addIsTeamAdminMapper(baseUrl, token, id);
     }
 
+    return id;
+  }
+
+  async createExtAuthClient(baseUrl, token) {
+    const clientSecret = process.env.KEYCLOAK_EXT_AUTH_CLIENT_SECRET || '';
+    if (!clientSecret) {
+      this.log('KEYCLOAK_EXT_AUTH_CLIENT_SECRET not set - agw-ext-auth client will have no secret', 'warn');
+    }
+    this.log("Creating confidential client 'agw-ext-auth'...", 'info');
+
+    const payload = {
+      clientId: 'agw-ext-auth',
+      enabled: true,
+      publicClient: false,
+      standardFlowEnabled: true,
+      directAccessGrantsEnabled: false,
+      serviceAccountsEnabled: false,
+      secret: clientSecret,
+      redirectUris: ['*'],
+      webOrigins: ['*'],
+      attributes: {
+        'post.logout.redirect.uris': '*',
+        'access.token.signed.response.alg': 'RS256',
+        'id.token.signed.response.alg': 'RS256',
+      },
+    };
+
+    const result = await this.registerClient(baseUrl, token, payload);
+    let id = this.extractIdFromLocation(result.stdout);
+    if (!id) id = await this.lookupClientId(baseUrl, token, 'agw-ext-auth');
+
+    if (id) {
+      this.log(`Client 'agw-ext-auth' created (internal id: ${id})`, 'info');
+    } else {
+      this.log("Client 'agw-ext-auth' may already exist", 'warn');
+    }
     return id;
   }
 
