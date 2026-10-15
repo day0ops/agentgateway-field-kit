@@ -186,6 +186,12 @@ spec:
                 flows: []
                 attributes:
                   standard.token.exchange.enabled: 'true'
+              - clientId: agw-ext-auth
+                type: confidential
+                clientSecret: agw-ext-auth-secret
+                directAccessGrantsEnabled: false
+                flows:
+                  - authorization-code
             customAttributes:
               - org_id
               - team_id

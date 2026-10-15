@@ -425,21 +425,18 @@ spec:
         server-side - no token management left in the wizard's own Go code. Every
         other pillar's routes are untouched; Gateway API's longest-path-match
         precedence means the existing / route keeps serving everything that isn't
-        under /secure. Requires KEYCLOAK_EXT_AUTH_CLIENT_SECRET set in the
-        environment before deploying (the same value the Keycloak addon uses to
-        provision the agw-ext-auth client's real secret).
+        under /secure. The agw-ext-auth client itself is provisioned by the
+        Keycloak addon's declarative realms config (same profile entry as
+        agw-token-exchange), not by this usecase.
       features:
         - name: oauth-authorization-code
           config:
             authConfigName: agw-ext-auth
             policyName: agw-ext-auth
             secretName: agw-ext-auth-oauth
-            keycloak:
-              realm: agw-dev
-              serviceName: keycloak
-              serviceNamespace: keycloak
+            issuerUrl: 'https://{{env.domains.core.keycloak}}/realms/agw-dev/'
             clientId: agw-ext-auth
-            clientSecretEnvVar: KEYCLOAK_EXT_AUTH_CLIENT_SECRET
+            clientSecret: agw-ext-auth-secret
             appUrl: 'https://{{env.domains.app.wizard}}'
             callbackPath: /secure/oidc-callback
             logoutPath: /secure/logout
