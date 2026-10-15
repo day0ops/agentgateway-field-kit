@@ -39,10 +39,15 @@ import { KubernetesHelper, Logger } from '../../src/lib/common.js';
  *   session: {
  *     cookieName: string,            // Session cookie name (default: 'keycloak-session')
  *     redisHost: string,             // Redis host:port (default: 'ext-cache-enterprise-agentgateway:6379')
+ *     allowRefreshing: boolean,      // Transparent server-side token refresh (default: false)
+ *     preExpiryBufferSeconds: number, // Refresh this many seconds before expiry (default: unset)
  *   },
  *   headers: {
  *     idTokenHeader: string,         // Header name for forwarded ID token (default: 'jwt')
+ *     accessTokenHeader: string,     // Header name for forwarded access token (default: unset)
+ *     useBearerSchemaForAuthorization: boolean, // Prepend "Bearer " to accessTokenHeader (default: false)
  *   },
+ *   logoutPath: string,              // Path relative to appUrl that ends the session (default: unset)
  *   extAuthBackend: {
  *     name: string,                  // Default: 'ext-auth-service-enterprise-agentgateway'
  *     port: number,                  // Default: 8083
@@ -89,6 +94,13 @@ export class OAuthAuthorizationCodeFeature extends Feature {
 
     const hdrs = config.headers || {};
     this.idTokenHeader = hdrs.idTokenHeader || 'jwt';
+    this.accessTokenHeader = hdrs.accessTokenHeader || null;
+    this.useBearerSchemaForAuthorization = hdrs.useBearerSchemaForAuthorization || false;
+
+    this.allowRefreshing = sess.allowRefreshing || false;
+    this.preExpiryBufferSeconds = sess.preExpiryBufferSeconds || null;
+
+    this.logoutPath = config.logoutPath || null;
 
     const extAuth = config.extAuthBackend || {};
     this.extAuthServiceName = extAuth.name || 'ext-auth-service-enterprise-agentgateway';
@@ -220,6 +232,19 @@ export class OAuthAuthorizationCodeFeature extends Feature {
       ? this.redisHost.split(':')
       : [this.redisHost, '6379'];
 
+    const redis = {
+      cookieName: this.cookieName,
+      options: {
+        host: `${redisHostName}:${redisPort}`,
+      },
+    };
+    if (this.allowRefreshing) redis.allowRefreshing = true;
+    if (this.preExpiryBufferSeconds) redis.preExpiryBuffer = `${this.preExpiryBufferSeconds}s`;
+
+    const headers = { idTokenHeader: this.idTokenHeader };
+    if (this.accessTokenHeader) headers.accessTokenHeader = this.accessTokenHeader;
+    if (this.useBearerSchemaForAuthorization) headers.useBearerSchemaForAuthorization = true;
+
     const authConfig = {
       apiVersion: 'extauth.solo.io/v1',
       kind: 'AuthConfig',
@@ -248,16 +273,10 @@ export class OAuthAuthorizationCodeFeature extends Feature {
                 scopes: this.scopes,
                 session: {
                   failOnFetchFailure: true,
-                  redis: {
-                    cookieName: this.cookieName,
-                    options: {
-                      host: `${redisHostName}:${redisPort}`,
-                    },
-                  },
+                  redis,
                 },
-                headers: {
-                  idTokenHeader: this.idTokenHeader,
-                },
+                headers,
+                ...(this.logoutPath && { logoutPath: this.logoutPath }),
               },
             },
           },
