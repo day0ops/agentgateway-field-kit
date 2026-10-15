@@ -104,7 +104,7 @@ spec:
       settlement-agent: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/settlement-agent:v0.2.1
       statements-agent: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/statements-agent:v0.2.1
     wizard:
-      agentgateway-demo-wizard: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/agentgateway-demo-wizard:v0.8.1
+      agentgateway-demo-wizard: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/agentgateway-demo-wizard:v0.8.3
 
   # Entra ID (Azure AD) tenant/app registration
   entra:
