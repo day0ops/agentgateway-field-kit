@@ -98,13 +98,13 @@ spec:
     routing:
       sidecar-agent: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/sidecar-agent:0.1.1
     opsAgents:
-      core-banking: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/core-banking:v0.2.0
-      accounts-agent: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/accounts-agent:v0.2.0
-      transfer-orchestrator-agent: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/transfer-orchestrator-agent:v0.2.0
-      settlement-agent: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/settlement-agent:v0.2.0
-      statements-agent: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/statements-agent:v0.2.0
+      core-banking: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/core-banking:v0.2.1
+      accounts-agent: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/accounts-agent:v0.2.1
+      transfer-orchestrator-agent: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/transfer-orchestrator-agent:v0.2.1
+      settlement-agent: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/settlement-agent:v0.2.1
+      statements-agent: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/statements-agent:v0.2.1
     wizard:
-      agentgateway-demo-wizard: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/agentgateway-demo-wizard:v0.7.0
+      agentgateway-demo-wizard: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/agentgateway-demo-wizard:v0.7.1
 
   # Entra ID (Azure AD) tenant/app registration
   entra:
