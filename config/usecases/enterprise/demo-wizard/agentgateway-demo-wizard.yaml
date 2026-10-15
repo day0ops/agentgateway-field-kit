@@ -415,4 +415,44 @@ spec:
               enabled: true
               issuer: '{{env.tls.issuer}}'
 
+    - title: Protect the auth pillar's real-agent routes with agentgateway's own ext-auth
+      description: |
+        agentgateway itself becomes the auth pillar's policy enforcement point: the
+        /secure prefix (login trigger + the real ops-agent proxy calls) is gated by
+        agentgateway's own OAuth authorization code flow against a dedicated
+        confidential client, with the resulting access token forwarded upstream as a
+        standard Authorization: Bearer header and transparently refreshed
+        server-side - no token management left in the wizard's own Go code. Every
+        other pillar's routes are untouched; Gateway API's longest-path-match
+        precedence means the existing / route keeps serving everything that isn't
+        under /secure. Requires KEYCLOAK_EXT_AUTH_CLIENT_SECRET set in the
+        environment before deploying (the same value the Keycloak addon uses to
+        provision the agw-ext-auth client's real secret).
+      features:
+        - name: oauth-authorization-code
+          config:
+            authConfigName: agw-ext-auth
+            policyName: agw-ext-auth
+            secretName: agw-ext-auth-oauth
+            keycloak:
+              realm: agw-dev
+              serviceName: keycloak
+              serviceNamespace: keycloak
+            clientId: agw-ext-auth
+            clientSecretEnvVar: KEYCLOAK_EXT_AUTH_CLIENT_SECRET
+            appUrl: 'https://{{env.domains.app.wizard}}'
+            callbackPath: /secure/oidc-callback
+            logoutPath: /secure/logout
+            scopes: [email]
+            headers:
+              accessTokenHeader: Authorization
+              useBearerSchemaForAuthorization: true
+            session:
+              allowRefreshing: true
+              preExpiryBufferSeconds: 30
+            targetRefs:
+              - group: gateway.networking.k8s.io
+                kind: HTTPRoute
+                name: agentgateway-demo-wizard-secure
+
   tests: []

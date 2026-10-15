@@ -16,6 +16,31 @@ function findDoc(docs, kind, name) {
   return docs.map(d => yaml.load(d)).find(d => d.kind === kind && d.metadata.name === name);
 }
 
+describe('OAuthAuthorizationCodeFeature clientSecretEnvVar', () => {
+  test('reads the secret from a configured env var name instead of the KEYCLOAK_SECRET default', async () => {
+    const original = process.env.TEST_EXT_AUTH_SECRET;
+    process.env.TEST_EXT_AUTH_SECRET = 'from-custom-env-var';
+    try {
+      const docs = await FeatureManager.deploy(
+        'oauth-authorization-code',
+        {
+          namespace: 'agentgateway-system',
+          targetRefs,
+          clientId: 'agw-ext-auth',
+          appUrl: 'https://wizard.example.com',
+          clientSecretEnvVar: 'TEST_EXT_AUTH_SECRET',
+        },
+        { dryRun: true }
+      );
+      const secret = findDoc(docs, 'Secret', 'oauth-keycloak');
+      expect(secret.stringData['client-secret']).toBe('from-custom-env-var');
+    } finally {
+      if (original === undefined) delete process.env.TEST_EXT_AUTH_SECRET;
+      else process.env.TEST_EXT_AUTH_SECRET = original;
+    }
+  });
+});
+
 describe('OAuthAuthorizationCodeFeature access-token forwarding, refresh, and logout', () => {
   test('emits accessTokenHeader and useBearerSchemaForAuthorization when configured', async () => {
     const docs = await FeatureManager.deploy(

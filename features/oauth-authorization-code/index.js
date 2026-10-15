@@ -31,7 +31,8 @@ import { KubernetesHelper, Logger } from '../../src/lib/common.js';
  *     servicePort: number,           // Default: 443
  *   },
  *   clientId: string,                // OIDC client ID (required, or set KEYCLOAK_CLIENT_ID env)
- *   clientSecret: string,            // Plain-text client secret (falls back to KEYCLOAK_SECRET env)
+ *   clientSecret: string,            // Plain-text client secret (falls back to clientSecretEnvVar)
+ *   clientSecretEnvVar: string,      // Env var to read the secret from (default: 'KEYCLOAK_SECRET')
  *   appUrl: string,                  // Public app URL (default: 'http://localhost:8080')
  *   callbackPath: string,            // Callback path after auth (default: '/openai')
  *   issuerUrl: string,               // Override OIDC issuer URL
@@ -77,7 +78,8 @@ export class OAuthAuthorizationCodeFeature extends Feature {
     this.keycloakServicePort = kc.servicePort || 443;
 
     this.clientId = config.clientId || process.env.KEYCLOAK_CLIENT_ID || 'agw-client';
-    this.clientSecret = config.clientSecret || process.env.KEYCLOAK_SECRET || '';
+    const clientSecretEnvVar = config.clientSecretEnvVar || 'KEYCLOAK_SECRET';
+    this.clientSecret = config.clientSecret || process.env[clientSecretEnvVar] || '';
     this.appUrl = config.appUrl || null;
     this.callbackPath = config.callbackPath || '/openai';
 
