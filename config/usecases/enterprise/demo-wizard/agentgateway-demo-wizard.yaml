@@ -190,22 +190,27 @@ spec:
 
     - title: Protect the delegation route with STS-issued-token validation
       description: |
-        No exchange happens at this boundary - the caller (the Settlement Agent)
-        already exchanged at the STS before arriving. This policy only validates
-        that the token was actually issued by the STS, so the act chain it carries
-        can be trusted by the RBAC gate below.
+        Validates that the token was issued by either the STS (the normal
+        delegation chain - the caller already exchanged at the STS before
+        arriving, so the act chain it carries can be trusted by the RBAC gate
+        below) or Keycloak directly (a raw user token, presented as-is by the
+        direct-call demo below - no act chain at all, which is exactly what
+        that demo needs to reach the RBAC gate instead of being rejected here
+        on a key it was never going to have).
       features:
         - name: obo-token-exchange
           config:
             policyName: core-banking-delegation-jwt-policy
-            issuer: '{{env.internal.stsIssuer}}'
-            jwksPath: /.well-known/jwks.json
-            jwksBackend:
-              name: enterprise-agentgateway
-              namespace: agentgateway-system
-              port: 7777
-            audiences: [agentgateway]
             jwtMode: Strict
+            providers:
+              - issuer: '{{env.internal.stsIssuer}}'
+                jwksPath: /.well-known/jwks.json
+                jwksBackend:
+                  name: enterprise-agentgateway
+                  namespace: agentgateway-system
+                  port: 7777
+                audiences: [agentgateway]
+              - audiences: [account]
             targetRefs:
               - group: gateway.networking.k8s.io
                 kind: HTTPRoute
