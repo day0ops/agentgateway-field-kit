@@ -210,7 +210,8 @@ spec:
                   namespace: agentgateway-system
                   port: 7777
                 audiences: [agentgateway]
-              - audiences: [account]
+              - issuer: 'https://{{env.domains.core.keycloak}}/realms/agw-dev'
+                audiences: [account]
             targetRefs:
               - group: gateway.networking.k8s.io
                 kind: HTTPRoute
