@@ -52,6 +52,7 @@ import { AgentgatewayModelFeature } from './agentgateway-model/index.js';
 import { OpenfgaAuthzFeature } from './openfga-authz/index.js';
 import { OpaAuthzFeature } from './opa-authz/index.js';
 import { ModelCostsFeature } from './model-costs/index.js';
+import { MetricLabelsFeature } from './metric-labels/index.js';
 import { BudgetLimitsFeature } from './budget-limits/index.js';
 import { DirectResponseFeature } from './direct-response/index.js';
 import { MockProviderFeature } from './mock-provider/index.js';
@@ -111,6 +112,7 @@ FeatureManager.register('virtual-keys', VirtualKeysFeature);
 FeatureManager.register('openfga-authz', OpenfgaAuthzFeature);
 FeatureManager.register('opa-authz', OpaAuthzFeature);
 FeatureManager.register('model-costs', ModelCostsFeature);
+FeatureManager.register('metric-labels', MetricLabelsFeature);
 FeatureManager.register('budget-limits', BudgetLimitsFeature);
 FeatureManager.register('llm-cost-tracking', LlmCostTrackingFeature);
 FeatureManager.register('agentgateway-model', AgentgatewayModelFeature);
@@ -172,6 +174,7 @@ export {
   OpenfgaAuthzFeature,
   OpaAuthzFeature,
   ModelCostsFeature,
+  MetricLabelsFeature,
   BudgetLimitsFeature,
   CelBasedRbacFeature,
   VirtualKeysFeature,
