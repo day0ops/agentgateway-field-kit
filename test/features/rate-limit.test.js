@@ -118,3 +118,100 @@ describe('RateLimitFeature per-tool descriptors', () => {
     expect(() => feature.validate()).toThrow(/positive integer requestsPerUnit/);
   });
 });
+
+describe('RateLimitFeature opensource local mode', () => {
+  test('flat config (no rules/conditional) emits AgentgatewayPolicy with one local rule', async () => {
+    const docs = await FeatureManager.deploy(
+      'rate-limit',
+      { mode: 'local', tokens: 50, unit: 'HOUR', key: 'apiKey.user_id' },
+      { dryRun: true, edition: 'opensource' }
+    );
+    expect(docs.length).toBe(1);
+    const policy = yaml.load(docs[0]);
+
+    expect(policy.apiVersion).toBe('agentgateway.dev/v1alpha1');
+    expect(policy.kind).toBe('AgentgatewayPolicy');
+    expect(policy.spec.traffic.rateLimit.local).toEqual([
+      { unit: 'Hours', tokens: 50, burst: 0, key: 'apiKey.user_id' },
+    ]);
+  });
+
+  test('rules: [...] stacks multiple local rules on one policy', async () => {
+    const docs = await FeatureManager.deploy(
+      'rate-limit',
+      {
+        mode: 'local',
+        rules: [
+          { tokens: 500000, unit: 'HOUR', key: 'jwt.org_id' },
+          { tokens: 50000, unit: 'HOUR', key: 'jwt.team_id' },
+          { tokens: 5000, unit: 'HOUR', key: 'jwt.sub' },
+        ],
+      },
+      { dryRun: true, edition: 'opensource' }
+    );
+    const policy = yaml.load(docs[0]);
+
+    expect(policy.spec.traffic.rateLimit.local).toEqual([
+      { unit: 'Hours', tokens: 500000, key: 'jwt.org_id' },
+      { unit: 'Hours', tokens: 50000, key: 'jwt.team_id' },
+      { unit: 'Hours', tokens: 5000, key: 'jwt.sub' },
+    ]);
+  });
+
+  test('conditional: [...] emits traffic.rateLimit.conditional, no top-level local', async () => {
+    const docs = await FeatureManager.deploy(
+      'rate-limit',
+      {
+        mode: 'local',
+        conditional: [
+          {
+            condition: "apiKey.user_id == 'automation-bot'",
+            rules: [{ tokens: 50, unit: 'HOUR' }],
+          },
+          {
+            condition: 'has(jwt)',
+            rules: [
+              { tokens: 500000, unit: 'HOUR', key: 'jwt.org_id' },
+              { tokens: 5000, unit: 'HOUR', key: 'jwt.sub' },
+            ],
+          },
+          { rules: [{ tokens: 1, unit: 'HOUR' }] },
+        ],
+      },
+      { dryRun: true, edition: 'opensource' }
+    );
+    const policy = yaml.load(docs[0]);
+
+    expect(policy.spec.traffic.rateLimit.local).toBeUndefined();
+    expect(policy.spec.traffic.rateLimit.conditional).toEqual([
+      {
+        condition: "apiKey.user_id == 'automation-bot'",
+        policy: { local: [{ unit: 'Hours', tokens: 50 }] },
+      },
+      {
+        condition: 'has(jwt)',
+        policy: {
+          local: [
+            { unit: 'Hours', tokens: 500000, key: 'jwt.org_id' },
+            { unit: 'Hours', tokens: 5000, key: 'jwt.sub' },
+          ],
+        },
+      },
+      { policy: { local: [{ unit: 'Hours', tokens: 1 }] } },
+    ]);
+  });
+
+  test('validate() throws when both rules and conditional are set', () => {
+    const feature = new RateLimitFeature('rate-limit', {
+      mode: 'local',
+      rules: [{ tokens: 5, unit: 'HOUR' }],
+      conditional: [{ rules: [{ tokens: 5, unit: 'HOUR' }] }],
+    });
+    expect(() => feature.validate()).toThrow(/rules and conditional are mutually exclusive/);
+  });
+
+  test('validate() throws for opensource + mode: global', () => {
+    const feature = new RateLimitFeature('rate-limit', { mode: 'global', edition: 'opensource' });
+    expect(() => feature.validate()).toThrow(/opensource global rate limiting/);
+  });
+});

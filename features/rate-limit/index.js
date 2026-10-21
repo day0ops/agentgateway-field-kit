@@ -1,4 +1,5 @@
 import { Feature, FeatureManager } from '../../src/lib/feature.js';
+import { policyApiVersion, POLICY_KIND } from '../../src/lib/editions.js';
 
 /**
  * Rate Limit Feature
@@ -37,6 +38,25 @@ import { Feature, FeatureManager } from '../../src/lib/feature.js';
  *   }>,
  *   tokens: number,                  // Local: token budget per window (default: 5)
  *   burst: number,                   // Local: burst allowance (default: 0)
+ *   key: string,                     // Local: CEL expression selecting the bucket a request
+ *                                    //   counts against, e.g. 'jwt.sub' for a per-user limit
+ *   rules: Array<{                   // Local: stack multiple flat rules on one policy.
+ *     requests: number,              //   Mutually exclusive with the flat tokens/burst/key
+ *     tokens: number,                //   fields above and with `conditional` below.
+ *     unit: string,
+ *     burst: number,
+ *     key: string,
+ *   }>,
+ *   conditional: Array<{             // Local: CEL-branching rules, mirroring the CRD's own
+ *     condition: string,             //   conditional[] shape. A branch with no `condition` is
+ *     rules: Array<{                 //   the fallback. Mutually exclusive with `rules` above -
+ *       requests: number,            //   when set, this entirely replaces the policy's flat
+ *       tokens: number,              //   local rules (the CRD does not combine them).
+ *       unit: string,
+ *       burst: number,
+ *       key: string,
+ *     }>,
+ *   }>,
  *   gatewayName: string,             // Target Gateway name (resolved from FeatureManager if omitted)
  *   targetRefs: Array<{              // Override what the policy targets (default: the Gateway).
  *     name: string,                   //   e.g. target a specific HTTPRoute to scope the limit to one route (like /mcp)
@@ -46,11 +66,26 @@ import { Feature, FeatureManager } from '../../src/lib/feature.js';
  * }
  */
 export class RateLimitFeature extends Feature {
-  // Enterprise-only quota/rate-limit management, confirmed no reusable OSS primitive exists.
-  static SUPPORTED_EDITIONS = ['enterprise'];
-
   validate() {
-    const { mode = 'global', requestsPerUnit, tokens, descriptors } = this.config;
+    const {
+      mode = 'global',
+      requestsPerUnit,
+      tokens,
+      descriptors,
+      rules,
+      conditional,
+    } = this.config;
+
+    if (this.edition === 'opensource' && mode === 'global') {
+      throw new Error(
+        'rate-limit: opensource global rate limiting requires a self-hosted Envoy ratelimit ' +
+          'service and is not yet wired up by this CLI; use mode: "local" instead'
+      );
+    }
+
+    if (rules && conditional) {
+      throw new Error('rate-limit: rules and conditional are mutually exclusive');
+    }
 
     if (descriptors) {
       if (mode !== 'global') {
@@ -216,40 +251,68 @@ export class RateLimitFeature extends Feature {
     await this.applyYamlFile('enterprise-agentgateway-policy.yaml', policyOverrides);
   }
 
-  async deployLocal() {
-    const { tokens = 5, burst = 0, unit = 'MINUTE' } = this.config;
+  static UNIT_MAP = { SECOND: 'Seconds', MINUTE: 'Minutes', HOUR: 'Hours', DAY: 'Days' };
 
-    const unitMap = {
-      SECOND: 'Seconds',
-      MINUTE: 'Minutes',
-      HOUR: 'Hours',
-      DAY: 'Days',
+  // A single resolved local rule: {unit, tokens|requests, burst?, key?}. `defaultUnit` is the
+  // rule's own `unit` if set, else the config-level `unit` (default 'MINUTE').
+  resolveLocalRule(rule, defaultUnit) {
+    const resolved = {
+      unit: RateLimitFeature.UNIT_MAP[rule.unit || defaultUnit] || 'Minutes',
     };
+    if (rule.requests !== undefined) {
+      resolved.requests = rule.requests;
+    } else {
+      resolved.tokens = rule.tokens ?? 5;
+    }
+    if (rule.burst !== undefined) resolved.burst = rule.burst;
+    if (rule.key !== undefined) resolved.key = rule.key;
+    return resolved;
+  }
+
+  async deployLocal() {
+    const { unit = 'MINUTE', tokens = 5, burst = 0, key, rules, conditional } = this.config;
 
     const policyOverrides = {
       metadata: { name: this.policyName },
-      spec: {
-        targetRefs: this.targetRefs,
-        traffic: {
-          rateLimit: {
-            local: [
-              {
-                unit: unitMap[unit] || 'Minutes',
-                tokens,
-                burst,
-              },
-            ],
-          },
-        },
-      },
+      spec: { targetRefs: this.targetRefs, traffic: { rateLimit: {} } },
     };
+
+    if (conditional) {
+      policyOverrides.spec.traffic.rateLimit.conditional = conditional.map(branch => {
+        const entry = {
+          policy: { local: branch.rules.map(r => this.resolveLocalRule(r, unit)) },
+        };
+        if (branch.condition !== undefined) entry.condition = branch.condition;
+        return entry;
+      });
+      // conditional replaces the template's default local rule entirely (the CRD's own
+      // semantics: a policy's conditional branches are exclusive with its top-level local,
+      // not combined with it) - explicit undefined makes deepMerge delete the inherited key.
+      policyOverrides.spec.traffic.rateLimit.local = undefined;
+    } else if (rules) {
+      policyOverrides.spec.traffic.rateLimit.local = rules.map(r => this.resolveLocalRule(r, unit));
+    } else {
+      policyOverrides.spec.traffic.rateLimit.local = [
+        {
+          unit: RateLimitFeature.UNIT_MAP[unit] || 'Minutes',
+          tokens,
+          burst,
+          ...(key !== undefined && { key }),
+        },
+      ];
+    }
+
+    if (this.edition === 'opensource') {
+      policyOverrides.apiVersion = policyApiVersion(this.edition);
+      policyOverrides.kind = POLICY_KIND[this.edition];
+    }
 
     await this.applyYamlFile('local-rate-limit-policy.yaml', policyOverrides);
   }
 
   async cleanup() {
-    await this.deleteResource('EnterpriseAgentgatewayPolicy', this.policyName);
-    if (this.mode === 'global') {
+    await this.deleteResource(POLICY_KIND[this.edition], this.policyName);
+    if (this.mode === 'global' && this.edition !== 'opensource') {
       await this.deleteResource('RateLimitConfig', this.rateLimitName);
     }
   }

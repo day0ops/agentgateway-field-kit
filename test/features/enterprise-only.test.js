@@ -12,7 +12,6 @@ const ENTERPRISE_ONLY_FEATURES = [
   'obo-token-exchange',
   'quota-budget',
   'quota-ratelimit',
-  'rate-limit',
   'virtual-keys',
   'multi-org-jwt-auth',
   'llm-cost-tracking',
