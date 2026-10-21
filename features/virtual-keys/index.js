@@ -1,19 +1,25 @@
 import { Feature, FeatureManager } from '../../src/lib/feature.js';
+import { policyApiVersion, POLICY_KIND } from '../../src/lib/editions.js';
 
 /**
  * Virtual Keys Feature
  *
- * Issues API keys with per-key token budgets. Each virtual key is stored as a
- * JSON entry in a Kubernetes Secret. The gateway authenticates requests by matching
- * the Authorization header against the Secret, then enforces a token-based rate
- * limit keyed by the user_id extracted from the matching key's metadata.
+ * Issues API keys, stored as JSON entries in a Kubernetes Secret, and authenticates
+ * requests against them.
  *
- * Both API key authentication and rate limiting are applied via a SINGLE
- * EnterpriseAgentgatewayPolicy object. When two policies target the same Gateway,
- * one silently overwrites the other based on creation order (even though both report
- * ACCEPTED/ATTACHED status), so this must never be split into two policy objects.
- * Rate limiting uses the enterprise chart's built-in rate-limit service via a
- * RateLimitConfig CRD - no backend Service to deploy.
+ * Enterprise: also enforces a per-key token budget. Both API key authentication and
+ * rate limiting are applied via a SINGLE EnterpriseAgentgatewayPolicy object. When two
+ * policies target the same Gateway, one silently overwrites the other based on creation
+ * order (even though both report ACCEPTED/ATTACHED status), so this must never be split
+ * into two policy objects. Rate limiting uses the enterprise chart's built-in rate-limit
+ * service via a RateLimitConfig CRD - no backend Service to deploy.
+ *
+ * Opensource: emits apiKeyAuthentication only. tokenBudget is accepted (for config-shape
+ * parity with enterprise) but not enforced here - OSS merges policies field-by-field, not
+ * deep-merged, so a second policy also setting traffic.rateLimit on the same attachment
+ * point would silently collide with this one's. Enforce opensource per-key budgets with a
+ * separate rate-limit feature instance's `conditional` config, keyed on apiKey.user_id,
+ * targeting the same attachment point as this feature.
  *
  * Reference: https://docs.solo.io/agentgateway/latest/llm/cost-controls/virtual-keys/
  *
@@ -51,9 +57,6 @@ import { Feature, FeatureManager } from '../../src/lib/feature.js';
  * }
  */
 export class VirtualKeysFeature extends Feature {
-  // Enterprise-only quota/budget management, confirmed no reusable OSS primitive exists.
-  static SUPPORTED_EDITIONS = ['enterprise'];
-
   constructor(name, config) {
     super(name, config);
     this.policyName = config.policyName || 'virtual-keys';
@@ -90,10 +93,45 @@ export class VirtualKeysFeature extends Feature {
     this.log('Deploying virtual keys...', 'info');
 
     await this._deploySecret();
-    await this._deployRateLimitConfig();
-    await this._deployPolicy();
+    if (this.edition === 'opensource') {
+      await this._deployOpensourcePolicy();
+    } else {
+      await this._deployRateLimitConfig();
+      await this._deployPolicy();
+    }
 
     this.log('Virtual keys deployed', 'success');
+  }
+
+  async _deployOpensourcePolicy() {
+    const apiKeyAuthentication = {
+      mode: this.mode,
+      secretRef: { name: 'virtual-keys' },
+    };
+    if (this.location) apiKeyAuthentication.location = this.location;
+
+    const policy = {
+      apiVersion: policyApiVersion(this.edition),
+      kind: POLICY_KIND[this.edition],
+      metadata: {
+        name: this.policyName,
+        namespace: this.namespace,
+        labels: {
+          'app.kubernetes.io/managed-by': 'agentgateway-demo',
+          'agentgateway.dev/feature': 'virtual-keys',
+        },
+      },
+      spec: {
+        targetRefs: this.targetRefs,
+        traffic: { apiKeyAuthentication },
+      },
+    };
+
+    await this.applyResource(policy);
+    this.log(
+      `${POLICY_KIND[this.edition]} '${this.policyName}' applied (apiKeyAuthentication only)`,
+      'info'
+    );
   }
 
   async _deploySecret() {
@@ -215,8 +253,10 @@ export class VirtualKeysFeature extends Feature {
   }
 
   async cleanup() {
-    await this.deleteResource('EnterpriseAgentgatewayPolicy', this.policyName);
-    await this.deleteResource('RateLimitConfig', this.rateLimitConfigName);
+    await this.deleteResource(POLICY_KIND[this.edition], this.policyName);
+    if (this.edition !== 'opensource') {
+      await this.deleteResource('RateLimitConfig', this.rateLimitConfigName);
+    }
     await this.deleteResource('Secret', 'virtual-keys');
 
     // Best-effort cleanup of the pre-upgrade two-policy names, so re-running cleanup

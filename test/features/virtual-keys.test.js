@@ -62,12 +62,6 @@ describe('VirtualKeysFeature (single merged policy regression test)', () => {
     expect(combined).not.toMatch(/rate-limit-server/);
   });
 
-  test('rejects edition: opensource before touching Kubernetes', async () => {
-    await expect(
-      FeatureManager.deploy('virtual-keys', config, { dryRun: true, edition: 'opensource' })
-    ).rejects.toThrow(/does not support edition 'opensource'/);
-  });
-
   test('mode and location are configurable for sharing a route with another auth method', async () => {
     const docs = await FeatureManager.deploy(
       'virtual-keys',
@@ -81,6 +75,65 @@ describe('VirtualKeysFeature (single merged policy regression test)', () => {
     const policy = docs
       .map(d => yaml.load(d))
       .find(d => d?.kind === 'EnterpriseAgentgatewayPolicy');
+
+    expect(policy.spec.traffic.apiKeyAuthentication).toEqual({
+      mode: 'Optional',
+      secretRef: { name: 'virtual-keys' },
+      location: { header: { name: 'X-Api-Key' } },
+    });
+  });
+});
+
+describe('VirtualKeysFeature opensource edition', () => {
+  test('emits exactly one AgentgatewayPolicy with apiKeyAuthentication and no rateLimit field', async () => {
+    const docs = await FeatureManager.deploy('virtual-keys', config, {
+      dryRun: true,
+      edition: 'opensource',
+    });
+    const parsed = docs.map(d => yaml.load(d));
+
+    const policies = parsed.filter(d => d?.kind === 'AgentgatewayPolicy');
+    expect(policies.length).toBe(1);
+
+    const policy = policies[0];
+    expect(policy.apiVersion).toBe('agentgateway.dev/v1alpha1');
+    expect(policy.spec.traffic.apiKeyAuthentication).toEqual({
+      mode: 'Strict',
+      secretRef: { name: 'virtual-keys' },
+    });
+    expect(policy.spec.traffic.rateLimit).toBeUndefined();
+  });
+
+  test('no RateLimitConfig and no entRateLimit anywhere in the generated YAML', async () => {
+    const docs = await FeatureManager.deploy('virtual-keys', config, {
+      dryRun: true,
+      edition: 'opensource',
+    });
+    const combined = docs.join('\n');
+    expect(combined).not.toMatch(/RateLimitConfig/);
+    expect(combined).not.toMatch(/entRateLimit/);
+  });
+
+  test('Secret shape is unchanged for opensource', async () => {
+    const docs = await FeatureManager.deploy('virtual-keys', config, {
+      dryRun: true,
+      edition: 'opensource',
+    });
+    const secret = docs.map(d => yaml.load(d)).find(d => d?.kind === 'Secret');
+
+    expect(JSON.parse(secret.stringData.alice)).toEqual({
+      key: 'sk-alice-demo-abc123def456',
+      metadata: { id: 'alice', user_id: 'alice' },
+    });
+  });
+
+  test('mode and location are still configurable for opensource', async () => {
+    const docs = await FeatureManager.deploy(
+      'virtual-keys',
+      { ...config, mode: 'Optional', location: { header: { name: 'X-Api-Key' } } },
+      { dryRun: true, edition: 'opensource' }
+    );
+    const policy = docs.map(d => yaml.load(d)).find(d => d?.kind === 'AgentgatewayPolicy');
 
     expect(policy.spec.traffic.apiKeyAuthentication).toEqual({
       mode: 'Optional',
