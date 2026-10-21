@@ -67,6 +67,10 @@ export function policyApiVersion(edition) {
   return `${POLICY_API_GROUP[edition]}/v1alpha1`;
 }
 
+export function parametersApiVersion(edition) {
+  return `${POLICY_API_GROUP[edition]}/v1alpha1`;
+}
+
 // GatewayClass.spec.controllerName reconciled by each edition's controller. The
 // opensource value is the OSS chart's built-in default (controllerName/gatewayClassName
 // left unset in the profile - see config/profiles/eks-opensource-agentgateway.yaml).

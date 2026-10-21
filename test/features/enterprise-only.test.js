@@ -17,7 +17,6 @@ const ENTERPRISE_ONLY_FEATURES = [
   'multi-org-jwt-auth',
   'llm-cost-tracking',
   'elicitation-backend',
-  'model-costs',
   'budget-limits',
   'mcp-enterprise',
   'mcp-guardrails',

@@ -123,3 +123,34 @@ describe('ModelCostsFeature', () => {
     expect(() => feature.validate()).not.toThrow();
   });
 });
+
+describe('ModelCostsFeature edition branching', () => {
+  test('edition: enterprise (default) still emits EnterpriseAgentgatewayParameters', async () => {
+    const docs = await FeatureManager.deploy('model-costs', { catalog }, { dryRun: true });
+    const parametersDoc = docs
+      .map(d => yaml.load(d))
+      .find(d => d?.kind === 'EnterpriseAgentgatewayParameters');
+
+    expect(parametersDoc).toBeTruthy();
+    expect(parametersDoc.apiVersion).toBe('enterpriseagentgateway.solo.io/v1alpha1');
+  });
+
+  test('edition: opensource emits AgentgatewayParameters referencing the same ConfigMap', async () => {
+    const docs = await FeatureManager.deploy(
+      'model-costs',
+      { catalog },
+      { dryRun: true, edition: 'opensource' }
+    );
+    const parsed = docs.map(d => yaml.load(d));
+    const configMapDoc = parsed.find(d => d?.kind === 'ConfigMap');
+    const parametersDoc = parsed.find(d => d?.kind === 'AgentgatewayParameters');
+
+    expect(configMapDoc).toBeTruthy();
+    expect(parametersDoc).toBeTruthy();
+    expect(parametersDoc.apiVersion).toBe('agentgateway.dev/v1alpha1');
+    expect(parametersDoc.spec.modelCatalog.sources[0].configMap).toEqual({
+      name: configMapDoc.metadata.name,
+      key: 'catalog.json',
+    });
+  });
+});

@@ -1,20 +1,19 @@
 import { Feature, FeatureManager } from '../../src/lib/feature.js';
 import { KubernetesHelper } from '../../src/lib/common.js';
 import { readFile } from 'fs/promises';
+import { POLICY_API_GROUP, PARAMETERS_KIND, parametersApiVersion } from '../../src/lib/editions.js';
 
 const DEFAULT_CONFIGMAP_NAME = 'model-costs-catalog';
 const DEFAULT_PARAMETERS_NAME = 'model-costs-params';
 const DEFAULT_CATALOG_KEY = 'catalog.json';
-const PARAMETERS_GROUP = 'enterpriseagentgateway.solo.io';
-const PARAMETERS_KIND = 'EnterpriseAgentgatewayParameters';
 
 /**
  * Model Costs Feature
  *
  * Implements Solo's native "Model costs" capability: a JSON price catalog stored in a
- * ConfigMap and referenced by a Gateway-level EnterpriseAgentgatewayParameters.spec.modelCatalog,
- * attached to the Gateway via spec.infrastructure.parametersRef. Gateway-level attachment only -
- * a GatewayClass-level parametersRef is ignored by the model catalog.
+ * ConfigMap and referenced by a Gateway-level Parameters resource (EnterpriseAgentgatewayParameters
+ * in enterprise mode, AgentgatewayParameters in opensource) via spec.infrastructure.parametersRef.
+ * Gateway-level attachment only - GatewayClass parametersRef is ignored.
  *
  * Reference: https://docs.solo.io/agentgateway/latest/llm/cost-controls/costs/
  *
@@ -45,9 +44,6 @@ const PARAMETERS_KIND = 'EnterpriseAgentgatewayParameters';
  * }
  */
 export class ModelCostsFeature extends Feature {
-  // Enterprise-only: EnterpriseAgentgatewayParameters/modelCatalog has no OSS equivalent.
-  static SUPPORTED_EDITIONS = ['enterprise'];
-
   constructor(name, config) {
     super(name, config);
     this.configMapName = config.configMapName || DEFAULT_CONFIGMAP_NAME;
@@ -126,6 +122,8 @@ export class ModelCostsFeature extends Feature {
 
   async _deployParameters() {
     await this.applyYamlFile('enterprise-agentgateway-parameters.yaml', {
+      apiVersion: parametersApiVersion(this.edition),
+      kind: PARAMETERS_KIND[this.edition],
       metadata: { name: this.parametersName, namespace: this.namespace },
       spec: {
         modelCatalog: {
@@ -133,7 +131,7 @@ export class ModelCostsFeature extends Feature {
         },
       },
     });
-    this.log(`EnterpriseAgentgatewayParameters '${this.parametersName}' deployed`, 'info');
+    this.log(`${PARAMETERS_KIND[this.edition]} '${this.parametersName}' deployed`, 'info');
   }
 
   _buildParametersRefPatch(parametersRef) {
@@ -151,8 +149,8 @@ export class ModelCostsFeature extends Feature {
   async _attachToGateway() {
     const parametersRef = {
       name: this.parametersName,
-      group: PARAMETERS_GROUP,
-      kind: PARAMETERS_KIND,
+      group: POLICY_API_GROUP[this.edition],
+      kind: PARAMETERS_KIND[this.edition],
     };
 
     if (this.dryRun) {
@@ -179,7 +177,7 @@ export class ModelCostsFeature extends Feature {
       this._buildParametersRefPatch(parametersRef),
     ]);
     this.log(
-      `Gateway '${this.gatewayName}' attached to EnterpriseAgentgatewayParameters '${this.parametersName}'`,
+      `Gateway '${this.gatewayName}' attached to ${PARAMETERS_KIND[this.edition]} '${this.parametersName}'`,
       'info'
     );
   }
@@ -224,7 +222,7 @@ export class ModelCostsFeature extends Feature {
     this.log('Cleaning up model cost catalog...', 'info');
 
     await this._detachFromGateway();
-    await this.deleteResource(PARAMETERS_KIND, this.parametersName);
+    await this.deleteResource(PARAMETERS_KIND[this.edition], this.parametersName);
     await this.deleteResource('ConfigMap', this.configMapName);
 
     this.log('Model costs cleaned up', 'success');
