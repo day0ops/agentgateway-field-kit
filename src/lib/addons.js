@@ -136,6 +136,19 @@ export class AddonInstaller {
     }
   }
 
+  /**
+   * Addons are installed in an order where aws-load-balancer-controller comes first, since
+   * other addons' LoadBalancer-type Services need it running to be provisioned. Cleanup must
+   * run in the opposite order: removing the controller before those Services are deleted
+   * leaves them stuck forever on the service.k8s.aws/resources finalizer, which only the
+   * controller clears.
+   */
+  static orderForCleanup(addons) {
+    const controller = addons.filter(a => a.name === 'aws-load-balancer-controller');
+    const rest = addons.filter(a => a.name !== 'aws-load-balancer-controller');
+    return [...rest, ...controller];
+  }
+
   static async cleanupAddons(addons = [], opts = {}) {
     if (!addons || addons.length === 0) {
       return;
@@ -143,7 +156,7 @@ export class AddonInstaller {
 
     Logger.info(`Cleaning up ${addons.length} addon(s)...`);
 
-    for (const addon of addons) {
+    for (const addon of this.orderForCleanup(addons)) {
       await this.cleanupAddon(addon, opts);
     }
   }
