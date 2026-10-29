@@ -52,6 +52,7 @@ export GRAFANA_REALM_ADMIN_PASSWORD=   # required only when a 'grafana' realm is
 export GRAFANA_ADMIN_USERNAME=         # required by the telemetry addon, no default
 export GRAFANA_ADMIN_PASSWORD=         # required by the telemetry addon, no default
 export OPIK_API_KEY=                   # required to deploy the guardrail-webhook usecase at all, not just its live-eval test
+export TYPESAFE_API_KEY=               # required to deploy jev-cost-tier-routing at all, not just a live-decision test (Jev has no self-host option)
 ```
 
 AKS also needs `ARM_CLIENT_ID`, `ARM_CLIENT_SECRET`, `ARM_OBJECT_ID`, `ARM_SUBSCRIPTION_ID`, `ARM_TENANT_ID`.

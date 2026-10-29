@@ -1,0 +1,73 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: jev-cost-tier-routing
+  description: |
+    Jev (TypeSafe AI's hosted decision-making model) classifies a prompt as cheap or premium tier, then agentgateway routes the completion to the matching model alias - both calls go through the gateway, so its auth/cost-tracking/rate-limit policies apply uniformly to the classification call too, not just the LLM call.
+
+    - `/jev` - passthrough backend to Jev's decision API (api.typesafe.ai), fronted over TLS
+    - `/model` - existing model-aliasing feature resolving `cheap` -> gpt-4o-mini and `premium` -> gpt-4o
+    - The declarative tests below only cover `/model`'s alias resolution; the full decision -> routed-completion round trip needs a real TYPESAFE_API_KEY and is exercised by `bun scripts/jev-routing-demo.js` instead
+  docs: https://docs.solo.io/agentgateway/latest/llm/alias/
+
+spec:
+  diagram: |
+    sequenceDiagram
+      participant Client
+      participant AGW as agentgateway
+      participant Jev as api.typesafe.ai
+      participant OAI as OpenAI
+      Client->>AGW: POST /jev {prompt, questions: [cheap|premium]}
+      AGW->>Jev: passthrough (TLS)
+      Jev-->>AGW: { tier, confidence }
+      AGW-->>Client: decision
+      Client->>AGW: POST /model {"model": tier, ...}
+      AGW->>AGW: resolve alias tier -> real model
+      AGW->>OAI: forward
+      OAI-->>AGW: response
+      AGW-->>Client: response
+
+  features:
+    - name: providers
+      config:
+        providers:
+          - name: jev
+            providerName: typesafe
+            pathPrefix: /jev
+            policies:
+              ai:
+                routes:
+                  '*': Passthrough
+
+    - name: model-aliasing
+      description: Resolve cheap/premium aliases set by Jev's decision
+      config:
+        provider: openai
+        aliases:
+          cheap: gpt-4o-mini
+          premium: gpt-4o
+
+  tests:
+    - name: alias-cheap-resolves-to-mini
+      description: Verify "cheap" alias routes to gpt-4o-mini
+      steps:
+        - action: send-request
+          endpoint: /model
+          body: '{"model": "cheap", "messages": [{"role": "user", "content": "Say hello"}]}'
+        - action: verify
+          expect:
+            status: success
+            modelIn:
+              - gpt-4o-mini
+
+    - name: alias-premium-resolves-to-gpt4o
+      description: Verify "premium" alias routes to gpt-4o
+      steps:
+        - action: send-request
+          endpoint: /model
+          body: '{"model": "premium", "messages": [{"role": "user", "content": "Say hello"}]}'
+        - action: verify
+          expect:
+            status: success
+            modelIn:
+              - gpt-4o
