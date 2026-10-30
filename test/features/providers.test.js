@@ -2,6 +2,7 @@ import { test, expect, describe, beforeEach } from 'bun:test';
 import yaml from 'js-yaml';
 import '../../features/index.js';
 import { FeatureManager } from '../../src/lib/feature.js';
+import { ProvidersFeature } from '../../features/providers/index.js';
 
 function findDoc(docs, kind, name) {
   return docs.map(d => yaml.load(d)).find(d => d.kind === kind && d.metadata.name === name);
@@ -208,5 +209,57 @@ describe('ProvidersFeature createRoute flag', () => {
       );
       const backend = findDoc(docs, 'EnterpriseAgentgatewayBackend', 'openai');
       expect(backend.spec.policies.http).toEqual({ version: 'HTTP1' });
+    }));
+});
+
+describe('ProvidersFeature typesafe provider type (Jev)', () => {
+  test('applies api.typesafe.ai defaults and a jev-latest model when none given', () =>
+    withEnv({ TYPESAFE_API_KEY: 'ts-test' }, async () => {
+      const docs = await FeatureManager.deploy(
+        'providers',
+        {
+          namespace: 'agentgateway-system',
+          providers: [{ name: 'jev', providerName: 'typesafe', pathPrefix: '/jev' }],
+        },
+        { dryRun: true }
+      );
+      const backend = findDoc(docs, 'EnterpriseAgentgatewayBackend', 'jev');
+      expect(backend.spec.ai.provider.host).toBe('api.typesafe.ai');
+      expect(backend.spec.ai.provider.port).toBe(443);
+      expect(backend.spec.ai.provider.path).toBe('/v1/systemone');
+      expect(backend.spec.ai.provider.openai.model).toBe('jev-latest');
+    }));
+
+  test('getRequiredEnvVars falls through to TYPESAFE_API_KEY for the typesafe provider type', () => {
+    const feature = new ProvidersFeature('providers', {
+      namespace: 'agentgateway-system',
+      providers: [],
+    });
+    expect(feature.getRequiredEnvVars({ name: 'jev', providerName: 'typesafe' })).toEqual([
+      'TYPESAFE_API_KEY',
+    ]);
+  });
+
+  test('creates a BackendTLSPolicy targeting the typesafe backend with the right hostname', () =>
+    withEnv({ TYPESAFE_API_KEY: 'ts-test' }, async () => {
+      const docs = await FeatureManager.deploy(
+        'providers',
+        {
+          namespace: 'agentgateway-system',
+          providers: [{ name: 'jev', providerName: 'typesafe', pathPrefix: '/jev' }],
+        },
+        { dryRun: true }
+      );
+      const tlsPolicy = findDoc(docs, 'BackendTLSPolicy', 'jev-tls');
+      expect(tlsPolicy).toBeTruthy();
+      expect(tlsPolicy.spec.targetRefs[0]).toEqual({
+        group: 'enterpriseagentgateway.solo.io',
+        kind: 'EnterpriseAgentgatewayBackend',
+        name: 'jev',
+      });
+      expect(tlsPolicy.spec.validation).toEqual({
+        hostname: 'api.typesafe.ai',
+        wellKnownCACertificates: 'System',
+      });
     }));
 });
