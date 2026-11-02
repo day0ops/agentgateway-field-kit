@@ -76,6 +76,21 @@ spec:
       description: Certificate management for TLS
       version: '{{env.addons.cert-manager.version}}'
       namespace: cert-manager
+      config:
+        letsencrypt:
+          enabled: true
+          provider: cloudflare
+          email: '{{env.acme.email}}'
+
+    - name: external-dns
+      description: Automatic DNS record management via Cloudflare
+      version: '{{env.addons.external-dns.version}}'
+      namespace: external-dns
+      config:
+        provider: cloudflare
+        domainFilter: '{{env.dns.parentZone.domain}}'
+        txtOwnerId: '{{env.dns.txtOwnerId}}'
+        proxied: false
 
     - name: keycloak
       description: Keycloak OIDC Identity Provider
@@ -390,7 +405,7 @@ spec:
         soloUiClients:
           enabled: true
           realm: solo-ui
-          hostname: http://{{env.domains.core.soloUi}}
+          hostname: https://{{env.domains.core.soloUi}}
           backendClientId: solo-ui-backend
           backendClientSecret: solo-ui-backend-secret
           frontendClientId: solo-ui-frontend
