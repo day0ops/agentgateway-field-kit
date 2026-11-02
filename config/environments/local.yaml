@@ -5,7 +5,9 @@ metadata:
   description: Local Kubernetes cluster (lok8s), or a bring-your-own cluster with real DNS via Cloudflare
 
 spec:
-  # No infraProfile or dns - purely local cluster
+  # No infraProfile - purely local/bring-your-own cluster. dns/acme below are only consumed
+  # by profiles that expose a real hostname (e.g. agentgateway-with-keycloak); most local
+  # profiles still use the cluster-internal defaults further down and never read them.
   tls:
     issuer: selfsigned-issuer
 
