@@ -137,16 +137,21 @@ export class AddonInstaller {
   }
 
   /**
-   * Addons are installed in an order where aws-load-balancer-controller comes first, since
-   * other addons' LoadBalancer-type Services need it running to be provisioned. Cleanup must
-   * run in the opposite order: removing the controller before those Services are deleted
-   * leaves them stuck forever on the service.k8s.aws/resources finalizer, which only the
-   * controller clears.
+   * cert-manager, external-dns, and aws-load-balancer-controller are installed early, since
+   * other addons depend on them being up (ClusterIssuers, DNS records, LoadBalancer Services).
+   * Cleanup must defer all three to the end, in this order:
+   * - cert-manager and external-dns should still be running while other addons' Certificates/
+   *   DNS-bound Services are being torn down, so those get cleaned up rather than orphaned.
+   * - aws-load-balancer-controller must go last of all: it clears the
+   *   service.k8s.aws/resources finalizer on LoadBalancer Services, and removing it before
+   *   those Services (including the ones cert-manager/external-dns may still be using) are
+   *   deleted leaves them stuck forever.
    */
   static orderForCleanup(addons) {
-    const controller = addons.filter(a => a.name === 'aws-load-balancer-controller');
-    const rest = addons.filter(a => a.name !== 'aws-load-balancer-controller');
-    return [...rest, ...controller];
+    const DEFERRED_ORDER = ['cert-manager', 'external-dns', 'aws-load-balancer-controller'];
+    const rest = addons.filter(a => !DEFERRED_ORDER.includes(a.name));
+    const deferred = DEFERRED_ORDER.flatMap(name => addons.filter(a => a.name === name));
+    return [...rest, ...deferred];
   }
 
   static async cleanupAddons(addons = [], opts = {}) {

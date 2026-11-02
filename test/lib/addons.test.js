@@ -2,30 +2,56 @@ import { test, expect, describe } from 'bun:test';
 import { AddonInstaller } from '../../src/lib/addons.js';
 
 describe('AddonInstaller.orderForCleanup', () => {
-  test('moves aws-load-balancer-controller to the end', () => {
+  test('moves aws-load-balancer-controller, cert-manager, and external-dns to the end, in that priority order', () => {
     const addons = [
       { name: 'aws-load-balancer-controller', namespace: 'kube-system' },
       { name: 'cert-manager', namespace: 'cert-manager' },
       { name: 'keycloak', namespace: 'keycloak' },
       { name: 'external-dns', namespace: 'external-dns' },
+      { name: 'telemetry', namespace: 'telemetry' },
     ];
     const ordered = AddonInstaller.orderForCleanup(addons);
     expect(ordered.map(a => a.name)).toEqual([
-      'cert-manager',
       'keycloak',
+      'telemetry',
+      'cert-manager',
       'external-dns',
       'aws-load-balancer-controller',
     ]);
   });
 
-  test('is a no-op when aws-load-balancer-controller is absent', () => {
+  test('aws-load-balancer-controller is last even without cert-manager/external-dns present', () => {
     const addons = [
-      { name: 'cert-manager', namespace: 'cert-manager' },
+      { name: 'aws-load-balancer-controller', namespace: 'kube-system' },
       { name: 'keycloak', namespace: 'keycloak' },
     ];
     expect(AddonInstaller.orderForCleanup(addons).map(a => a.name)).toEqual([
-      'cert-manager',
       'keycloak',
+      'aws-load-balancer-controller',
+    ]);
+  });
+
+  test('cert-manager and external-dns move to the end even without aws-load-balancer-controller present', () => {
+    const addons = [
+      { name: 'cert-manager', namespace: 'cert-manager' },
+      { name: 'keycloak', namespace: 'keycloak' },
+      { name: 'external-dns', namespace: 'external-dns' },
+    ];
+    expect(AddonInstaller.orderForCleanup(addons).map(a => a.name)).toEqual([
+      'keycloak',
+      'cert-manager',
+      'external-dns',
+    ]);
+  });
+
+  test('is a no-op when none of the three deferred addons are present', () => {
+    const addons = [
+      { name: 'keycloak', namespace: 'keycloak' },
+      { name: 'telemetry', namespace: 'telemetry' },
+    ];
+    expect(AddonInstaller.orderForCleanup(addons).map(a => a.name)).toEqual([
+      'keycloak',
+      'telemetry',
     ]);
   });
 
