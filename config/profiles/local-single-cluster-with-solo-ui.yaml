@@ -3,8 +3,7 @@ kind: Profile
 metadata:
   name: local-single-cluster-with-solo-ui
   description: |
-    Single bring-your-own Kubernetes cluster with Solo UI, Keycloak OIDC login, and full
-    observability. Real DNS via Cloudflare, no infra provisioning.
+    Single bring-your-own Kubernetes cluster with Solo UI, Keycloak OIDC login, and full observability. Real DNS via Cloudflare, no infra provisioning.
 spec:
   environment: local
 

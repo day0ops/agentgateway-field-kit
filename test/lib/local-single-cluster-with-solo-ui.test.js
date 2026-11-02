@@ -21,6 +21,7 @@ describe('local-single-cluster-with-solo-ui profile', () => {
     const profile = await ProfileManager.load(PROFILE_PATH);
     const keycloak = profile.addons.find(a => a.name === 'keycloak');
     expect(keycloak.config.realms).toBeUndefined();
+    expect(keycloak.config.workloadClients).toBeUndefined();
     expect(keycloak.config.soloUiClients.enabled).toBe(true);
   });
 
