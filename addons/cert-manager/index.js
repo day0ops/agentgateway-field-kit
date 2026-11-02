@@ -267,17 +267,29 @@ export class CertManagerFeature extends Feature {
    * re-applied (not skip-if-exists) since the token can rotate.
    */
   async createCloudflareApiTokenSecret() {
-    this.log('Reconciling Cloudflare API token secret...', 'info');
-
-    const result = await CommandRunner.exec(
-      `kubectl create secret generic ${this.cloudflareApiTokenSecretName} -n ${this.certManagerNamespace} --from-literal=api-token="${process.env.CLOUDFLARE_API_TOKEN}" --dry-run=client -o yaml | kubectl apply -f -`,
-      { ignoreError: true }
-    );
-    if (result.exitCode) {
-      throw new Error(
-        `Failed to reconcile ${this.cloudflareApiTokenSecretName}: ${result.stderr?.trim()}`
-      );
+    if (this.dryRun) {
+      const secret = {
+        apiVersion: 'v1',
+        kind: 'Secret',
+        metadata: {
+          name: this.cloudflareApiTokenSecretName,
+          namespace: this.certManagerNamespace,
+          labels: { 'app.kubernetes.io/managed-by': 'agentgateway-demo' },
+        },
+        stringData: { 'api-token': '<set CLOUDFLARE_API_TOKEN>' },
+      };
+      await this.applyResource(secret);
+      return;
     }
+
+    this.log('Reconciling Cloudflare API token secret...', 'info');
+    await KubernetesHelper.createSecretFromLiteral(
+      this.certManagerNamespace,
+      this.cloudflareApiTokenSecretName,
+      'api-token',
+      process.env.CLOUDFLARE_API_TOKEN,
+      this.spinner
+    );
   }
 
   /**

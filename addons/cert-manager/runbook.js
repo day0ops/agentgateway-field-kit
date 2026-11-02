@@ -26,6 +26,13 @@ export function envExportsFor(cfg) {
       value: c.letsencrypt.email || '<ACME_EMAIL>',
       group: 'settings',
     });
+    if ((c.letsencrypt.provider || 'route53') === 'route53') {
+      exports.push({
+        key: 'CERT_MANAGER_REGION',
+        value: c.letsencrypt.region || 'us-east-1',
+        group: 'settings',
+      });
+    }
   }
   return exports;
 }
@@ -113,7 +120,7 @@ export async function generate(_subIndex, cfg) {
     } else {
       lines.push('      - dns01:');
       lines.push('          route53:');
-      lines.push('            region: us-east-1');
+      lines.push('            region: ${CERT_MANAGER_REGION}');
     }
     lines.push('EOF');
     lines.push('```');
