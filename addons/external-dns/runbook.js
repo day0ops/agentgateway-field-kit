@@ -2,7 +2,17 @@
 
 const EXTERNAL_DNS_VERSION = '1.22.0';
 
-export function envVarsFor(_cfg) {
+export function envVarsFor(cfg) {
+  const c = cfg || {};
+  if ((c.provider || 'route53') === 'cloudflare') {
+    return [
+      {
+        name: 'CLOUDFLARE_API_TOKEN',
+        required: true,
+        description: 'Cloudflare API token for external-dns record management',
+      },
+    ];
+  }
   // Route53 access is via IRSA on the external-dns service account, so there are
   // no credential env vars to export here.
   return [];
@@ -10,10 +20,10 @@ export function envVarsFor(_cfg) {
 
 export function envExportsFor(cfg) {
   const c = cfg || {};
+  const provider = c.provider || 'route53';
   const exports = [
     { key: 'EXTERNAL_DNS_VERSION', value: c.version || EXTERNAL_DNS_VERSION, group: 'versions' },
     { key: 'EXTERNAL_DNS_NAMESPACE', value: c.namespace || 'external-dns', group: 'settings' },
-    { key: 'EXTERNAL_DNS_REGION', value: c.region || 'ap-southeast-2', group: 'settings' },
     {
       key: 'EXTERNAL_DNS_DOMAIN_FILTER',
       value: c.domainFilter || '<DOMAIN_FILTER>',
@@ -25,6 +35,14 @@ export function envExportsFor(cfg) {
       group: 'settings',
     },
   ];
+  if (provider === 'cloudflare') {
+    return exports;
+  }
+  exports.push({
+    key: 'EXTERNAL_DNS_REGION',
+    value: c.region || 'ap-southeast-2',
+    group: 'settings',
+  });
   if (c.zoneId) {
     exports.push({ key: 'EXTERNAL_DNS_ZONE_ID', value: c.zoneId, group: 'settings' });
   }
@@ -33,12 +51,31 @@ export function envExportsFor(cfg) {
 
 export async function generate(_subIndex, profileAddonConfig) {
   const cfg = profileAddonConfig || {};
+  const provider = cfg.provider || 'route53';
 
   const lines = [];
   lines.push('### Install external-dns');
   lines.push('');
-  lines.push('Installs external-dns for automatic DNS record management via AWS Route53.');
+  lines.push(
+    provider === 'cloudflare'
+      ? 'Installs external-dns for automatic DNS record management via Cloudflare.'
+      : 'Installs external-dns for automatic DNS record management via AWS Route53.'
+  );
   lines.push('');
+
+  if (provider === 'cloudflare') {
+    lines.push('#### Create the Cloudflare API token secret');
+    lines.push('');
+    lines.push('```bash');
+    lines.push(
+      'kubectl create secret generic external-dns-cloudflare-api-token -n ${EXTERNAL_DNS_NAMESPACE} \\'
+    );
+    lines.push('  --from-literal=api-token="${CLOUDFLARE_API_TOKEN}" \\');
+    lines.push('  --dry-run=client -o yaml | kubectl apply -f -');
+    lines.push('```');
+    lines.push('');
+  }
+
   lines.push('#### Install external-dns');
   lines.push('');
   lines.push('```bash');
@@ -50,20 +87,32 @@ export async function generate(_subIndex, profileAddonConfig) {
   lines.push('  --version ${EXTERNAL_DNS_VERSION} \\');
   lines.push('  --create-namespace \\');
   lines.push('  --wait \\');
-  lines.push('  --set provider.name=aws \\');
-  lines.push('  --set env[0].name=AWS_DEFAULT_REGION \\');
-  lines.push('  --set env[0].value=${EXTERNAL_DNS_REGION} \\');
   lines.push('  --set domainFilters[0]=${EXTERNAL_DNS_DOMAIN_FILTER} \\');
   lines.push('  --set txtOwnerId=${EXTERNAL_DNS_TXT_OWNER_ID} \\');
   lines.push('  --set policy=sync \\');
   lines.push('  --set sources[0]=service \\');
   lines.push('  --set sources[1]=ingress \\');
   lines.push('  --set sources[2]=gateway-httproute \\');
-  if (cfg.zoneId) {
-    lines.push('  --set extraArgs[0]=--aws-zone-type=public \\');
-    lines.push('  --set extraArgs[1]=--zone-id-filter=${EXTERNAL_DNS_ZONE_ID}');
+  if (provider === 'cloudflare') {
+    lines.push('  --set provider.name=cloudflare \\');
+    lines.push('  --set env[0].name=CF_API_TOKEN \\');
+    lines.push('  --set env[0].valueFrom.secretKeyRef.name=external-dns-cloudflare-api-token \\');
+    if (cfg.proxied) {
+      lines.push('  --set env[0].valueFrom.secretKeyRef.key=api-token \\');
+      lines.push('  --set extraArgs[0]=--cloudflare-proxied');
+    } else {
+      lines.push('  --set env[0].valueFrom.secretKeyRef.key=api-token');
+    }
   } else {
-    lines.push('  --set extraArgs[0]=--aws-zone-type=public');
+    lines.push('  --set provider.name=aws \\');
+    lines.push('  --set env[0].name=AWS_DEFAULT_REGION \\');
+    lines.push('  --set env[0].value=${EXTERNAL_DNS_REGION} \\');
+    if (cfg.zoneId) {
+      lines.push('  --set extraArgs[0]=--aws-zone-type=public \\');
+      lines.push('  --set extraArgs[1]=--zone-id-filter=${EXTERNAL_DNS_ZONE_ID}');
+    } else {
+      lines.push('  --set extraArgs[0]=--aws-zone-type=public');
+    }
   }
   lines.push('```');
   lines.push('');

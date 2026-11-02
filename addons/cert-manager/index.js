@@ -32,12 +32,15 @@ const CERT_MANAGER_CHART_VERSION = '1.21.2';
  *   cainjector: {                   // Optional: CA Injector configuration
  *     enabled: boolean              // Default: true
  *   },
- *   letsencrypt: {                  // Optional: Let's Encrypt DNS-01 issuer (Route53)
+ *   letsencrypt: {                  // Optional: Let's Encrypt DNS-01 issuer
  *     enabled: boolean,             // Default: false
  *     staging: boolean,             // Default: false (use staging ACME server)
  *     email: string,                // Required if enabled: ACME account email
- *     region: string                // AWS region for Route53 (default: us-east-1)
+ *     provider: string,             // 'route53' (default) | 'cloudflare'
+ *     region: string                // route53 only. AWS region (default: us-east-1)
  *   }
+ *   // cloudflare has no ambient-credential mechanism like IRSA -- the API token is
+ *   // read from CLOUDFLARE_API_TOKEN and stored in a Secret the solver references.
  * }
  */
 export class CertManagerFeature extends Feature {
@@ -48,15 +51,25 @@ export class CertManagerFeature extends Feature {
     this.shouldInstallCRDs = config.installCRDs !== false;
     this.webhookEnabled = config.webhook?.enabled !== false;
     this.cainjectorEnabled = config.cainjector?.enabled !== false;
-    // Let's Encrypt DNS-01 issuer config (for Route53)
+    // Let's Encrypt DNS-01 issuer config (Route53 or Cloudflare)
     this.letsencryptEnabled = config.letsencrypt?.enabled === true;
     this.letsencryptStaging = config.letsencrypt?.staging === true;
     this.letsencryptEmail = config.letsencrypt?.email || '';
+    this.letsencryptProvider = config.letsencrypt?.provider || 'route53';
     this.letsencryptRegion = config.letsencrypt?.region || 'us-east-1';
+    this.cloudflareApiTokenSecretName = 'cert-manager-cloudflare-api-token';
   }
 
   validate() {
-    // All configuration is optional
+    if (
+      this.letsencryptEnabled &&
+      this.letsencryptProvider === 'cloudflare' &&
+      !process.env.CLOUDFLARE_API_TOKEN
+    ) {
+      throw new Error(
+        'cert-manager: CLOUDFLARE_API_TOKEN environment variable is required for letsencrypt.provider=cloudflare'
+      );
+    }
     return true;
   }
 
@@ -85,6 +98,9 @@ export class CertManagerFeature extends Feature {
     await this.createSelfSignedIssuer();
 
     if (this.letsencryptEnabled && this.letsencryptEmail) {
+      if (this.letsencryptProvider === 'cloudflare') {
+        await this.createCloudflareApiTokenSecret();
+      }
       await this.createLetsEncryptDnsIssuer();
     }
 
@@ -247,8 +263,39 @@ export class CertManagerFeature extends Feature {
   }
 
   /**
-   * Create Let's Encrypt DNS-01 ClusterIssuer for Route53
-   * Requires IRSA to be configured for cert-manager service account
+   * Reconcile the Secret the cloudflare DNS-01 solver's apiTokenSecretRef points at. Always
+   * re-applied (not skip-if-exists) since the token can rotate.
+   */
+  async createCloudflareApiTokenSecret() {
+    if (this.dryRun) {
+      const secret = {
+        apiVersion: 'v1',
+        kind: 'Secret',
+        metadata: {
+          name: this.cloudflareApiTokenSecretName,
+          namespace: this.certManagerNamespace,
+          labels: { 'app.kubernetes.io/managed-by': 'agentgateway-demo' },
+        },
+        stringData: { 'api-token': '<set CLOUDFLARE_API_TOKEN>' },
+      };
+      await this.applyResource(secret);
+      return;
+    }
+
+    this.log('Reconciling Cloudflare API token secret...', 'info');
+    await KubernetesHelper.createSecretFromLiteral(
+      this.certManagerNamespace,
+      this.cloudflareApiTokenSecretName,
+      'api-token',
+      process.env.CLOUDFLARE_API_TOKEN,
+      this.spinner
+    );
+  }
+
+  /**
+   * Create Let's Encrypt DNS-01 ClusterIssuer for Route53 or Cloudflare
+   * Requires IRSA to be configured for cert-manager service account (Route53) or
+   * CLOUDFLARE_API_TOKEN environment variable (Cloudflare)
    */
   async createLetsEncryptDnsIssuer() {
     const acmeServer = this.letsencryptStaging
@@ -257,6 +304,20 @@ export class CertManagerFeature extends Feature {
     const envLabel = this.letsencryptStaging ? ' (staging)' : '';
 
     this.log(`Creating Let's Encrypt DNS-01 ClusterIssuer${envLabel}...`, 'info');
+
+    const dns01 =
+      this.letsencryptProvider === 'cloudflare'
+        ? {
+            cloudflare: {
+              apiTokenSecretRef: { name: this.cloudflareApiTokenSecretName, key: 'api-token' },
+            },
+          }
+        : {
+            route53: {
+              region: this.letsencryptRegion,
+              // Uses IRSA - no explicit credentials needed
+            },
+          };
 
     const issuer = {
       apiVersion: 'cert-manager.io/v1',
@@ -270,16 +331,7 @@ export class CertManagerFeature extends Feature {
           server: acmeServer,
           email: this.letsencryptEmail,
           privateKeySecretRef: { name: 'letsencrypt-dns' },
-          solvers: [
-            {
-              dns01: {
-                route53: {
-                  region: this.letsencryptRegion,
-                  // Uses IRSA - no explicit credentials needed
-                },
-              },
-            },
-          ],
+          solvers: [{ dns01 }],
         },
       },
     };
