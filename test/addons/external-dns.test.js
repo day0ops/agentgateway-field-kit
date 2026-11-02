@@ -74,4 +74,16 @@ describe('external-dns runbook.js cloudflare branch', () => {
     const md = await generate(0, { domainFilter: 'example.com' });
     expect(md).toContain('provider.name=aws');
   });
+
+  test('generate() includes --cloudflare-proxied only when proxied is true', async () => {
+    const proxied = await generate(0, {
+      provider: 'cloudflare',
+      domainFilter: 'example.com',
+      proxied: true,
+    });
+    expect(proxied).toContain('--cloudflare-proxied');
+
+    const notProxied = await generate(0, { provider: 'cloudflare', domainFilter: 'example.com' });
+    expect(notProxied).not.toContain('--cloudflare-proxied');
+  });
 });

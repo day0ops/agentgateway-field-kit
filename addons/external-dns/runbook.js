@@ -97,7 +97,12 @@ export async function generate(_subIndex, profileAddonConfig) {
     lines.push('  --set provider.name=cloudflare \\');
     lines.push('  --set env[0].name=CF_API_TOKEN \\');
     lines.push('  --set env[0].valueFrom.secretKeyRef.name=external-dns-cloudflare-api-token \\');
-    lines.push('  --set env[0].valueFrom.secretKeyRef.key=api-token');
+    if (cfg.proxied) {
+      lines.push('  --set env[0].valueFrom.secretKeyRef.key=api-token \\');
+      lines.push('  --set extraArgs[0]=--cloudflare-proxied');
+    } else {
+      lines.push('  --set env[0].valueFrom.secretKeyRef.key=api-token');
+    }
   } else {
     lines.push('  --set provider.name=aws \\');
     lines.push('  --set env[0].name=AWS_DEFAULT_REGION \\');
