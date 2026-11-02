@@ -1,0 +1,71 @@
+apiVersion: agentgateway.demo/v1
+kind: Profile
+metadata:
+  name: local-single-cluster-with-solo-ui
+  description: |
+    Single bring-your-own Kubernetes cluster with Solo UI, Keycloak OIDC login, and full
+    observability. Real DNS via Cloudflare, no infra provisioning.
+spec:
+  environment: local
+
+  addons:
+    - name: cert-manager
+      description: Certificate management for TLS
+      version: '{{env.addons.cert-manager.version}}'
+      namespace: cert-manager
+      config:
+        letsencrypt:
+          enabled: true
+          provider: cloudflare
+          email: '{{env.acme.email}}'
+
+    - name: external-dns
+      description: Automatic DNS record management via Cloudflare
+      version: '{{env.addons.external-dns.version}}'
+      namespace: external-dns
+      config:
+        provider: cloudflare
+        domainFilter: '{{env.dns.parentZone.domain}}'
+        txtOwnerId: '{{env.dns.txtOwnerId}}'
+        proxied: false
+
+    - name: keycloak
+      description: Keycloak OIDC provider for Solo UI login
+      phase: post
+      namespace: keycloak
+      config:
+        hostname: '{{env.domains.core.keycloak}}'
+        protocol: https
+        tls:
+          enabled: true
+          secretName: keycloak-tls
+          createCertificate: true
+        soloUiClients:
+          enabled: true
+          realm: solo-ui
+          hostname: 'https://{{env.domains.core.soloUi}}'
+          backendClientId: solo-ui-backend
+          backendClientSecret: solo-ui-backend-secret
+          frontendClientId: solo-ui-frontend
+
+    - name: solo-ui
+      description: Solo Enterprise UI for agentgateway
+      version: '{{env.soloUi.version}}'
+      namespace: agentgateway-system
+      config:
+        hostname: '{{env.domains.core.soloUi}}'
+        tls:
+          enabled: true
+        oidc:
+          enabled: true
+          issuerUrl: 'https://{{env.domains.core.keycloak}}/realms/solo-ui'
+          backendClientId: solo-ui-backend
+          backendClientSecret: solo-ui-backend-secret
+          frontendClientId: solo-ui-frontend
+
+    - name: telemetry
+      description: OpenTelemetry observability stack (Prometheus, Grafana, Loki, Tempo)
+      namespace: telemetry
+      chartVersions: '{{env.addons.telemetry}}'
+      config:
+        grafanaHostname: '{{env.domains.core.grafana}}'
