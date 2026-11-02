@@ -2,7 +2,7 @@ apiVersion: agentgateway.demo/v1
 kind: Environment
 metadata:
   name: local
-  description: Local Kubernetes cluster (lok8s)
+  description: Local Kubernetes cluster (lok8s), or a bring-your-own cluster with real DNS via Cloudflare
 
 spec:
   # No infraProfile or dns - purely local cluster
@@ -72,14 +72,28 @@ spec:
     sts: http://enterprise-agentgateway.agentgateway-system.svc.cluster.local:7777/oauth2/token
     stsIssuer: enterprise-agentgateway.agentgateway-system.svc.cluster.local:7777
 
+  # Real DNS under agw.lab.day0ops.com (Cloudflare), managed by external-dns. Used by the
+  # profiles that expose a hostname (agentgateway-with-keycloak, agentgateway-with-solo-ui,
+  # agentgateway-with-observability, local-single-cluster-with-solo-ui) -- the child zone
+  # keeps this repo's records from colliding with agentic-field-kit's *.lab.day0ops.com.
+  dns:
+    provider: cloudflare
+    childZone: agw.lab
+    parentZone:
+      domain: day0ops.com
+    txtOwnerId: agentgateway-demo-local
+
+  acme:
+    email: kasun.talwatta@solo.io
+
   domains:
     core:
-      keycloak: keycloak.keycloak.svc.cluster.local
-      grafana: kube-prometheus-stack-grafana.telemetry.svc.cluster.local
-      soloUi: solo-enterprise-ui.agentgateway-system.svc.cluster.local
-      agentgateway: agentgateway.agentgateway-system.svc.cluster.local
+      keycloak: keycloak.agw.lab.day0ops.com
+      grafana: grafana.agw.lab.day0ops.com
+      soloUi: solo-ui.agw.lab.day0ops.com
+      agentgateway: agentgateway.agw.lab.day0ops.com
     app:
-      quotaManagement: quota-management.agentgateway-system.svc.cluster.local
+      quotaManagement: quota-management.agw.lab.day0ops.com
 
   # Okta tenant
   okta:
