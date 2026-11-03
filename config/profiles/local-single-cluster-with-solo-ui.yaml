@@ -60,7 +60,8 @@ spec:
       namespace: keycloak
       config:
         hostname: '{{env.domains.core.keycloak}}'
-        protocol: https
+        protocol: '{{env.keycloak.scheme}}'
+        loginTheme: '{{env.keycloak.loginTheme}}'
         tls:
           enabled: true
           secretName: keycloak-tls

@@ -13,7 +13,8 @@ spec:
 
   keycloak:
     image: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/keycloak:latest
-    scheme: http
+    scheme: https
+    loginTheme: keycloak-soloio-login-theme
 
   addons:
     cert-manager:
