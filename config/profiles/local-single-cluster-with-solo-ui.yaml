@@ -81,6 +81,96 @@ spec:
           enabled: true
           secretName: keycloak-tls
           createCertificate: true
+        realms:
+          - realm: agw-dev
+            clients:
+              - clientId: agw-client
+                type: confidential
+                clientSecret: agw-client-secret
+                flows:
+                  - authorization-code
+                  - service-account
+              - clientId: agw-client-public
+                type: public
+                flows:
+                  - authorization-code
+              - clientId: agw-issuer
+                type: confidential
+                clientSecret: agw-issuer-secret
+                directAccessGrantsEnabled: false
+                flows:
+                  - authorization-code
+              - clientId: quota-management
+                type: confidential
+                clientSecret: quota-management-secret
+                flows:
+                  - authorization-code
+                  - service-account
+              - clientId: agw-token-exchange
+                type: confidential
+                clientSecret: agw-token-exchange-secret
+                directAccessGrantsEnabled: false
+                flows: []
+                attributes:
+                  standard.token.exchange.enabled: 'true'
+              - clientId: agw-ext-auth
+                type: confidential
+                clientSecret: agw-ext-auth-secret
+                directAccessGrantsEnabled: false
+                flows:
+                  - authorization-code
+                audienceMappers:
+                  - agw-token-exchange
+            customAttributes:
+              - org_id
+              - team_id
+              - group
+              - is_org
+            users:
+              - username: acme-corp-admin
+                firstName: Acme Corp
+                lastName: Admin
+                email: acme-corp-admin@acme-corp.demo
+                attributes:
+                  org_id: acme-corp
+                  is_org: 'true'
+                  group: admins
+              - username: user1
+                firstName: Alpha
+                lastName: User
+                email: user1@acme-corp.demo
+                attributes:
+                  org_id: acme-corp
+                  team_id: team-alpha
+                  group: users
+                  is_org: 'false'
+              - username: user2
+                firstName: Alpha
+                lastName: User Two
+                email: user2@acme-corp.demo
+                attributes:
+                  org_id: acme-corp
+                  team_id: team-alpha
+                  group: users
+                  is_org: 'false'
+              - username: team-alpha-admin
+                firstName: Team Alpha
+                lastName: Admin
+                email: team-alpha-admin@acme-corp.demo
+                attributes:
+                  org_id: acme-corp
+                  team_id: team-alpha
+                  group: users
+                  is_org: 'false'
+              - username: team-beta-admin
+                firstName: Team Beta
+                lastName: Admin
+                email: team-beta-admin@acme-corp.demo
+                attributes:
+                  org_id: acme-corp
+                  team_id: team-beta
+                  group: users
+                  is_org: 'false'
         soloUiClients:
           enabled: true
           realm: solo-ui

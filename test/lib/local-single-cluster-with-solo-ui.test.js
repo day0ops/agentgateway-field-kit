@@ -17,12 +17,31 @@ describe('local-single-cluster-with-solo-ui profile', () => {
     expect(externalDns.config.domainFilter).toBe('day0ops.com');
   });
 
-  test('keycloak only provisions the solo-ui realm, not agw-dev', async () => {
+  test('keycloak provisions both the agw-dev realm (demo-wizard OAuth clients) and solo-ui', async () => {
     const profile = await ProfileManager.load(PROFILE_PATH);
     const keycloak = profile.addons.find(a => a.name === 'keycloak');
-    expect(keycloak.config.realms).toBeUndefined();
     expect(keycloak.config.workloadClients).toBeUndefined();
     expect(keycloak.config.soloUiClients.enabled).toBe(true);
+
+    const agwDev = keycloak.config.realms.find(r => r.realm === 'agw-dev');
+    expect(agwDev).toBeDefined();
+    const clientIds = agwDev.clients.map(c => c.clientId);
+    expect(clientIds).toEqual([
+      'agw-client',
+      'agw-client-public',
+      'agw-issuer',
+      'quota-management',
+      'agw-token-exchange',
+      'agw-ext-auth',
+    ]);
+    const usernames = agwDev.users.map(u => u.username);
+    expect(usernames).toEqual([
+      'acme-corp-admin',
+      'user1',
+      'user2',
+      'team-alpha-admin',
+      'team-beta-admin',
+    ]);
   });
 
   test('ui is OIDC-protected against the real keycloak hostname, configured at the top level', async () => {
