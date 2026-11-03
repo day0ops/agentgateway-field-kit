@@ -11,7 +11,7 @@ spec:
 
   ui:
     enabled: true
-    hostname: '{{env.domains.core.soloUi}}'
+    hostname: '{{env.domains.core.agentgatewayUi}}'
     tls:
       enabled: true
 

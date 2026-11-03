@@ -17,7 +17,7 @@ describe('local environment real DNS config', () => {
   test('domains.core hostnames are real, not cluster-local', async () => {
     const env = await EnvironmentManager.load('local');
     expect(env.spec.domains.core.keycloak).toBe('keycloak.agw.lab.day0ops.com');
-    expect(env.spec.domains.core.soloUi).toBe('solo-ui.agw.lab.day0ops.com');
+    expect(env.spec.domains.core.agentgatewayUi).toBe('agw-ui.agw.lab.day0ops.com');
     expect(env.spec.domains.core.grafana).toBe('grafana.agw.lab.day0ops.com');
     expect(env.spec.domains.core.agentgateway).toBe('agentgateway.agw.lab.day0ops.com');
     expect(env.spec.domains.app.quotaManagement).toBe('quota-management.agw.lab.day0ops.com');

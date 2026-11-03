@@ -14,7 +14,7 @@ spec:
     nodeSelector:
       nodeclass: worker
     applyGatewayTracingPolicy: false
-    hostname: '{{env.domains.core.soloUi}}'
+    hostname: '{{env.domains.core.agentgatewayUi}}'
     tls:
       enabled: true
 

@@ -89,7 +89,7 @@ spec:
     core:
       keycloak: keycloak.agw.lab.day0ops.com
       grafana: grafana.agw.lab.day0ops.com
-      soloUi: solo-ui.agw.lab.day0ops.com
+      agentgatewayUi: agw-ui.agw.lab.day0ops.com
       agentgateway: agentgateway.agw.lab.day0ops.com
     app:
       quotaManagement: quota-management.agw.lab.day0ops.com
