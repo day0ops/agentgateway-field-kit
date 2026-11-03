@@ -33,6 +33,13 @@ spec:
       issuerUrl: 'https://{{env.domains.core.keycloak}}/realms/solo-ui'
       backendClientSecret: solo-ui-backend-secret
 
+  gateway:
+    hostname: '{{env.domains.core.agentgateway}}'
+    publicHttps:
+      enabled: true
+      dnsNames:
+        - '{{env.domains.core.agentgateway}}'
+
   addons:
     - name: cert-manager
       description: Certificate management for TLS
@@ -43,6 +50,14 @@ spec:
           enabled: true
           provider: cloudflare
           email: '{{env.acme.email}}'
+
+    - name: gateway-mtls
+      description: Real cert for agentgateway's public HTTPS listener
+      config:
+        publicHttps:
+          enabled: true
+          dnsNames:
+            - '{{env.domains.core.agentgateway}}'
 
     - name: external-dns
       description: Automatic DNS record management via Cloudflare
