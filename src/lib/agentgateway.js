@@ -798,6 +798,14 @@ export class AgentGatewayManager {
         throw new Error('ui.oidc.enabled requires ui.oidc.backendClientSecret to also be set');
       }
     }
+    if (ui.tracingBackend) {
+      const { name, namespace, port } = ui.tracingBackend;
+      if (!name || !namespace || !port) {
+        throw new Error(
+          'ui.tracingBackend requires name, namespace, and port all set together - a partial override would silently drop the missing fields from the applied tracing policy'
+        );
+      }
+    }
   }
 
   /**

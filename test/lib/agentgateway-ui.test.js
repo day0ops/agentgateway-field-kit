@@ -96,4 +96,22 @@ describe('AgentGatewayManager.validateUIConfig', () => {
     expect(() => AgentGatewayManager.validateUIConfig({ enabled: false })).not.toThrow();
     expect(() => AgentGatewayManager.validateUIConfig(null)).not.toThrow();
   });
+
+  test('throws when tracingBackend is missing namespace or port', () => {
+    expect(() =>
+      AgentGatewayManager.validateUIConfig({
+        enabled: true,
+        tracingBackend: { name: 'fan-out-collector' },
+      })
+    ).toThrow(/tracingBackend requires name, namespace, and port/);
+  });
+
+  test('does not throw when tracingBackend has all three fields', () => {
+    expect(() =>
+      AgentGatewayManager.validateUIConfig({
+        enabled: true,
+        tracingBackend: { name: 'fan-out-collector', namespace: 'telemetry', port: 4317 },
+      })
+    ).not.toThrow();
+  });
 });
