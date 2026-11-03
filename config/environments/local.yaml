@@ -66,6 +66,14 @@ spec:
       preissuance-ext-authz: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/preissuance-ext-authz:latest
     routing:
       sidecar-agent: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/sidecar-agent:0.1.1
+    opsAgents:
+      core-banking: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/core-banking:v0.2.6
+      accounts-agent: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/accounts-agent:v0.2.6
+      transfer-orchestrator-agent: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/transfer-orchestrator-agent:v0.2.6
+      settlement-agent: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/settlement-agent:v0.2.6
+      statements-agent: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/statements-agent:v0.2.6
+    wizard:
+      agentgateway-demo-wizard: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/agentgateway-demo-wizard:v0.8.16
 
   internal:
     agentgateway: http://agentgateway.agentgateway-system.svc.cluster.local:8080
@@ -94,6 +102,13 @@ spec:
       agentgateway: agentgateway.agw.lab.day0ops.com
     app:
       quotaManagement: quota-management.agw.lab.day0ops.com
+      wizard: wizard.agw.lab.day0ops.com
+
+  # CIDR allowlist applied to public-facing NLBs (aws-load-balancer-source-ranges).
+  # Empty here - local/BYO clusters aren't VPN-locked; features treat an empty list as
+  # "no restriction" (see nlbSourceRangeAnnotations in src/lib/common.js).
+  security:
+    vpnSourceRanges: []
 
   # Okta tenant
   okta:

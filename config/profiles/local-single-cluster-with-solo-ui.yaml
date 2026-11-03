@@ -32,6 +32,33 @@ spec:
       enabled: true
       issuerUrl: 'https://{{env.domains.core.keycloak}}/realms/solo-ui'
       backendClientSecret: solo-ui-backend-secret
+    features:
+      costManagement:
+        enabled: true
+
+  helmValues:
+    tokenExchange:
+      enabled: true
+      issuer: enterprise-agentgateway.agentgateway-system.svc.cluster.local:7777
+      tokenExpiration: 24h
+      subjectValidator:
+        validatorType: remote
+        remoteConfig:
+          url: 'https://{{env.domains.core.keycloak}}/realms/agw-dev/protocol/openid-connect/certs'
+        skipMayActClaimValidation: true
+      actorValidator:
+        validatorType: k8s
+      apiValidator:
+        validatorType: remote
+        remoteConfig:
+          url: 'https://{{env.domains.core.keycloak}}/realms/agw-dev/protocol/openid-connect/certs'
+
+  gateway:
+    hostname: '{{env.domains.core.agentgateway}}'
+    publicHttps:
+      enabled: true
+      dnsNames:
+        - '{{env.domains.core.agentgateway}}'
 
   addons:
     - name: cert-manager
@@ -43,6 +70,14 @@ spec:
           enabled: true
           provider: cloudflare
           email: '{{env.acme.email}}'
+
+    - name: gateway-mtls
+      description: Real cert for agentgateway's public HTTPS listener
+      config:
+        publicHttps:
+          enabled: true
+          dnsNames:
+            - '{{env.domains.core.agentgateway}}'
 
     - name: external-dns
       description: Automatic DNS record management via Cloudflare
@@ -66,6 +101,101 @@ spec:
           enabled: true
           secretName: keycloak-tls
           createCertificate: true
+        realms:
+          - realm: agw-dev
+            clients:
+              - clientId: agw-client
+                type: confidential
+                clientSecret: agw-client-secret
+                flows:
+                  - authorization-code
+                  - service-account
+              - clientId: agw-client-public
+                type: public
+                flows:
+                  - authorization-code
+              - clientId: agw-issuer
+                type: confidential
+                clientSecret: agw-issuer-secret
+                directAccessGrantsEnabled: false
+                flows:
+                  - authorization-code
+              - clientId: quota-management
+                type: confidential
+                clientSecret: quota-management-secret
+                flows:
+                  - authorization-code
+                  - service-account
+              - clientId: agw-token-exchange
+                type: confidential
+                clientSecret: agw-token-exchange-secret
+                # The wizard app's own demo-login shortcut does a direct password grant
+                # against this client (confirmed: its OAUTH_TOKEN_EXCHANGE_CLIENT_SECRET
+                # env var matches this client's secret), in addition to its standard
+                # token exchange use - unlike agentgateway-with-keycloak.yaml, which
+                # doesn't run the wizard usecase and disables this.
+                directAccessGrantsEnabled: true
+                flows: []
+                attributes:
+                  standard.token.exchange.enabled: 'true'
+              - clientId: agw-ext-auth
+                type: confidential
+                clientSecret: agw-ext-auth-secret
+                directAccessGrantsEnabled: false
+                flows:
+                  - authorization-code
+                audienceMappers:
+                  - agw-token-exchange
+            customAttributes:
+              - org_id
+              - team_id
+              - group
+              - is_org
+            users:
+              - username: acme-corp-admin
+                firstName: Acme Corp
+                lastName: Admin
+                email: acme-corp-admin@acme-corp.demo
+                attributes:
+                  org_id: acme-corp
+                  is_org: 'true'
+                  group: admins
+              - username: user1
+                firstName: Alpha
+                lastName: User
+                email: user1@acme-corp.demo
+                attributes:
+                  org_id: acme-corp
+                  team_id: team-alpha
+                  group: users
+                  is_org: 'false'
+              - username: user2
+                firstName: Alpha
+                lastName: User Two
+                email: user2@acme-corp.demo
+                attributes:
+                  org_id: acme-corp
+                  team_id: team-alpha
+                  group: users
+                  is_org: 'false'
+              - username: team-alpha-admin
+                firstName: Team Alpha
+                lastName: Admin
+                email: team-alpha-admin@acme-corp.demo
+                attributes:
+                  org_id: acme-corp
+                  team_id: team-alpha
+                  group: users
+                  is_org: 'false'
+              - username: team-beta-admin
+                firstName: Team Beta
+                lastName: Admin
+                email: team-beta-admin@acme-corp.demo
+                attributes:
+                  org_id: acme-corp
+                  team_id: team-beta
+                  group: users
+                  is_org: 'false'
         soloUiClients:
           enabled: true
           realm: solo-ui
