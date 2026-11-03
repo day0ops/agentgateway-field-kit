@@ -419,7 +419,7 @@ spec:
         soloUiClients:
           enabled: true
           realm: solo-ui
-          hostname: https://{{env.domains.core.soloUi}}
+          hostname: https://{{env.domains.core.agentgatewayUi}}
           backendClientId: enterprise-agentgateway-ui-backend
           backendClientSecret: solo-ui-backend-secret
           frontendClientId: enterprise-agentgateway-ui

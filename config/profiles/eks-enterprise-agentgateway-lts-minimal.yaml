@@ -91,7 +91,7 @@ spec:
   ui:
     enabled: true
     serviceType: ClusterIP
-    hostname: '{{env.domains.core.soloUi}}'
+    hostname: '{{env.domains.core.agentgatewayUi}}'
     sourceRanges: '{{env.security.vpnSourceRanges}}'
     tls:
       enabled: true
@@ -164,7 +164,7 @@ spec:
         soloUiClients:
           enabled: true
           realm: agw-dev
-          hostname: https://{{env.domains.core.soloUi}}
+          hostname: https://{{env.domains.core.agentgatewayUi}}
           backendClientId: enterprise-agentgateway-ui-backend
           backendClientSecret: solo-ui-backend-secret
           frontendClientId: enterprise-agentgateway-ui

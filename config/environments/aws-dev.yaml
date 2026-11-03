@@ -124,7 +124,7 @@ spec:
     core:
       keycloak: keycloak.demo.kasunt.apac.fe.solo.io
       grafana: grafana.demo.kasunt.apac.fe.solo.io
-      soloUi: soloui.demo.kasunt.apac.fe.solo.io
+      agentgatewayUi: agw-ui.demo.kasunt.apac.fe.solo.io
       agentgateway: agentgateway.demo.kasunt.apac.fe.solo.io
     app:
       quotaManagement: quota-management.demo.kasunt.apac.fe.solo.io
