@@ -50,3 +50,26 @@ export async function logout(page) {
   await page.locator('a:has-text("Log out")').first().click();
   await page.waitForTimeout(3000);
 }
+
+/**
+ * Ensures a real Keycloak-authenticated session (not the wizard's demo-login
+ * shortcut) for username/password. No-ops if already logged in. Must be
+ * called while on the auth pillar's "Real login" step (sub-step 2), since
+ * that's the only step the "Log in"/"Log out" links render on - callers
+ * that need this for a later sub-step should call nextStep() once to reach
+ * step 2, call this, then continue navigating to their target step.
+ *
+ * Each test calls this independently rather than relying on a shared
+ * session from an earlier test: Playwright gives every test() a fresh,
+ * isolated page/context by default, regardless of test.describe.configure's
+ * serial mode - that setting only affects execution order and
+ * fail-then-skip-subsequent behavior, never fixture sharing.
+ */
+export async function ensureRealLogin(page, username, password) {
+  if (await isLoggedIn(page)) return;
+  await page.locator('a:has-text("Log in")').first().click();
+  await page.locator('#username').fill(username);
+  await page.locator('#password').fill(password);
+  await page.locator('#password').press('Enter');
+  await page.waitForTimeout(4000);
+}

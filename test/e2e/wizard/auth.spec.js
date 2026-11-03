@@ -1,8 +1,6 @@
 // test/e2e/wizard/auth.spec.js
 import { test, expect } from '@playwright/test';
-import { gotoPillar, nextStep, logout } from './helpers.js';
-
-test.describe.configure({ mode: 'serial' });
+import { gotoPillar, nextStep, logout, ensureRealLogin } from './helpers.js';
 
 test.describe('Auth pillar', () => {
   test.beforeEach(async ({ page }) => {
@@ -45,6 +43,7 @@ test.describe('Auth pillar', () => {
 
   test.fixme('Accounts Agent reads balance via Impersonation', async ({ page }) => {
     await nextStep(page);
+    await ensureRealLogin(page, 'user1', process.env.KEYCLOAK_DEFAULT_PASSWORD);
     await nextStep(page);
     await page.locator('button:has-text("Run agent")').first().click();
     await page.waitForTimeout(10000);
@@ -54,6 +53,7 @@ test.describe('Auth pillar', () => {
 
   test.fixme('Accounts Agent RBAC: admin-only tool denied after Apply', async ({ page }) => {
     await nextStep(page);
+    await ensureRealLogin(page, 'user1', process.env.KEYCLOAK_DEFAULT_PASSWORD);
     await nextStep(page);
     await nextStep(page);
     await test.step('before Apply: full account number is readable', async () => {
@@ -75,7 +75,9 @@ test.describe('Auth pillar', () => {
   test.fixme('Transfer Orchestrator -> Settlement delegation chain moves money', async ({
     page,
   }) => {
-    for (let i = 0; i < 4; i++) await nextStep(page);
+    await nextStep(page);
+    await ensureRealLogin(page, 'user1', process.env.KEYCLOAK_DEFAULT_PASSWORD);
+    for (let i = 0; i < 3; i++) await nextStep(page);
     await page.locator('button:has-text("Run agent")').first().click();
     await page.waitForTimeout(10000);
     const text = await page.locator('body').innerText();
@@ -85,7 +87,9 @@ test.describe('Auth pillar', () => {
   test.fixme('Settlement RBAC: direct transfer denied, chained transfer allowed, after Apply', async ({
     page,
   }) => {
-    for (let i = 0; i < 5; i++) await nextStep(page);
+    await nextStep(page);
+    await ensureRealLogin(page, 'user1', process.env.KEYCLOAK_DEFAULT_PASSWORD);
+    for (let i = 0; i < 4; i++) await nextStep(page);
     await page.locator('button:has-text("Apply")').first().click();
     await page.waitForTimeout(8000);
 
@@ -113,7 +117,9 @@ test.describe('Auth pillar', () => {
   // this repo's control and its selectors were never verified here.
 
   test.fixme('Statements Agent -> PayPal Interactive elicitation', async ({ page }) => {
-    for (let i = 0; i < 6; i++) await nextStep(page);
+    await nextStep(page);
+    await ensureRealLogin(page, 'user1', process.env.KEYCLOAK_DEFAULT_PASSWORD);
+    for (let i = 0; i < 5; i++) await nextStep(page);
     await page.locator('button:has-text("Run agent")').first().click();
     await page.waitForTimeout(10000);
     const text = await page.locator('body').innerText();
@@ -124,7 +130,9 @@ test.describe('Auth pillar', () => {
   });
 
   test.fixme('Statements Agent -> Stripe Brokered elicitation', async ({ page }) => {
-    for (let i = 0; i < 7; i++) await nextStep(page);
+    await nextStep(page);
+    await ensureRealLogin(page, 'user1', process.env.KEYCLOAK_DEFAULT_PASSWORD);
+    for (let i = 0; i < 6; i++) await nextStep(page);
     await page.locator('button:has-text("Run agent")').first().click();
     await page.waitForTimeout(10000);
     const text = await page.locator('body').innerText();
