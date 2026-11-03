@@ -383,7 +383,6 @@ spec:
             sourceRanges: '{{env.security.vpnSourceRanges}}'
             tls:
               enabled: true
-              issuer: '{{env.tls.issuer}}'
 
     - title: Protect the auth pillar's real-agent routes with agentgateway's own ext-auth
       description: |
