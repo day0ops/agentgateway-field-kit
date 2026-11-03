@@ -3,9 +3,35 @@ kind: Profile
 metadata:
   name: local-single-cluster-with-solo-ui
   description: |
-    Single bring-your-own Kubernetes cluster with Solo UI, Keycloak OIDC login, and full observability. Real DNS via Cloudflare, no infra provisioning.
+    Single bring-your-own Kubernetes cluster
+    - Solo UI and full observability
+    - Keycloak OIDC login
 spec:
   environment: local
+
+  agentgateway:
+    version: v2026.10.2
+    ociRegistry: oci://us-docker.pkg.dev/solo-public/enterprise-agentgateway/charts
+
+  agentgateway-crds:
+    version: v2026.10.2
+    ociRegistry: oci://us-docker.pkg.dev/solo-public/enterprise-agentgateway/charts
+    helmValues:
+      installAgentgatewayModelCRD: true
+
+  gatewayApi:
+    version: v1.6.3
+    channel: experimental
+
+  ui:
+    enabled: true
+    hostname: '{{env.domains.core.soloUi}}'
+    tls:
+      enabled: true
+    oidc:
+      enabled: true
+      issuerUrl: 'https://{{env.domains.core.keycloak}}/realms/solo-ui'
+      backendClientSecret: solo-ui-backend-secret
 
   addons:
     - name: cert-manager
@@ -43,24 +69,9 @@ spec:
           enabled: true
           realm: solo-ui
           hostname: 'https://{{env.domains.core.soloUi}}'
-          backendClientId: solo-ui-backend
+          backendClientId: enterprise-agentgateway-ui-backend
           backendClientSecret: solo-ui-backend-secret
-          frontendClientId: solo-ui-frontend
-
-    - name: solo-ui
-      description: Solo Enterprise UI for agentgateway
-      version: '{{env.soloUi.version}}'
-      namespace: agentgateway-system
-      config:
-        hostname: '{{env.domains.core.soloUi}}'
-        tls:
-          enabled: true
-        oidc:
-          enabled: true
-          issuerUrl: 'https://{{env.domains.core.keycloak}}/realms/solo-ui'
-          backendClientId: solo-ui-backend
-          backendClientSecret: solo-ui-backend-secret
-          frontendClientId: solo-ui-frontend
+          frontendClientId: enterprise-agentgateway-ui
 
     - name: telemetry
       description: OpenTelemetry observability stack (Prometheus, Grafana, Loki, Tempo)

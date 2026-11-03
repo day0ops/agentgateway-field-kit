@@ -14,7 +14,7 @@ spec:
   frontend:
     tracing:
       backendRef:
-        name: solo-enterprise-telemetry-collector
+        name: enterprise-agentgateway-ui-telemetry-collector
         namespace: agentgateway-system
         port: 4317
       protocol: GRPC

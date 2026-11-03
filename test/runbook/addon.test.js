@@ -84,11 +84,10 @@ const KEYCLOAK_PROFILE_CONFIG = {
 };
 
 describe('AddonAdapter', () => {
-  test('knownAddons() returns array including telemetry, cert-manager, solo-ui, keycloak', async () => {
+  test('knownAddons() returns array including telemetry, cert-manager, keycloak', async () => {
     const names = await AddonAdapter.knownAddons(PROJECT_ROOT);
     expect(names).toContain('telemetry');
     expect(names).toContain('cert-manager');
-    expect(names).toContain('solo-ui');
     expect(names).toContain('keycloak');
   });
 
@@ -109,12 +108,6 @@ describe('AddonAdapter', () => {
     expect(section).toContain('jetstack');
     expect(section).toContain('cert-manager');
     expect(section).toContain('${CERT_MANAGER_VERSION}');
-  });
-
-  test('generate(solo-ui) contains OCI registry and version var', async () => {
-    const section = await AddonAdapter.generate('solo-ui', 0, null, PROJECT_ROOT);
-    expect(section).toContain('us-docker.pkg.dev/solo-public');
-    expect(section).toContain('${SOLO_UI_VERSION}');
   });
 
   test('generate(keycloak) without profileAddonConfig contains kubectl apply', async () => {
@@ -301,14 +294,6 @@ describe('AddonAdapter', () => {
     expect(keys).toContain('CERT_MANAGER_NAMESPACE');
     expect(exports.find(e => e.key === 'CERT_MANAGER_VERSION').value).toBe('v1.21.2');
     expect(exports.find(e => e.key === 'CERT_MANAGER_NAMESPACE').value).toBe('cert-manager');
-  });
-
-  test('envExportsFor(solo-ui) returns SOLO_UI_VERSION and SOLO_UI_NAMESPACE', async () => {
-    const exports = await AddonAdapter.envExportsFor('solo-ui', null, PROJECT_ROOT);
-    const keys = exports.map(e => e.key);
-    expect(keys).toContain('SOLO_UI_VERSION');
-    expect(keys).toContain('SOLO_UI_NAMESPACE');
-    expect(exports.find(e => e.key === 'SOLO_UI_VERSION').value).toBe('0.3.13');
   });
 
   test('envExportsFor(keycloak) returns version, namespace, host, and scheme entries', async () => {

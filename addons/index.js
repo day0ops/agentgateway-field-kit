@@ -11,7 +11,6 @@ import { AwsLoadBalancerControllerFeature } from './aws-load-balancer-controller
 import { TelemetryFeature } from './telemetry/index.js';
 import { CertManagerFeature } from './cert-manager/index.js';
 import { GatewayMtlsFeature } from './gateway-mtls/index.js';
-import { SoloUIFeature } from './solo-ui/index.js';
 import { KeycloakFeature } from './keycloak/index.js';
 import { ExternalDnsFeature } from './external-dns/index.js';
 import { AgentgatewayExtensionsFeature } from './agentgateway-extensions/index.js';
@@ -24,7 +23,6 @@ FeatureManager.register('aws-load-balancer-controller', AwsLoadBalancerControlle
 FeatureManager.register('telemetry', TelemetryFeature);
 FeatureManager.register('cert-manager', CertManagerFeature);
 FeatureManager.register('gateway-mtls', GatewayMtlsFeature);
-FeatureManager.register('solo-ui', SoloUIFeature);
 FeatureManager.register('keycloak', KeycloakFeature);
 FeatureManager.register('external-dns', ExternalDnsFeature);
 FeatureManager.register('agentgateway-extensions', AgentgatewayExtensionsFeature);
@@ -38,7 +36,6 @@ export {
   TelemetryFeature,
   CertManagerFeature,
   GatewayMtlsFeature,
-  SoloUIFeature,
   KeycloakFeature,
   ExternalDnsFeature,
   AgentgatewayExtensionsFeature,

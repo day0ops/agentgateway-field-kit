@@ -9,6 +9,12 @@ spec:
 
   helmValues: {}
 
+  ui:
+    enabled: true
+    hostname: '{{env.domains.core.soloUi}}'
+    tls:
+      enabled: true
+
   addons:
     - name: cert-manager
       description: Certificate management for TLS
@@ -29,15 +35,6 @@ spec:
         domainFilter: '{{env.dns.parentZone.domain}}'
         txtOwnerId: '{{env.dns.txtOwnerId}}'
         proxied: false
-
-    - name: solo-ui
-      description: Solo Enterprise UI for agentgateway
-      version: '{{env.soloUi.version}}'
-      namespace: agentgateway-system
-      config:
-        hostname: '{{env.domains.core.soloUi}}'
-        tls:
-          enabled: true
 
     - name: telemetry
       description: OpenTelemetry observability stack (Prometheus, Grafana, Loki, Tempo)

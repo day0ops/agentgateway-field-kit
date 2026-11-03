@@ -8,11 +8,11 @@ spec:
   environment: local
 
   agentgateway:
-    version: v2026.7.1-patch.3
+    version: v2026.10.2
     ociRegistry: oci://us-docker.pkg.dev/solo-public/enterprise-agentgateway/charts
 
   agentgateway-crds:
-    version: v2026.7.1-patch.3
+    version: v2026.10.2
     ociRegistry: oci://us-docker.pkg.dev/solo-public/enterprise-agentgateway/charts
 
   gatewayApi:
@@ -70,6 +70,20 @@ spec:
       enabled: true
       sourceSecret: keycloak-tls
       sourceNamespace: keycloak
+
+  ui:
+    enabled: true
+    serviceType: LoadBalancer
+    nodeSelector:
+      nodeclass: worker
+    tracingBackend:
+      name: fan-out-collector
+      namespace: telemetry
+      port: 4317
+    oidc:
+      enabled: true
+      issuerUrl: https://{{env.domains.core.keycloak}}/realms/solo-ui
+      backendClientSecret: solo-ui-backend-secret
 
   addons:
     - name: cert-manager
@@ -406,9 +420,9 @@ spec:
           enabled: true
           realm: solo-ui
           hostname: https://{{env.domains.core.soloUi}}
-          backendClientId: solo-ui-backend
+          backendClientId: enterprise-agentgateway-ui-backend
           backendClientSecret: solo-ui-backend-secret
-          frontendClientId: solo-ui-frontend
+          frontendClientId: enterprise-agentgateway-ui
         workloadClients:
           - clientId: caller-agent
             clientSecret: caller-agent-secret
@@ -435,25 +449,6 @@ spec:
             audience: agentgateway
             k8sSecretName: fd-agent-credentials
             k8sSecretNamespace: agentgateway-system
-
-    - name: solo-ui
-      description: Solo Enterprise UI for agentgateway
-      namespace: agentgateway-system
-      config:
-        managementChartVersion: '{{env.soloUi.version}}'
-        serviceType: LoadBalancer
-        nodeSelector:
-          nodeclass: worker
-        tracingBackend:
-          name: fan-out-collector
-          namespace: telemetry
-          port: 4317
-        oidc:
-          enabled: true
-          issuerUrl: https://{{env.domains.core.keycloak}}/realms/solo-ui
-          backendClientId: solo-ui-backend
-          backendClientSecret: solo-ui-backend-secret
-          frontendClientId: solo-ui-frontend
 
     - name: telemetry
       description: OpenTelemetry observability stack (Prometheus, Grafana, Loki, Tempo)

@@ -27,4 +27,9 @@ describe('local environment real DNS config', () => {
     const env = await EnvironmentManager.load('local');
     expect(env.spec.tls.issuer).toBe('selfsigned-issuer');
   });
+
+  test('no longer exposes a soloUi version key', async () => {
+    const env = await EnvironmentManager.load('local');
+    expect(env.spec.soloUi).toBeUndefined();
+  });
 });

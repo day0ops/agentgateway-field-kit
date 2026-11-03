@@ -44,9 +44,6 @@ spec:
     scheme: https
     loginTheme: keycloak-soloio-login-theme
 
-  soloUi:
-    version: 0.5.10
-
   addons:
     cert-manager:
       version: 1.21.2

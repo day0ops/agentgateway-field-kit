@@ -49,13 +49,14 @@ export const InstallAdapter = {
    */
   envVars(profileData = null) {
     const { edition } = _resolveVersions(profileData);
-    return [
+    const vars = [
       {
         name: 'ENTERPRISE_AGENTGATEWAY_LICENSE',
         required: edition !== 'opensource',
         description: 'Enterprise Agentgateway license key from Solo.io',
       },
     ];
+    return vars;
   },
 
   /**
@@ -159,10 +160,11 @@ export const InstallAdapter = {
 
     const licenseLine = `  --set licensing.licenseKey=$ENTERPRISE_AGENTGATEWAY_LICENSE \\`;
 
+    let helmValuesYaml = null;
     if (hasHelmValues) {
       // Strip licensing key before dumping so the license key never appears in docs
       const { licensing: _licensing, ...safeHelmValues } = profileData.helmValues;
-      let helmValuesYaml = yaml.dump(safeHelmValues, { indent: 2 }).trimEnd();
+      helmValuesYaml = yaml.dump(safeHelmValues, { indent: 2 }).trimEnd();
       // Replace hardcoded namespace with shell variable
       helmValuesYaml = helmValuesYaml.replaceAll('agentgateway-system', '${AGW_NAMESPACE}');
       // Reverse-substitute resolved endpoint values with their env var references
@@ -180,6 +182,64 @@ export const InstallAdapter = {
       sections.push(`  --wait --timeout 5m`);
     }
     sections.push('```');
+
+    // Solo UI (enterprise-agentgateway-ui subchart, folded into the main chart's own release)
+    const ui = profileData?.ui;
+    if (ui?.enabled) {
+      sections.push('');
+      sections.push('### Install Solo UI');
+      sections.push('');
+      sections.push(
+        'Solo UI installs as the `enterprise-agentgateway-ui` subchart of the main chart above (`ui.enabled=true`) - these flags belong on the *same* `helm upgrade` invocation shown above. Shown here as a complete, standalone command for convenience:'
+      );
+      sections.push('');
+      sections.push('```bash');
+      sections.push(`helm upgrade -i \\`);
+      sections.push(`  -n \${AGW_NAMESPACE} \\`);
+      sections.push(`  \${AGW_RELEASE} \\`);
+      sections.push(`  \${AGW_OCI_REGISTRY}/${chartName} \\`);
+      sections.push(`  --version \${AGW_VERSION} \\`);
+      if (edition !== 'opensource') sections.push(licenseLine);
+      sections.push(`  --set ui.enabled=true \\`);
+      if (ui.oidc?.enabled) {
+        sections.push(`  --set-string ui.oidc.issuer=${ui.oidc.issuerUrl} \\`);
+        sections.push(`  --set-string ui.backend.oidc.secret=${ui.oidc.backendClientSecret} \\`);
+      }
+      if (ui.serviceType) {
+        sections.push(`  --set ui.service.type=${ui.serviceType} \\`);
+      }
+      for (const [key, value] of Object.entries(ui.nodeSelector || {})) {
+        sections.push(`  --set ui.nodeSelector.${key}=${value} \\`);
+      }
+      if (ui.features?.costManagement?.enabled) {
+        sections.push(`  --set ui.features.costManagement=true \\`);
+      }
+      sections.push(`  --set ui.clickhouse.persistentVolume.enabled=true \\`);
+      const clickhouse = ui.clickhouse?.persistentVolume || {};
+      if (clickhouse.size) {
+        sections.push(`  --set ui.clickhouse.persistentVolume.size=${clickhouse.size} \\`);
+      }
+      if (clickhouse.storageClass) {
+        sections.push(
+          `  --set ui.clickhouse.persistentVolume.storageClass=${clickhouse.storageClass} \\`
+        );
+      }
+      sections.push(`  --set ui.clickhouse.resources.requests.cpu=300m \\`);
+      if (hasHelmValues) {
+        sections.push(`  --values - <<EOF`);
+        sections.push(helmValuesYaml);
+        sections.push('EOF');
+      } else {
+        sections.push(`  --wait --timeout 5m`);
+      }
+      sections.push('```');
+      if (ui.hostname && ui.tls?.enabled) {
+        sections.push('');
+        sections.push(
+          `A Certificate, Gateway (\`solo-enterprise-ui-https\`), and HTTPRoute (\`solo-enterprise-ui\`) are also created for \`https://${ui.hostname}\`, pointed at the chart's \`enterprise-agentgateway-ui\` Service on port 80.`
+        );
+      }
+    }
 
     // Additional resources (profile-specific)
     if (profileData?.resources?.length > 0) {
