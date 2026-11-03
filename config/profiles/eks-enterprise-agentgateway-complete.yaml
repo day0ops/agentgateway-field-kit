@@ -14,11 +14,11 @@ spec:
   infra: eks-single-cluster
 
   agentgateway:
-    version: v2026.9.3
+    version: v2026.10.2
     ociRegistry: oci://us-docker.pkg.dev/solo-public/enterprise-agentgateway/charts
 
   agentgateway-crds:
-    version: v2026.9.3
+    version: v2026.10.2
     ociRegistry: oci://us-docker.pkg.dev/solo-public/enterprise-agentgateway/charts
     helmValues:
       installAgentgatewayModelCRD: true
