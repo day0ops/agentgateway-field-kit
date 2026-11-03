@@ -97,24 +97,26 @@ spec:
       features:
         - name: token-exchange
           config:
-            keycloak:
-              realm: agw-dev
-              serviceName: keycloak
-              serviceNamespace: keycloak
-              scheme: '{{env.keycloak.scheme}}'
-              # The keycloak addon's Service exposes 443 -> container 8443, not a direct
-              # 8443 port - the feature's own https default (8443) doesn't match this repo's
-              # Service port convention.
-              port: 443
+            # Explicit subjectValidator/apiValidator below replace the feature's own
+            # keycloak:-block-derived defaults entirely - those build a cluster-internal
+            # Service DNS URL (keycloak.keycloak.svc.cluster.local), but this repo's
+            # keycloak addon's TLS certificate is only valid for the external hostname,
+            # so cluster-internal HTTPS JWKS fetches always fail certificate verification
+            # here. Use the real, externally-resolvable hostname instead (same pattern
+            # agentgateway-with-keycloak.yaml already uses successfully).
+            subjectValidator:
+              validatorType: remote
+              remoteConfig:
+                url: 'https://{{env.domains.core.keycloak}}/realms/agw-dev/protocol/openid-connect/certs'
+              skipMayActClaimValidation: true
             # apiValidator validates Solo UI's own calls to the elicitation CRUD API, not the
             # agw-dev-realm user tokens subjectValidator/actorValidator handle - Solo UI
             # always authenticates against its own dedicated solo-ui realm in this repo, so
             # it needs its own JWKS endpoint rather than inheriting agw-dev's default.
-            # Same cluster-internal addressing as the keycloak block above, for reliability.
             apiValidator:
               validatorType: remote
               remoteConfig:
-                url: https://keycloak.keycloak.svc.cluster.local:443/realms/solo-ui/protocol/openid-connect/certs
+                url: 'https://{{env.domains.core.keycloak}}/realms/solo-ui/protocol/openid-connect/certs'
             tokenExpiration: 1h
             skipMayActClaimValidation: true
             callbackUrl: 'https://{{env.domains.core.agentgatewayUi}}/age/elicitations'
