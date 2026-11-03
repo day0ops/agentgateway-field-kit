@@ -12,6 +12,7 @@ import { fileURLToPath } from 'url';
 import { tmpdir } from 'os';
 import yaml from 'js-yaml';
 import { ProfileManager } from './profiles.js';
+import { FeatureManager } from './feature.js';
 import {
   EDITIONS,
   EDITION_BASE_NAME,
@@ -25,6 +26,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const PROJECT_ROOT = join(__dirname, '../..');
 const DEFAULT_GATEWAY_YAML = join(PROJECT_ROOT, 'config', 'gateway', 'default-gateway.yaml');
+const UI_CONFIG_DIR = join(__dirname, 'config', 'solo-ui');
 
 const INSTALL_STATE_CONFIGMAP = 'agentgateway-install-state';
 const AGENTGATEWAY_NAMESPACE = process.env.AGENTGATEWAY_NAMESPACE || 'agentgateway-system';
@@ -235,6 +237,13 @@ export class AgentGatewayManager {
 
       if (edition !== 'opensource') {
         this.addLicenseKeyToHelmArgs(helmArgs);
+      }
+
+      if (profile?.ui) {
+        this.validateUIConfig(profile.ui);
+        if (profile.ui.enabled) {
+          helmArgs.push(...this.buildUiHelmArgs(profile.ui));
+        }
       }
 
       if (profileFile && profile) {
@@ -773,6 +782,214 @@ export class AgentGatewayManager {
         `  kubectl port-forward -n ${AGENTGATEWAY_NAMESPACE} deployment/${gatewayName} 8080:8080`
       );
     }
+  }
+
+  /**
+   * Validate the profile's `ui:` config. Throws on missing required fields when enabled;
+   * a no-op when disabled or absent.
+   */
+  static validateUIConfig(ui) {
+    if (!ui?.enabled) return;
+    if (ui.oidc?.enabled) {
+      if (!ui.oidc.issuerUrl) {
+        throw new Error('ui.oidc.enabled requires ui.oidc.issuerUrl to also be set');
+      }
+      if (!ui.oidc.backendClientSecret) {
+        throw new Error('ui.oidc.enabled requires ui.oidc.backendClientSecret to also be set');
+      }
+    }
+  }
+
+  /**
+   * Build the enterprise-agentgateway-ui subchart's --set/--set-string helm args, passed
+   * into the same `helm upgrade` call that installs the core chart. Client IDs are left at
+   * the chart's own defaults (enterprise-agentgateway-ui / enterprise-agentgateway-ui-backend)
+   * -- Keycloak clients must match those exact IDs.
+   */
+  static buildUiHelmArgs(ui) {
+    const args = ['--set', 'ui.enabled=true'];
+
+    if (ui.oidc?.enabled) {
+      args.push('--set-string', `ui.oidc.issuer=${ui.oidc.issuerUrl}`);
+      args.push('--set-string', `ui.backend.oidc.secret=${ui.oidc.backendClientSecret}`);
+    }
+
+    if (ui.serviceType) {
+      args.push('--set', `ui.service.type=${ui.serviceType}`);
+    }
+
+    for (const [key, value] of Object.entries(ui.nodeSelector || {})) {
+      args.push('--set', `ui.nodeSelector.${key}=${value}`);
+    }
+
+    if (ui.features?.costManagement?.enabled) {
+      args.push('--set', 'ui.features.costManagement=true');
+    }
+
+    // Always on, matching the old static values.yaml default -- the chart itself defaults
+    // persistence to false (evaluation/small-install sizing).
+    args.push('--set', 'ui.clickhouse.persistentVolume.enabled=true');
+    const clickhouse = ui.clickhouse?.persistentVolume || {};
+    if (clickhouse.size) {
+      args.push('--set', `ui.clickhouse.persistentVolume.size=${clickhouse.size}`);
+    }
+    if (clickhouse.storageClass) {
+      args.push('--set', `ui.clickhouse.persistentVolume.storageClass=${clickhouse.storageClass}`);
+    }
+    // Chart default reserves 2 CPUs for the bundled ClickHouse -- too much for a demo
+    // cluster (same fix agentic-field-kit's own agentgateway addon applies).
+    args.push('--set', 'ui.clickhouse.resources.requests.cpu=300m');
+
+    return args;
+  }
+
+  /**
+   * Apply one of the UI's static YAML templates (src/lib/config/solo-ui/), deep-merging
+   * an override object the same way installProxy() does for the default Gateway.
+   */
+  static async applyUiYamlFile(fileName, overrides, spinner) {
+    const filePath = join(UI_CONFIG_DIR, fileName);
+    const content = await readFile(filePath, 'utf8');
+    const resource = yaml.load(content);
+    const merged = this.deepMergeResource(resource, overrides);
+    const mergedYaml = yaml.dump(merged, { lineWidth: -1, indent: 2 });
+    await KubernetesHelper.applyYaml(mergedYaml, spinner);
+    return merged;
+  }
+
+  /**
+   * Shallow-aware deep merge: plain objects merge recursively, arrays and scalars replace
+   * wholesale. Mirrors the Feature base class's own applyYamlFile() merge semantics.
+   */
+  static deepMergeResource(base, overrides) {
+    if (!overrides) return base;
+    const result = { ...base };
+    for (const [key, value] of Object.entries(overrides)) {
+      if (
+        value !== null &&
+        typeof value === 'object' &&
+        !Array.isArray(value) &&
+        base[key] !== null &&
+        typeof base[key] === 'object' &&
+        !Array.isArray(base[key])
+      ) {
+        result[key] = this.deepMergeResource(base[key], value);
+      } else {
+        result[key] = value;
+      }
+    }
+    return result;
+  }
+
+  /**
+   * Install the enterprise-agentgateway-ui subchart's own HTTPS listener (Certificate +
+   * Gateway + HTTPRoute -- no chart-native HTTPRoute support) and tracing policy. No-op
+   * when the profile has no `ui:` config, or ui.enabled is false, or ui.hostname is unset
+   * (bare ClusterIP/LoadBalancer Service, no custom Gateway -- e.g. agentgateway-with-keycloak).
+   */
+  static async installUI(profileFile = null) {
+    if (!profileFile) return;
+    const profile = await this.loadProfile(profileFile);
+    const ui = profile?.ui;
+    if (!ui?.enabled) return;
+
+    this.validateUIConfig(ui);
+
+    const spinner = new SpinnerLogger();
+
+    if (ui.hostname && ui.tls?.enabled) {
+      const secretName = ui.tls.secretName || 'solo-ui-tls';
+      const issuerName = ui.tls.issuer || 'letsencrypt-dns';
+
+      spinner.start(`Configuring HTTPS for Solo UI at https://${ui.hostname}...`);
+
+      await this.applyUiYamlFile(
+        'certificate.yaml',
+        { spec: { secretName, issuerRef: { name: issuerName }, dnsNames: [ui.hostname] } },
+        spinner
+      );
+
+      await this.applyUiYamlFile(
+        'https-gateway.yaml',
+        {
+          spec: {
+            listeners: [
+              {
+                name: 'https',
+                port: 443,
+                protocol: 'HTTPS',
+                hostname: ui.hostname,
+                tls: { mode: 'Terminate', certificateRefs: [{ name: secretName, kind: 'Secret' }] },
+                allowedRoutes: { namespaces: { from: 'All' } },
+              },
+            ],
+            infrastructure: { annotations: nlbSourceRangeAnnotations(ui.sourceRanges) },
+          },
+        },
+        spinner
+      );
+
+      await this.applyUiYamlFile(
+        'https-route.yaml',
+        { spec: { hostnames: [ui.hostname] } },
+        spinner
+      );
+
+      spinner.succeed('HTTPS resources applied');
+
+      if (CertificateHelper.isExternalHostname(ui.hostname)) {
+        await waitForPublicUrl(ui.hostname, {
+          protocol: 'https',
+          spinner,
+          log: (msg, level) => {
+            const fn = Logger[level] || Logger.info;
+            fn(msg);
+          },
+        });
+      }
+    }
+
+    spinner.start('Waiting for Solo UI to be ready...');
+    try {
+      await KubernetesHelper.waitForDeployment(
+        AGENTGATEWAY_NAMESPACE,
+        'enterprise-agentgateway-ui',
+        300,
+        spinner
+      );
+      spinner.succeed('Solo UI is ready');
+    } catch (error) {
+      spinner.warn(`enterprise-agentgateway-ui may still be starting: ${error.message}`);
+    }
+
+    if (ui.applyGatewayTracingPolicy !== false) {
+      const gatewayRef = FeatureManager.getGatewayRef();
+      const backendRef = ui.tracingBackend
+        ? {
+            name: ui.tracingBackend.name,
+            namespace: ui.tracingBackend.namespace,
+            port: ui.tracingBackend.port,
+          }
+        : undefined;
+      await this.applyUiYamlFile('tracing-policy.yaml', {
+        spec: {
+          targetRefs: [
+            { group: 'gateway.networking.k8s.io', kind: 'Gateway', name: gatewayRef.name },
+          ],
+          ...(backendRef ? { frontend: { tracing: { backendRef } } } : {}),
+        },
+      });
+      Logger.info('Gateway tracing policy applied for Solo UI');
+
+      if (ui.hostname && ui.tls?.enabled) {
+        await this.applyUiYamlFile(
+          'tracing-suppress-policy.yaml',
+          backendRef ? { spec: { frontend: { tracing: { backendRef } } } } : {}
+        );
+      }
+    }
+
+    Logger.success('Solo UI installed successfully');
   }
 
   static async status() {
