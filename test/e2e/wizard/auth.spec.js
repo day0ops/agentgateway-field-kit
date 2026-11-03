@@ -102,4 +102,32 @@ test.describe('Auth pillar', () => {
       expect(text).toMatch(/denied|403/);
     });
   });
+
+  // Blocked by the same upstream bug as the tests above - "Run agent" never
+  // gets far enough to return a consent URL, so PayPal's/Stripe's own page
+  // selectors were never reached live. Once PR #41's root cause (the
+  // ops-agent auth failure) is fixed, implement these by: running the
+  // agent, extracting the consent URL from the response text, opening it,
+  // and grounding the exact field selectors directly against the live page
+  // at that time - PayPal's sandbox login is a third-party page outside
+  // this repo's control and its selectors were never verified here.
+
+  test.fixme('Statements Agent -> PayPal Interactive elicitation', async ({ page }) => {
+    for (let i = 0; i < 6; i++) await nextStep(page);
+    await page.locator('button:has-text("Run agent")').first().click();
+    await page.waitForTimeout(10000);
+    const text = await page.locator('body').innerText();
+    const consentLink = text.match(/https:\/\/[^\s]+/)?.[0];
+    expect(consentLink).toBeTruthy();
+    await page.goto(consentLink);
+    expect(page.url()).toContain('paypal.com');
+  });
+
+  test.fixme('Statements Agent -> Stripe Brokered elicitation', async ({ page }) => {
+    for (let i = 0; i < 7; i++) await nextStep(page);
+    await page.locator('button:has-text("Run agent")').first().click();
+    await page.waitForTimeout(10000);
+    const text = await page.locator('body').innerText();
+    expect(text).toMatch(/stripe|payout/i);
+  });
 });
