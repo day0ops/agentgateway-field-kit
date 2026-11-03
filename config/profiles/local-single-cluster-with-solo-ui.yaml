@@ -129,7 +129,12 @@ spec:
               - clientId: agw-token-exchange
                 type: confidential
                 clientSecret: agw-token-exchange-secret
-                directAccessGrantsEnabled: false
+                # The wizard app's own demo-login shortcut does a direct password grant
+                # against this client (confirmed: its OAUTH_TOKEN_EXCHANGE_CLIENT_SECRET
+                # env var matches this client's secret), in addition to its standard
+                # token exchange use - unlike agentgateway-with-keycloak.yaml, which
+                # doesn't run the wizard usecase and disables this.
+                directAccessGrantsEnabled: true
                 flows: []
                 attributes:
                   standard.token.exchange.enabled: 'true'
