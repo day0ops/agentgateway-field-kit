@@ -1000,6 +1000,29 @@ export class AgentGatewayManager {
     Logger.success('Solo UI installed successfully');
   }
 
+  /**
+   * Delete the UI's own Certificate/Gateway/HTTPRoute/tracing-policy objects. Fixed,
+   * hardcoded names regardless of which profile's `ui:` config (if any) created them, so
+   * this is safe to call unconditionally and idempotently (--ignore-not-found) -- no
+   * profile argument needed, matching how `uninstall()` itself has no profile awareness.
+   */
+  static async cleanupUI() {
+    const kinds = [
+      ['httproute', 'solo-enterprise-ui'],
+      ['gateway', 'solo-enterprise-ui-https'],
+      ['certificate', 'solo-ui-tls'],
+      ['secret', 'solo-ui-tls'],
+      ['enterpriseagentgatewaypolicy', 'tracing-solo-ui'],
+      ['enterpriseagentgatewaypolicy', 'solo-ui-no-trace'],
+    ];
+    for (const [kind, name] of kinds) {
+      await KubernetesHelper.kubectl(
+        ['delete', kind, name, '-n', AGENTGATEWAY_NAMESPACE, '--ignore-not-found=true'],
+        { ignoreError: true }
+      );
+    }
+  }
+
   static async status() {
     Logger.info('Checking agentgateway status...');
 
@@ -1140,6 +1163,8 @@ export class AgentGatewayManager {
         ['delete', 'enterpriseagentgatewayparameters', '--all', '-A', '--ignore-not-found'],
         { ignoreError: true }
       );
+
+      await this.cleanupUI();
 
       if (releaseName) {
         await KubernetesHelper.helm([
