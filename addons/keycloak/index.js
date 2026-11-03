@@ -82,7 +82,6 @@ export class KeycloakFeature extends Feature {
     this.postgresUser = process.env.KEYCLOAK_POSTGRES_USER || '';
     this.postgresPassword = process.env.KEYCLOAK_POSTGRES_PASSWORD || '';
     this.defaultPassword = process.env.KEYCLOAK_DEFAULT_PASSWORD || '';
-    this.hasRealms = (config.realms || []).length > 0;
     // Populated by setupStandardRealm() for any user with a `soloUiGroup` field,
     // then applied once createSoloUIClients() has created the admins/readers/writers
     // groups - group assignment has to happen after those groups exist, but standard
@@ -100,7 +99,7 @@ export class KeycloakFeature extends Feature {
       !this.adminPassword && 'KEYCLOAK_ADMIN_PASSWORD',
       !this.postgresUser && 'KEYCLOAK_POSTGRES_USER',
       !this.postgresPassword && 'KEYCLOAK_POSTGRES_PASSWORD',
-      this.hasRealms && !this.defaultPassword && 'KEYCLOAK_DEFAULT_PASSWORD',
+      !this.defaultPassword && 'KEYCLOAK_DEFAULT_PASSWORD',
       this.soloUiClients?.enabled && !this.soloUiDefaultPassword && 'SOLO_UI_DEFAULT_PASSWORD',
       this.hasGrafanaRealm && !this.grafanaAdminPassword && 'GRAFANA_REALM_ADMIN_PASSWORD',
     ].filter(Boolean);
@@ -1926,31 +1925,15 @@ export class KeycloakFeature extends Feature {
       },
     ];
     for (const u of users) {
-      await this.createOrUpdateUser(baseUrl, token, u);
-    }
-  }
-
-  async createOrUpdateUser(baseUrl, token, user, realm = this.realm) {
-    // Check if user already exists
-    const existingId = await this.lookupUserId(baseUrl, token, user.username, realm);
-
-    if (existingId) {
-      // Update existing user's attributes
-      this.log(`Updating user '${user.username}' attributes...`, 'info');
-      await this.kcApi('PUT', `${baseUrl}/admin/realms/${realm}/users/${existingId}`, token, {
-        ...user,
-        enabled: true,
-        emailVerified: true,
-      });
-    } else {
-      // Create new user
-      this.log(`Creating user '${user.username}'...`, 'info');
-      await this.kcApi('POST', `${baseUrl}/admin/realms/${realm}/users`, token, {
-        ...user,
-        enabled: true,
-        emailVerified: true,
-        credentials: [{ type: 'password', value: 'Passwd00', temporary: false }],
-      });
+      await this.createOrUpdateUserWithPassword(
+        baseUrl,
+        token,
+        u.username,
+        this.realm,
+        u.attributes,
+        this.defaultPassword,
+        { firstName: u.firstName, lastName: u.lastName, email: u.email }
+      );
     }
   }
 
