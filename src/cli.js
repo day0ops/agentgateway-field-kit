@@ -582,6 +582,7 @@ base
 
       await AgentGatewayManager.install(profileFile);
       await AgentGatewayManager.installProxy(profileFile);
+      await AgentGatewayManager.installUI(profileFile);
 
       if (!options.skipAddons && postGateway.length > 0) {
         Logger.info(`Installing ${postGateway.length} post-install addon(s) from profile...`);
@@ -706,6 +707,7 @@ base
 
       await AgentGatewayManager.install(profileFile);
       await AgentGatewayManager.installProxy(profileFile);
+      await AgentGatewayManager.installUI(profileFile);
 
       if (postGateway.length > 0) {
         Logger.info(`Installing ${postGateway.length} post-install addon(s) from profile...`);
