@@ -681,6 +681,10 @@ export class AgentGatewayManager {
       });
       gateway.spec.tls = gateway.spec.tls || {};
       gateway.spec.tls.frontend = gateway.spec.tls.frontend || {};
+      // frontend.default is required by the CRD whenever frontend is set at all - an empty
+      // object is valid and means "no client-cert validation on the default listener",
+      // which is correct here when mtls isn't also enabled.
+      gateway.spec.tls.frontend.default = gateway.spec.tls.frontend.default || {};
       gateway.spec.tls.frontend.perPort = gateway.spec.tls.frontend.perPort || [];
       gateway.spec.tls.frontend.perPort.push({ port, tls: {} });
       spinner.info(`Enabling public HTTPS: listener added to Gateway on port ${port}`);
