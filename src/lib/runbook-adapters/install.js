@@ -189,10 +189,16 @@ export const InstallAdapter = {
       sections.push('### Install Solo UI');
       sections.push('');
       sections.push(
-        'Solo UI installs as the `enterprise-agentgateway-ui` subchart of the main chart above (`ui.enabled=true`), not a separate release. Re-run the `helm upgrade` command above with these additional flags:'
+        'Solo UI installs as the `enterprise-agentgateway-ui` subchart of the main chart above (`ui.enabled=true`) - these flags belong on the *same* `helm upgrade` invocation shown above. Shown here as a complete, standalone command for convenience:'
       );
       sections.push('');
       sections.push('```bash');
+      sections.push(`helm upgrade -i \\`);
+      sections.push(`  -n \${AGW_NAMESPACE} \\`);
+      sections.push(`  \${AGW_RELEASE} \\`);
+      sections.push(`  \${AGW_OCI_REGISTRY}/${chartName} \\`);
+      sections.push(`  --version \${AGW_VERSION} \\`);
+      if (edition !== 'opensource') sections.push(licenseLine);
       sections.push(`  --set ui.enabled=true \\`);
       if (ui.oidc?.enabled) {
         sections.push(`  --set-string ui.oidc.issuer=${ui.oidc.issuerUrl} \\`);
@@ -201,8 +207,24 @@ export const InstallAdapter = {
       if (ui.serviceType) {
         sections.push(`  --set ui.service.type=${ui.serviceType} \\`);
       }
+      for (const [key, value] of Object.entries(ui.nodeSelector || {})) {
+        sections.push(`  --set ui.nodeSelector.${key}=${value} \\`);
+      }
+      if (ui.features?.costManagement?.enabled) {
+        sections.push(`  --set ui.features.costManagement=true \\`);
+      }
       sections.push(`  --set ui.clickhouse.persistentVolume.enabled=true \\`);
-      sections.push(`  --set ui.clickhouse.resources.requests.cpu=300m`);
+      const clickhouse = ui.clickhouse?.persistentVolume || {};
+      if (clickhouse.size) {
+        sections.push(`  --set ui.clickhouse.persistentVolume.size=${clickhouse.size} \\`);
+      }
+      if (clickhouse.storageClass) {
+        sections.push(
+          `  --set ui.clickhouse.persistentVolume.storageClass=${clickhouse.storageClass} \\`
+        );
+      }
+      sections.push(`  --set ui.clickhouse.resources.requests.cpu=300m \\`);
+      sections.push(`  --wait --timeout 5m`);
       sections.push('```');
       if (ui.hostname && ui.tls?.enabled) {
         sections.push('');
