@@ -1233,7 +1233,22 @@ export class KeycloakFeature extends Feature {
     return id;
   }
 
+  // Creates a brand-new client on first apply; on every later apply the client already
+  // exists, so this updates it in place instead - otherwise declarative config changes
+  // (e.g. directAccessGrantsEnabled) would silently never reach an already-provisioned
+  // client. Callers that need the new client's id fall back to lookupClientId() when
+  // extractIdFromLocation() finds nothing, which is always the case for the PUT path
+  // below (no Location header on a 204 response).
   async registerClient(baseUrl, token, payload, realm = this.realm) {
+    const existingId = await this.lookupClientId(baseUrl, token, payload.clientId, realm);
+    if (existingId) {
+      return this.kcApi(
+        'PUT',
+        `${baseUrl}/admin/realms/${realm}/clients/${existingId}`,
+        token,
+        payload
+      );
+    }
     return CommandRunner.run(
       'curl',
       [
