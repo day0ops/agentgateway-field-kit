@@ -101,6 +101,11 @@ spec:
               realm: agw-dev
               serviceName: keycloak
               serviceNamespace: keycloak
+              scheme: '{{env.keycloak.scheme}}'
+              # The keycloak addon's Service exposes 443 -> container 8443, not a direct
+              # 8443 port - the feature's own https default (8443) doesn't match this repo's
+              # Service port convention.
+              port: 443
             tokenExpiration: 1h
             skipMayActClaimValidation: true
             callbackUrl: 'https://{{env.domains.core.agentgatewayUi}}/age/elicitations'
