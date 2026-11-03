@@ -39,4 +39,11 @@ describe('local-single-cluster-with-solo-ui profile', () => {
     const telemetry = profile.addons.find(a => a.name === 'telemetry');
     expect(telemetry.config.grafanaHostname).toBe('grafana.agw.lab.day0ops.com');
   });
+
+  test('keycloak protocol and loginTheme resolve from the environment', async () => {
+    const profile = await ProfileManager.load(PROFILE_PATH);
+    const keycloak = profile.addons.find(a => a.name === 'keycloak');
+    expect(keycloak.config.protocol).toBe('https');
+    expect(keycloak.config.loginTheme).toBe('keycloak-soloio-login-theme');
+  });
 });
