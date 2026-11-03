@@ -867,7 +867,8 @@ export class AgentGatewayManager {
 
   /**
    * Shallow-aware deep merge: plain objects merge recursively, arrays and scalars replace
-   * wholesale. Mirrors the Feature base class's own applyYamlFile() merge semantics.
+   * wholesale. Unlike Feature.deepMerge(), an explicit `undefined` override is not deleted
+   * from the result object - it relies on yaml.dump() omitting undefined keys on serialize.
    */
   static deepMergeResource(base, overrides) {
     if (!overrides) return base;
@@ -939,7 +940,30 @@ export class AgentGatewayManager {
 
       await this.applyUiYamlFile(
         'https-route.yaml',
-        { spec: { hostnames: [ui.hostname] } },
+        {
+          spec: {
+            hostnames: [ui.hostname],
+            rules: [
+              {
+                backendRefs: [{ name: 'enterprise-agentgateway-ui', port: 80 }],
+                matches: [{ path: { type: 'PathPrefix', value: '/' } }],
+                filters: [
+                  {
+                    type: 'CORS',
+                    cors: {
+                      allowCredentials: true,
+                      allowOrigins: [`https://${ui.hostname}`],
+                      allowMethods: ['GET', 'POST', 'OPTIONS', 'DELETE'],
+                      allowHeaders: ['Content-Type', 'Authorization', 'X-Grpc-Web'],
+                      exposeHeaders: ['Grpc-Status', 'Grpc-Message'],
+                      maxAge: 86400,
+                    },
+                  },
+                ],
+              },
+            ],
+          },
+        },
         spinner
       );
 
@@ -970,15 +994,16 @@ export class AgentGatewayManager {
       spinner.warn(`enterprise-agentgateway-ui may still be starting: ${error.message}`);
     }
 
+    const backendRef = ui.tracingBackend
+      ? {
+          name: ui.tracingBackend.name,
+          namespace: ui.tracingBackend.namespace,
+          port: ui.tracingBackend.port,
+        }
+      : undefined;
+
     if (ui.applyGatewayTracingPolicy !== false) {
       const gatewayRef = FeatureManager.getGatewayRef();
-      const backendRef = ui.tracingBackend
-        ? {
-            name: ui.tracingBackend.name,
-            namespace: ui.tracingBackend.namespace,
-            port: ui.tracingBackend.port,
-          }
-        : undefined;
       await this.applyUiYamlFile('tracing-policy.yaml', {
         spec: {
           targetRefs: [
@@ -988,13 +1013,13 @@ export class AgentGatewayManager {
         },
       });
       Logger.info('Gateway tracing policy applied for Solo UI');
+    }
 
-      if (ui.hostname && ui.tls?.enabled) {
-        await this.applyUiYamlFile(
-          'tracing-suppress-policy.yaml',
-          backendRef ? { spec: { frontend: { tracing: { backendRef } } } } : {}
-        );
-      }
+    if (ui.hostname && ui.tls?.enabled) {
+      await this.applyUiYamlFile(
+        'tracing-suppress-policy.yaml',
+        backendRef ? { spec: { frontend: { tracing: { backendRef } } } } : {}
+      );
     }
 
     Logger.success('Solo UI installed successfully');

@@ -86,6 +86,18 @@ describe('InstallAdapter', () => {
     expect(section).not.toContain('values.yaml');
   });
 
+  test('generate() with helmValues and ui.enabled renders heredoc in Install Solo UI section', async () => {
+    const profileData = {
+      helmValues: { controller: { extraEnv: { FOO: 'bar' } } },
+      ui: { enabled: true },
+    };
+    const section = await InstallAdapter.generate({ labNum: 0, profileData });
+    const uiSectionStart = section.indexOf('### Install Solo UI');
+    expect(uiSectionStart).toBeGreaterThan(-1);
+    const uiSection = section.slice(uiSectionStart);
+    expect(uiSection).toContain('--values - <<EOF');
+  });
+
   test('generate() with helmValues puts --set licenseKey before --values heredoc', async () => {
     const profileData = {
       helmValues: { controller: { extraEnv: { FOO: 'bar' } } },

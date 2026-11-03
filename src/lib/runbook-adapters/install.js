@@ -160,10 +160,11 @@ export const InstallAdapter = {
 
     const licenseLine = `  --set licensing.licenseKey=$ENTERPRISE_AGENTGATEWAY_LICENSE \\`;
 
+    let helmValuesYaml = null;
     if (hasHelmValues) {
       // Strip licensing key before dumping so the license key never appears in docs
       const { licensing: _licensing, ...safeHelmValues } = profileData.helmValues;
-      let helmValuesYaml = yaml.dump(safeHelmValues, { indent: 2 }).trimEnd();
+      helmValuesYaml = yaml.dump(safeHelmValues, { indent: 2 }).trimEnd();
       // Replace hardcoded namespace with shell variable
       helmValuesYaml = helmValuesYaml.replaceAll('agentgateway-system', '${AGW_NAMESPACE}');
       // Reverse-substitute resolved endpoint values with their env var references
@@ -224,7 +225,13 @@ export const InstallAdapter = {
         );
       }
       sections.push(`  --set ui.clickhouse.resources.requests.cpu=300m \\`);
-      sections.push(`  --wait --timeout 5m`);
+      if (hasHelmValues) {
+        sections.push(`  --values - <<EOF`);
+        sections.push(helmValuesYaml);
+        sections.push('EOF');
+      } else {
+        sections.push(`  --wait --timeout 5m`);
+      }
       sections.push('```');
       if (ui.hostname && ui.tls?.enabled) {
         sections.push('');
