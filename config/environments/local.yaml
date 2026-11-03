@@ -15,9 +15,6 @@ spec:
     image: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/keycloak:latest
     scheme: http
 
-  soloUi:
-    version: 0.5.10
-
   addons:
     cert-manager:
       version: 1.21.2
