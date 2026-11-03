@@ -106,6 +106,15 @@ spec:
               # 8443 port - the feature's own https default (8443) doesn't match this repo's
               # Service port convention.
               port: 443
+            # apiValidator validates Solo UI's own calls to the elicitation CRUD API, not the
+            # agw-dev-realm user tokens subjectValidator/actorValidator handle - Solo UI
+            # always authenticates against its own dedicated solo-ui realm in this repo, so
+            # it needs its own JWKS endpoint rather than inheriting agw-dev's default.
+            # Same cluster-internal addressing as the keycloak block above, for reliability.
+            apiValidator:
+              validatorType: remote
+              remoteConfig:
+                url: https://keycloak.keycloak.svc.cluster.local:443/realms/solo-ui/protocol/openid-connect/certs
             tokenExpiration: 1h
             skipMayActClaimValidation: true
             callbackUrl: 'https://{{env.domains.core.agentgatewayUi}}/age/elicitations'
