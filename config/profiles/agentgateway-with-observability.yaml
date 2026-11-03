@@ -9,6 +9,15 @@ spec:
 
   helmValues: {}
 
+  ui:
+    enabled: true
+    nodeSelector:
+      nodeclass: worker
+    applyGatewayTracingPolicy: false
+    hostname: '{{env.domains.core.soloUi}}'
+    tls:
+      enabled: true
+
   addons:
     - name: cert-manager
       description: Certificate management for TLS
@@ -38,15 +47,3 @@ spec:
         nodeSelector:
           nodeclass: worker
         grafanaHostname: '{{env.domains.core.grafana}}'
-
-    - name: solo-ui
-      description: Solo Enterprise UI for agentgateway
-      version: '{{env.soloUi.version}}'
-      namespace: agentgateway-system
-      config:
-        nodeSelector:
-          nodeclass: worker
-        applyGatewayTracingPolicy: false
-        hostname: '{{env.domains.core.soloUi}}'
-        tls:
-          enabled: true

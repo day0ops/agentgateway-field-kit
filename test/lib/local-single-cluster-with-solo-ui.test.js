@@ -25,13 +25,13 @@ describe('local-single-cluster-with-solo-ui profile', () => {
     expect(keycloak.config.soloUiClients.enabled).toBe(true);
   });
 
-  test('solo-ui is OIDC-protected against the real keycloak hostname', async () => {
+  test('ui is OIDC-protected against the real keycloak hostname, configured at the top level', async () => {
     const profile = await ProfileManager.load(PROFILE_PATH);
-    const soloUi = profile.addons.find(a => a.name === 'solo-ui');
-    expect(soloUi.config.oidc.enabled).toBe(true);
-    expect(soloUi.config.oidc.issuerUrl).toBe(
-      'https://keycloak.agw.lab.day0ops.com/realms/solo-ui'
-    );
+    expect(profile.addons.find(a => a.name === 'solo-ui')).toBeUndefined();
+    expect(profile.ui.enabled).toBe(true);
+    expect(profile.ui.oidc.enabled).toBe(true);
+    expect(profile.ui.oidc.issuerUrl).toBe('https://keycloak.agw.lab.day0ops.com/realms/solo-ui');
+    expect(profile.ui.oidc.backendClientSecret).toBe('solo-ui-backend-secret');
   });
 
   test('telemetry exposes a real grafana hostname', async () => {

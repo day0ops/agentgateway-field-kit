@@ -23,6 +23,16 @@ spec:
     version: v1.6.3
     channel: experimental
 
+  ui:
+    enabled: true
+    hostname: '{{env.domains.core.soloUi}}'
+    tls:
+      enabled: true
+    oidc:
+      enabled: true
+      issuerUrl: 'https://{{env.domains.core.keycloak}}/realms/solo-ui'
+      backendClientSecret: solo-ui-backend-secret
+
   addons:
     - name: cert-manager
       description: Certificate management for TLS
@@ -59,24 +69,9 @@ spec:
           enabled: true
           realm: solo-ui
           hostname: 'https://{{env.domains.core.soloUi}}'
-          backendClientId: solo-ui-backend
+          backendClientId: enterprise-agentgateway-ui-backend
           backendClientSecret: solo-ui-backend-secret
-          frontendClientId: solo-ui-frontend
-
-    - name: solo-ui
-      description: Solo Enterprise UI for agentgateway
-      version: '{{env.soloUi.version}}'
-      namespace: agentgateway-system
-      config:
-        hostname: '{{env.domains.core.soloUi}}'
-        tls:
-          enabled: true
-        oidc:
-          enabled: true
-          issuerUrl: 'https://{{env.domains.core.keycloak}}/realms/solo-ui'
-          backendClientId: solo-ui-backend
-          backendClientSecret: solo-ui-backend-secret
-          frontendClientId: solo-ui-frontend
+          frontendClientId: enterprise-agentgateway-ui
 
     - name: telemetry
       description: OpenTelemetry observability stack (Prometheus, Grafana, Loki, Tempo)
