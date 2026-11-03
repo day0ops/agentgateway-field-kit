@@ -44,7 +44,13 @@ describe('KeycloakFeature.validate() password requirements', () => {
     expect(feature.validate()).toBe(true);
   });
 
-  test('does not require KEYCLOAK_DEFAULT_PASSWORD when no realms are configured', () => {
+  test('throws naming KEYCLOAK_DEFAULT_PASSWORD when no realms are configured either - createUsers() still needs it for the default agw-dev realm', () => {
+    const feature = new KeycloakFeature('keycloak', {});
+    expect(() => feature.validate()).toThrow(/KEYCLOAK_DEFAULT_PASSWORD/);
+  });
+
+  test('passes with no realms configured once KEYCLOAK_DEFAULT_PASSWORD is set', () => {
+    process.env.KEYCLOAK_DEFAULT_PASSWORD = 'Password1!';
     const feature = new KeycloakFeature('keycloak', {});
     expect(feature.validate()).toBe(true);
   });
