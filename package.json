@@ -12,6 +12,7 @@
     "dev": "bun --watch src/cli.js",
     "test": "bun test test/**/*.test.js",
     "lint": "eslint src/**/*.js",
+    "test:e2e": "playwright test",
     "format": "prettier --write .",
     "setup": "bun install && bun run src/cli.js base install-local",
     "clean": "bun run src/cli.js base cleanup"
@@ -40,6 +41,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.64.1",
     "@stylistic/eslint-plugin": "^5.10.0",
     "eslint": "^10",
     "eslint-config-prettier": "^10.1.8",
