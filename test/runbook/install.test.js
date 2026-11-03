@@ -98,6 +98,26 @@ describe('InstallAdapter', () => {
     expect(uiSection).toContain('--values - <<EOF');
   });
 
+  test('generate() with ui.enabled defaults clickhouse resource requests', async () => {
+    const section = await InstallAdapter.generate({
+      labNum: 0,
+      profileData: { ui: { enabled: true } },
+    });
+    expect(section).toContain('ui.clickhouse.resources.requests.cpu=300m');
+    expect(section).toContain('ui.clickhouse.resources.requests.memory=1Gi');
+  });
+
+  test('generate() with ui.clickhouse.resources.requests overrides clickhouse resource requests', async () => {
+    const section = await InstallAdapter.generate({
+      labNum: 0,
+      profileData: {
+        ui: { enabled: true, clickhouse: { resources: { requests: { cpu: '1', memory: '4Gi' } } } },
+      },
+    });
+    expect(section).toContain('ui.clickhouse.resources.requests.cpu=1');
+    expect(section).toContain('ui.clickhouse.resources.requests.memory=4Gi');
+  });
+
   test('generate() with helmValues puts --set licenseKey before --values heredoc', async () => {
     const profileData = {
       helmValues: { controller: { extraEnv: { FOO: 'bar' } } },

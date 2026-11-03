@@ -844,9 +844,15 @@ export class AgentGatewayManager {
     if (clickhouse.storageClass) {
       args.push('--set', `ui.clickhouse.persistentVolume.storageClass=${clickhouse.storageClass}`);
     }
-    // Chart default reserves 2 CPUs for the bundled ClickHouse -- too much for a demo
-    // cluster (same fix agentic-field-kit's own agentgateway addon applies).
-    args.push('--set', 'ui.clickhouse.resources.requests.cpu=300m');
+    // Chart defaults reserve 2 CPUs and 3Gi memory for the bundled ClickHouse -- too much
+    // for a demo cluster (same fix agentic-field-kit's own agentgateway addon applies).
+    // Both are overridable per-profile for larger clusters.
+    const clickhouseResources = ui.clickhouse?.resources?.requests || {};
+    args.push('--set', `ui.clickhouse.resources.requests.cpu=${clickhouseResources.cpu || '300m'}`);
+    args.push(
+      '--set',
+      `ui.clickhouse.resources.requests.memory=${clickhouseResources.memory || '1Gi'}`
+    );
 
     return args;
   }
