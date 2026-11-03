@@ -18,7 +18,7 @@ export async function applyPolicyIfNeeded(page) {
   const status = await configureHeading.locator('xpath=..').innerText();
   if (status.includes('not applied')) {
     await page.locator('button:has-text("Apply")').first().click();
-    await page.locator('text=applied').first().waitFor({ timeout: 8000 });
+    await page.getByRole('button', { name: 'Revert' }).first().waitFor({ timeout: 8000 });
   }
 }
 

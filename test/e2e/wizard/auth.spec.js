@@ -19,7 +19,7 @@ test.describe('Auth pillar', () => {
     await logout(page);
 
     await page.locator('a:has-text("Log in")').first().click();
-    await expect(page).toHaveURL(/keycloak\.agw\.lab\.day0ops\.com\/realms\/agw-dev/);
+    await expect(page).toHaveURL(/\/realms\/agw-dev\/protocol\/openid-connect\/auth/);
     const text = await page.locator('body').innerText();
     expect(text).toContain('Sign in to your account');
 
