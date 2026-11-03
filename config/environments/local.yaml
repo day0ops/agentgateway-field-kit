@@ -105,11 +105,10 @@ spec:
       wizard: wizard.agw.lab.day0ops.com
 
   # CIDR allowlist applied to public-facing NLBs (aws-load-balancer-source-ranges).
+  # Empty here - local/BYO clusters aren't VPN-locked; features treat an empty list as
+  # "no restriction" (see nlbSourceRangeAnnotations in src/lib/common.js).
   security:
-    vpnSourceRanges:
-      # Checkpoint Harmony SASE documented egress range.
-      - 165.99.148.61/32
-      - 64.226.138.86/32
+    vpnSourceRanges: []
 
   # Okta tenant
   okta:
