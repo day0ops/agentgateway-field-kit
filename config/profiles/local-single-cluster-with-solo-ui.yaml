@@ -32,6 +32,26 @@ spec:
       enabled: true
       issuerUrl: 'https://{{env.domains.core.keycloak}}/realms/solo-ui'
       backendClientSecret: solo-ui-backend-secret
+    features:
+      costManagement:
+        enabled: true
+
+  helmValues:
+    tokenExchange:
+      enabled: true
+      issuer: enterprise-agentgateway.agentgateway-system.svc.cluster.local:7777
+      tokenExpiration: 24h
+      subjectValidator:
+        validatorType: remote
+        remoteConfig:
+          url: 'https://{{env.domains.core.keycloak}}/realms/agw-dev/protocol/openid-connect/certs'
+        skipMayActClaimValidation: true
+      actorValidator:
+        validatorType: k8s
+      apiValidator:
+        validatorType: remote
+        remoteConfig:
+          url: 'https://{{env.domains.core.keycloak}}/realms/agw-dev/protocol/openid-connect/certs'
 
   gateway:
     hostname: '{{env.domains.core.agentgateway}}'
