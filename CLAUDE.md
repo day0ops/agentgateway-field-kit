@@ -40,6 +40,7 @@ export GCP_LOCATION=
 export ENTRA_ISSUER_CLIENT_SECRET=     # jwt-corporate-proxy-entra and obo-entra-token-exchange usecases' live-token tests
 export OKTA_ISSUER_CLIENT_ID=          # eager-auth-okta usecase's live-login test (public/PKCE client, no secret)
 export OAUTH_TOKEN_EXCHANGE_CLIENT_SECRET=  # required to deploy oauth-token-exchange at all, not just its live-exchange test
+export DEMO_USER_PASSWORD=              # demo-wizard usecase's demo-login shortcut password - must match the target realm's actual user password (e.g. KEYCLOAK_DEFAULT_PASSWORD), defaults to 'Password1!' otherwise
 export GITHUB_ISSUER_CLIENT_ID=        # elicitation-oauth-flow usecase's GitHub OAuth App (live consent flow)
 export GITHUB_ISSUER_CLIENT_SECRET=
 export WIZARD_URL=                     # agentgateway-demo-wizard E2E suite - the deployed wizard's hostname, e.g. https://wizard.agw.lab.day0ops.com
