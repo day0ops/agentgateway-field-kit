@@ -64,6 +64,12 @@ export async function logout(page) {
  * isolated page/context by default, regardless of test.describe.configure's
  * serial mode - that setting only affects execution order and
  * fail-then-skip-subsequent behavior, never fixture sharing.
+ *
+ * No post-login re-navigation is needed here: confirmed live that
+ * Keycloak's redirect-back URL carries `?returnTo=auth-login` (the "Real
+ * login" step's own ID), and the wizard reads that to land back on this
+ * exact sub-step automatically - the full-page OAuth round trip does not
+ * lose pillar/step position.
  */
 export async function ensureRealLogin(page, username, password) {
   if (await isLoggedIn(page)) return;
