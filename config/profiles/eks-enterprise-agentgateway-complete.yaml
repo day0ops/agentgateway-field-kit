@@ -91,6 +91,28 @@ spec:
       sourceSecret: keycloak-tls
       sourceNamespace: keycloak
 
+  ui:
+    enabled: true
+    clickhouse:
+      persistentVolume:
+        storageClass: gp3
+        size: 50Gi
+    serviceType: ClusterIP
+    hostname: '{{env.domains.core.soloUi}}'
+    sourceRanges: '{{env.security.vpnSourceRanges}}'
+    tls:
+      enabled: true
+      secretName: solo-ui-tls
+      issuer: '{{env.tls.issuer}}'
+    oidc:
+      enabled: true
+      issuerUrl: https://{{env.domains.core.keycloak}}/realms/solo-ui
+      backendClientSecret: solo-ui-backend-secret
+    applyGatewayTracingPolicy: false
+    features:
+      costManagement:
+        enabled: true
+
   addons:
     - name: aws-load-balancer-controller
       description: Provisions NLBs (not classic ELBs) that honor the other addons' security-group annotations
@@ -154,9 +176,9 @@ spec:
           enabled: true
           realm: solo-ui
           hostname: https://{{env.domains.core.soloUi}}
-          backendClientId: solo-ui-backend
+          backendClientId: enterprise-agentgateway-ui-backend
           backendClientSecret: solo-ui-backend-secret
-          frontendClientId: solo-ui-frontend
+          frontendClientId: enterprise-agentgateway-ui
         realms:
           - realm: agw-dev
             clients:
@@ -527,33 +549,6 @@ spec:
     - name: openfga
       description: OpenFGA ReBAC authorization server
       namespace: openfga
-
-    - name: solo-ui
-      description: Solo Enterprise UI
-      version: '{{env.soloUi.version}}'
-      namespace: agentgateway-system
-      config:
-        clickhouse:
-          persistentVolume:
-            storageClass: gp3
-            size: 50Gi
-        serviceType: ClusterIP
-        hostname: '{{env.domains.core.soloUi}}'
-        sourceRanges: '{{env.security.vpnSourceRanges}}'
-        tls:
-          enabled: true
-          secretName: solo-ui-tls
-          issuer: '{{env.tls.issuer}}'
-        oidc:
-          enabled: true
-          issuerUrl: https://{{env.domains.core.keycloak}}/realms/solo-ui
-          backendClientId: solo-ui-backend
-          backendClientSecret: solo-ui-backend-secret
-          frontendClientId: solo-ui-frontend
-        applyGatewayTracingPolicy: false
-        features:
-          costManagement:
-            enabled: true
 
     - name: telemetry
       description: OpenTelemetry observability stack (Prometheus, Grafana, Loki, Tempo)
