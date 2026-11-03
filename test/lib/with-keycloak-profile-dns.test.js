@@ -30,7 +30,7 @@ describe('agentgateway-with-keycloak real DNS wiring', () => {
   test('soloUiClients redirect hostname uses https', async () => {
     const profile = await ProfileManager.load(PROFILE_PATH);
     const keycloak = profile.addons.find(a => a.name === 'keycloak');
-    expect(keycloak.config.soloUiClients.hostname).toBe('https://solo-ui.agw.lab.day0ops.com');
+    expect(keycloak.config.soloUiClients.hostname).toBe('https://agw-ui.agw.lab.day0ops.com');
   });
 
   test('ui config has no addons entry anymore, lives at the top level', async () => {

@@ -13,7 +13,8 @@ spec:
 
   keycloak:
     image: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/keycloak:latest
-    scheme: http
+    scheme: https
+    loginTheme: keycloak-soloio-login-theme
 
   addons:
     cert-manager:
@@ -89,7 +90,7 @@ spec:
     core:
       keycloak: keycloak.agw.lab.day0ops.com
       grafana: grafana.agw.lab.day0ops.com
-      soloUi: solo-ui.agw.lab.day0ops.com
+      agentgatewayUi: agw-ui.agw.lab.day0ops.com
       agentgateway: agentgateway.agw.lab.day0ops.com
     app:
       quotaManagement: quota-management.agw.lab.day0ops.com

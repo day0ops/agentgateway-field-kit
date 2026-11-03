@@ -103,7 +103,7 @@ spec:
               serviceNamespace: keycloak
             tokenExpiration: 1h
             skipMayActClaimValidation: true
-            callbackUrl: 'https://{{env.domains.core.soloUi}}/age/elicitations'
+            callbackUrl: 'https://{{env.domains.core.agentgatewayUi}}/age/elicitations'
             database:
               postgres:
                 url: postgres://tokenexchange:tokenexchange@ops-agents-postgres.agentgateway-system.svc.cluster.local:5432/tokenexchange?sslmode=disable
@@ -334,7 +334,7 @@ spec:
             clientIdEnvVar: AGW_DEMO_PAYPAL_CLIENT_ID
             authorizeUrl: https://mcp.sandbox.paypal.com/authorize
             accessTokenUrl: https://mcp.sandbox.paypal.com/token
-            redirectUri: 'https://{{env.domains.core.soloUi}}/age/elicitations'
+            redirectUri: 'https://{{env.domains.core.agentgatewayUi}}/age/elicitations'
             upstream:
               host: mcp.sandbox.paypal.com
               port: 443

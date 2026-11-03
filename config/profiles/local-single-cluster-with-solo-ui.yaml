@@ -25,7 +25,7 @@ spec:
 
   ui:
     enabled: true
-    hostname: '{{env.domains.core.soloUi}}'
+    hostname: '{{env.domains.core.agentgatewayUi}}'
     tls:
       enabled: true
     oidc:
@@ -60,7 +60,8 @@ spec:
       namespace: keycloak
       config:
         hostname: '{{env.domains.core.keycloak}}'
-        protocol: https
+        protocol: '{{env.keycloak.scheme}}'
+        loginTheme: '{{env.keycloak.loginTheme}}'
         tls:
           enabled: true
           secretName: keycloak-tls
@@ -68,7 +69,7 @@ spec:
         soloUiClients:
           enabled: true
           realm: solo-ui
-          hostname: 'https://{{env.domains.core.soloUi}}'
+          hostname: 'https://{{env.domains.core.agentgatewayUi}}'
           backendClientId: enterprise-agentgateway-ui-backend
           backendClientSecret: solo-ui-backend-secret
           frontendClientId: enterprise-agentgateway-ui

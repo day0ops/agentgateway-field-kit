@@ -51,10 +51,20 @@ describe('AgentGatewayManager.buildUiHelmArgs', () => {
     expect(args).toContain('ui.features.costManagement=true');
   });
 
-  test('always enables clickhouse persistence and applies the demo CPU override', () => {
+  test('always enables clickhouse persistence and applies the demo resource overrides', () => {
     const args = AgentGatewayManager.buildUiHelmArgs({ enabled: true });
     expect(args).toContain('ui.clickhouse.persistentVolume.enabled=true');
     expect(args).toContain('ui.clickhouse.resources.requests.cpu=300m');
+    expect(args).toContain('ui.clickhouse.resources.requests.memory=1Gi');
+  });
+
+  test('maps clickhouse.resources.requests.{cpu,memory} through when set', () => {
+    const args = AgentGatewayManager.buildUiHelmArgs({
+      enabled: true,
+      clickhouse: { resources: { requests: { cpu: '1', memory: '4Gi' } } },
+    });
+    expect(args).toContain('ui.clickhouse.resources.requests.cpu=1');
+    expect(args).toContain('ui.clickhouse.resources.requests.memory=4Gi');
   });
 
   test('maps clickhouse.persistentVolume.{size,storageClass} through', () => {

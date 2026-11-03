@@ -224,7 +224,13 @@ export const InstallAdapter = {
           `  --set ui.clickhouse.persistentVolume.storageClass=${clickhouse.storageClass} \\`
         );
       }
-      sections.push(`  --set ui.clickhouse.resources.requests.cpu=300m \\`);
+      const clickhouseResources = ui.clickhouse?.resources?.requests || {};
+      sections.push(
+        `  --set ui.clickhouse.resources.requests.cpu=${clickhouseResources.cpu || '300m'} \\`
+      );
+      sections.push(
+        `  --set ui.clickhouse.resources.requests.memory=${clickhouseResources.memory || '1Gi'} \\`
+      );
       if (hasHelmValues) {
         sections.push(`  --values - <<EOF`);
         sections.push(helmValuesYaml);
