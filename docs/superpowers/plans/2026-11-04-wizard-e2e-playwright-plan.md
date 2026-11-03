@@ -528,7 +528,9 @@ git commit -m "test(e2e): add agents pillar spec"
 
 ---
 
-### Task 7: Auth pillar spec (8 sub-steps, shared login session)
+### Task 7: Auth pillar spec (8 sub-steps, each test logs in independently)
+
+**Correction made during implementation:** this section originally claimed `test.describe.configure({ mode: 'serial' })` shares one browser context across tests, so sub-step 2's login would persist through sub-steps 3-8. That's false - Playwright's own docs confirm `page`/`context` fixtures are isolated and freshly created per test regardless of serial mode; serial mode only controls execution order and fail-then-skip-subsequent behavior. The actual implementation (found and fixed during the final whole-branch review) has each of the 6 ops-agent-dependent tests independently call a new `ensureRealLogin(page, username, password)` helper (added to `helpers.js`) instead of relying on shared state, and drops `test.describe.configure({ mode: 'serial' })` entirely. The code block below is left as originally written for historical reference; see `test/e2e/wizard/helpers.js` and `test/e2e/wizard/auth.spec.js` for what was actually built.
 
 **Files:**
 
@@ -537,7 +539,7 @@ git commit -m "test(e2e): add agents pillar spec"
 **Interfaces:**
 
 - Consumes: `gotoPillar`, `nextStep`, `logout` from `./helpers.js`.
-- All tests in this file share one browser context (Playwright's default within a single file run serially) so the real login from sub-step 2 persists through sub-steps 3-8.
+- ~~All tests in this file share one browser context (Playwright's default within a single file run serially) so the real login from sub-step 2 persists through sub-steps 3-8.~~ See correction above.
 
 - [ ] **Step 1: Write the intro and real-login tests (sub-steps 1-2)**
 

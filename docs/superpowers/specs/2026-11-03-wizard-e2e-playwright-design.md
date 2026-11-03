@@ -21,7 +21,7 @@ test/e2e/wizard/
   agents.spec.js                        # pillar 5: From models to agents (4 sub-steps)
 ```
 
-Each spec file is a `test.describe` block for its pillar, with one `test()` per sub-step or logical group of sub-steps, using Playwright's `test.step()` to label the finer-grained actions within a sub-step (apply policy, run before, run after). The auth pillar's tests within `auth.spec.js` share a single browser context so the login session established at sub-step 2 persists through sub-steps 3-8 - Playwright test files run sequentially by default within one file unless explicitly parallelized, which is what we want here given the real state dependency.
+Each spec file is a `test.describe` block for its pillar, with one `test()` per sub-step or logical group of sub-steps, using Playwright's `test.step()` to label the finer-grained actions within a sub-step (apply policy, run before, run after). **Correction made during implementation:** this section originally stated the auth pillar's tests would share a single browser context so sub-step 2's login persists through sub-steps 3-8. Playwright gives every `test()` a fresh, isolated `page`/context by default regardless of file/serial execution order, so that never actually happens. The implementation instead has each of `auth.spec.js`'s auth-dependent tests independently call an `ensureRealLogin` helper.
 
 ## Config & credentials
 
