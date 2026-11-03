@@ -448,7 +448,6 @@ const KNOWN_PROVIDERS = [
 const ADDON_DESCRIPTIONS = {
   telemetry: 'Prometheus · Grafana · Tempo · Loki',
   'cert-manager': 'automated TLS certificate management',
-  'solo-ui': 'Solo UI management console',
   keycloak: 'Keycloak identity provider + PostgreSQL',
 };
 
