@@ -1,9 +1,9 @@
 import { test, expect, describe } from 'bun:test';
 import { ProfileManager } from '../../src/lib/profiles.js';
 
-const PROFILE_PATH = `${ProfileManager.PROFILES_DIR}/local-single-cluster-with-solo-ui.yaml`;
+const PROFILE_PATH = `${ProfileManager.PROFILES_DIR}/local-single-cluster.yaml`;
 
-describe('local-single-cluster-with-solo-ui profile', () => {
+describe('local-single-cluster profile', () => {
   test('has no infra field (BYO)', async () => {
     const profile = await ProfileManager.load(PROFILE_PATH);
     expect(profile.infra).toBeNull();

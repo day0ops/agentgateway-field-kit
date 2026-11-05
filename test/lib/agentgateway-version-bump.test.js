@@ -5,7 +5,7 @@ const BUMPED = [
   'agentgateway-with-keycloak',
   'eks-enterprise-agentgateway-complete',
   'eks-enterprise-agentgateway-minimal',
-  'local-single-cluster-with-solo-ui',
+  'local-single-cluster',
 ];
 
 const UNCHANGED = [

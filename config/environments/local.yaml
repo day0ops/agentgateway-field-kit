@@ -82,7 +82,7 @@ spec:
 
   # Real DNS under agw.lab.day0ops.com (Cloudflare), managed by external-dns. Used by the
   # profiles that expose a hostname (agentgateway-with-keycloak, agentgateway-with-solo-ui,
-  # agentgateway-with-observability, local-single-cluster-with-solo-ui) -- the child zone
+  # agentgateway-with-observability, local-single-cluster) -- the child zone
   # keeps this repo's records from colliding with agentic-field-kit's *.lab.day0ops.com.
   dns:
     provider: cloudflare
