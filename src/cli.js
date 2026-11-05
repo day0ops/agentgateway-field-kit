@@ -795,7 +795,10 @@ base
         }
       }
 
-      await AgentGatewayManager.uninstall({ deleteNamespace: options.addons, profile: profileData });
+      await AgentGatewayManager.uninstall({
+        deleteNamespace: options.addons,
+        profile: profileData,
+      });
       Logger.success('Cleanup completed');
     } catch (error) {
       Logger.error(`Failed to cleanup: ${error.message}`);
