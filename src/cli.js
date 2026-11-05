@@ -29,6 +29,19 @@ function showBanner() {
   console.log(chalk.gray(`  Agentgateway Field Kit v${CLI_VERSION}\n`));
 }
 
+/**
+ * Apply the kubectl context for a command: an explicit -c/--context flag wins outright,
+ * otherwise fall back to auto-detecting it from locally-tracked infra state.
+ */
+async function applyKubeContextOption(options) {
+  if (options.context) {
+    KubernetesHelper.setDefaultContext(options.context);
+    Logger.info(`Using kubectl context: ${options.context}`);
+  } else {
+    await InfraStateManager.resolveAndApplyKubeContext();
+  }
+}
+
 program
   .name('agw')
   .description(CLI_DESCRIPTION)
@@ -451,9 +464,10 @@ cloud
 base
   .command('clean-addons')
   .description('Clean up all profile-based addons')
-  .action(async () => {
+  .option('--context <name>', 'kubectl context to use (overrides auto-detected infra context)')
+  .action(async options => {
     try {
-      await InfraStateManager.resolveAndApplyKubeContext();
+      await applyKubeContextOption(options);
 
       if (!(await KubernetesHelper.isClusterAccessible())) {
         Logger.error(
@@ -738,9 +752,10 @@ base
     '-p, --profile <name>',
     'Profile whose addons to remove (overrides tracked install state)'
   )
+  .option('--context <name>', 'kubectl context to use (overrides auto-detected infra context)')
   .action(async options => {
     try {
-      await InfraStateManager.resolveAndApplyKubeContext();
+      await applyKubeContextOption(options);
 
       if (!(await KubernetesHelper.isClusterAccessible())) {
         Logger.error(
@@ -899,9 +914,10 @@ usecase
   .option('-y, --yes', 'Non-interactive: skip step-by-step prompts and run all steps automatically')
   .option('--no-diagrams', 'Hide ASCII flow diagrams during stepped deploy')
   .option('--no-test', 'Skip running use case tests after deploy')
+  .option('--context <name>', 'kubectl context to use (overrides auto-detected infra context)')
   .action(async options => {
     try {
-      await InfraStateManager.resolveAndApplyKubeContext();
+      await applyKubeContextOption(options);
 
       if (!(await KubernetesHelper.isClusterAccessible())) {
         Logger.error('Cluster not accessible. Check your kubeconfig/context.');
@@ -971,9 +987,10 @@ usecase
   .option('-n, --name <name>', 'Use case name')
   .option('-c, --cleanup', 'Run cleanup after tests complete (undeploys features)')
   .option('--no-prompt', 'Skip interactive prompts')
+  .option('--context <name>', 'kubectl context to use (overrides auto-detected infra context)')
   .action(async options => {
     try {
-      await InfraStateManager.resolveAndApplyKubeContext();
+      await applyKubeContextOption(options);
 
       if (!(await KubernetesHelper.isClusterAccessible())) {
         Logger.error('Cluster not accessible. Check your kubeconfig/context.');
@@ -1007,9 +1024,10 @@ usecase
   .option('-n, --name <name>', 'Use case name')
   .option('-c, --current', 'Use currently deployed use case (auto-detect from cluster)')
   .option('--no-prompt', 'Skip interactive prompts')
+  .option('--context <name>', 'kubectl context to use (overrides auto-detected infra context)')
   .action(async options => {
     try {
-      await InfraStateManager.resolveAndApplyKubeContext();
+      await applyKubeContextOption(options);
 
       if (!(await KubernetesHelper.isClusterAccessible())) {
         Logger.error('Cluster not accessible. Check your kubeconfig/context.');
