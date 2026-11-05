@@ -121,6 +121,49 @@ export class AgentGatewayManager {
     }
   }
 
+  /**
+   * Remove the agentgateway CRDs chart. Helm never deletes CRDs installed via a chart's
+   * crds/ directory on `helm uninstall` (a deliberate Helm design choice to avoid wiping
+   * out CRs cluster-wide on a routine uninstall) -- `helm uninstall` alone only removes the
+   * release's tracking metadata, leaving the CRD objects themselves in place. This fetches
+   * the exact CRD manifests the installed chart version defines via `helm show crds` and
+   * deletes them explicitly before uninstalling the release.
+   */
+  static async cleanupAgentGatewayCRDs(crdsReleaseName, { version, ociRegistry, chartName } = {}) {
+    const spinner = new SpinnerLogger();
+    spinner.start(`Removing agentgateway CRDs ${crdsReleaseName}...`);
+
+    if (version && ociRegistry && chartName) {
+      const crdManifests = await KubernetesHelper.helm(
+        ['show', 'crds', `${ociRegistry}/${chartName}`, '--version', version],
+        { ignoreError: true }
+      );
+      if (crdManifests?.stdout?.trim()) {
+        await KubernetesHelper.kubectl(['delete', '--ignore-not-found', '-f', '-'], {
+          input: crdManifests.stdout,
+          ignoreError: true,
+        });
+      } else {
+        Logger.warn(
+          `Could not fetch CRD manifests for ${ociRegistry}/${chartName}@${version}; CRD objects may need to be removed manually`
+        );
+      }
+    } else {
+      Logger.warn(
+        'No chart version/registry resolved; CRD objects may need to be removed manually'
+      );
+    }
+
+    await KubernetesHelper.helm([
+      'uninstall',
+      crdsReleaseName,
+      '-n',
+      AGENTGATEWAY_NAMESPACE,
+      '--wait',
+    ]);
+    spinner.succeed(`agentgateway CRDs ${crdsReleaseName} removed`);
+  }
+
   static resolveVersionAndRegistry(profile) {
     const edition = resolveEdition(profile?.edition);
     const baseName = EDITION_BASE_NAME[edition];
@@ -1282,21 +1325,25 @@ export class AgentGatewayManager {
       await this.clearInstallState();
 
       if (deleteNamespace) {
+        const {
+          gatewayApiVersion,
+          gatewayApiChannel,
+          crdsVersion,
+          crdsOciRegistry,
+          crdsChartName,
+        } = this.resolveVersionAndRegistry(profile);
+
         const crdsReleaseName = await this.detectInstalledCrdsRelease();
         if (crdsReleaseName) {
-          await KubernetesHelper.helm([
-            'uninstall',
-            crdsReleaseName,
-            '-n',
-            AGENTGATEWAY_NAMESPACE,
-            '--wait',
-          ]);
-          Logger.success('agentgateway CRDs uninstalled');
+          await this.cleanupAgentGatewayCRDs(crdsReleaseName, {
+            version: crdsVersion,
+            ociRegistry: crdsOciRegistry,
+            chartName: crdsChartName,
+          });
         } else {
           Logger.info('agentgateway CRDs helm release not found, skipping uninstall');
         }
 
-        const { gatewayApiVersion, gatewayApiChannel } = this.resolveVersionAndRegistry(profile);
         await this.cleanupGatewayAPICRDs(gatewayApiVersion, gatewayApiChannel);
 
         const nsResult = await KubernetesHelper.kubectl(
