@@ -122,16 +122,18 @@ export class AgentGatewayManager {
   }
 
   /**
-   * Remove the agentgateway CRDs chart. Helm never deletes CRDs installed via a chart's
-   * crds/ directory on `helm uninstall` (a deliberate Helm design choice to avoid wiping
-   * out CRs cluster-wide on a routine uninstall) -- `helm uninstall` alone only removes the
-   * release's tracking metadata, leaving the CRD objects themselves in place. This fetches
-   * the exact CRD manifests the installed chart version defines via `helm show crds` and
-   * deletes them explicitly before uninstalling the release.
+   * Remove the agentgateway CRDs chart's CRD objects, and its Helm release if one is still
+   * tracked. Helm never deletes CRDs installed via a chart's crds/ directory on `helm
+   * uninstall` (a deliberate Helm design choice to avoid wiping out CRs cluster-wide on a
+   * routine uninstall) -- `helm uninstall` alone only removes the release's tracking
+   * metadata, leaving the CRD objects themselves in place. CRD-object deletion always runs,
+   * independent of whether a release is still found: a prior partial cleanup (e.g. one run
+   * before this fix existed) can leave the release gone but the CRD objects still orphaned,
+   * and there would otherwise be no way to recover them.
    */
-  static async cleanupAgentGatewayCRDs(crdsReleaseName, { version, ociRegistry, chartName } = {}) {
+  static async cleanupAgentGatewayCRDs({ version, ociRegistry, chartName } = {}) {
     const spinner = new SpinnerLogger();
-    spinner.start(`Removing agentgateway CRDs ${crdsReleaseName}...`);
+    spinner.start(`Removing agentgateway CRDs (${ociRegistry}/${chartName}@${version})...`);
 
     if (version && ociRegistry && chartName) {
       const crdManifests = await KubernetesHelper.helm(
@@ -154,14 +156,17 @@ export class AgentGatewayManager {
       );
     }
 
-    await KubernetesHelper.helm([
-      'uninstall',
-      crdsReleaseName,
-      '-n',
-      AGENTGATEWAY_NAMESPACE,
-      '--wait',
-    ]);
-    spinner.succeed(`agentgateway CRDs ${crdsReleaseName} removed`);
+    const crdsReleaseName = await this.detectInstalledCrdsRelease();
+    if (crdsReleaseName) {
+      await KubernetesHelper.helm([
+        'uninstall',
+        crdsReleaseName,
+        '-n',
+        AGENTGATEWAY_NAMESPACE,
+        '--wait',
+      ]);
+    }
+    spinner.succeed('agentgateway CRDs removed');
   }
 
   static resolveVersionAndRegistry(profile) {
@@ -1325,26 +1330,25 @@ export class AgentGatewayManager {
       await this.clearInstallState();
 
       if (deleteNamespace) {
-        const {
-          gatewayApiVersion,
-          gatewayApiChannel,
-          crdsVersion,
-          crdsOciRegistry,
-          crdsChartName,
-        } = this.resolveVersionAndRegistry(profile);
-
-        const crdsReleaseName = await this.detectInstalledCrdsRelease();
-        if (crdsReleaseName) {
-          await this.cleanupAgentGatewayCRDs(crdsReleaseName, {
-            version: crdsVersion,
-            ociRegistry: crdsOciRegistry,
-            chartName: crdsChartName,
-          });
-        } else {
-          Logger.info('agentgateway CRDs helm release not found, skipping uninstall');
+        const { gatewayApiVersion, crdsVersion, crdsOciRegistry, crdsChartName } =
+          this.resolveVersionAndRegistry(profile);
+        if (!profile) {
+          Logger.warn(
+            'No install profile resolved; CRD cleanup will use default chart versions and may miss CRDs installed by a non-default profile'
+          );
         }
 
-        await this.cleanupGatewayAPICRDs(gatewayApiVersion, gatewayApiChannel);
+        await this.cleanupAgentGatewayCRDs({
+          version: crdsVersion,
+          ociRegistry: crdsOciRegistry,
+          chartName: crdsChartName,
+        });
+
+        // Cleanup always targets the experimental channel regardless of what the profile
+        // requested: it's a strict superset of standard, so this removes any
+        // experimental-only CRDs too (ListenerSet, TCPRoute, TLSRoute, UDPRoute,
+        // XBackendTrafficPolicy, etc.) without depending on profile resolution succeeding.
+        await this.cleanupGatewayAPICRDs(gatewayApiVersion, 'experimental');
 
         const nsResult = await KubernetesHelper.kubectl(
           ['get', 'namespace', AGENTGATEWAY_NAMESPACE, '-o', 'name'],
