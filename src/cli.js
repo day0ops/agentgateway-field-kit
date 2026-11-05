@@ -895,6 +895,8 @@ usecase
   .option('--no-test', 'Skip running use case tests after deploy')
   .action(async options => {
     try {
+      await InfraStateManager.resolveAndApplyKubeContext();
+
       if (!(await KubernetesHelper.isClusterAccessible())) {
         Logger.error('Cluster not accessible. Check your kubeconfig/context.');
         process.exit(1);
@@ -965,6 +967,8 @@ usecase
   .option('--no-prompt', 'Skip interactive prompts')
   .action(async options => {
     try {
+      await InfraStateManager.resolveAndApplyKubeContext();
+
       if (!(await KubernetesHelper.isClusterAccessible())) {
         Logger.error('Cluster not accessible. Check your kubeconfig/context.');
         process.exit(1);
