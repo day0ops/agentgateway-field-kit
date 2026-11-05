@@ -123,34 +123,82 @@ export class AgentGatewayManager {
 
   /**
    * Remove the agentgateway CRDs chart's CRD objects, and its Helm release if one is still
-   * tracked. Helm never deletes CRDs installed via a chart's crds/ directory on `helm
-   * uninstall` (a deliberate Helm design choice to avoid wiping out CRs cluster-wide on a
-   * routine uninstall) -- `helm uninstall` alone only removes the release's tracking
-   * metadata, leaving the CRD objects themselves in place. CRD-object deletion always runs,
-   * independent of whether a release is still found: a prior partial cleanup (e.g. one run
-   * before this fix existed) can leave the release gone but the CRD objects still orphaned,
-   * and there would otherwise be no way to recover them.
+   * tracked. The chart defines its CRDs as regular templated resources (not via Helm's
+   * special crds/ directory) carrying `helm.sh/resource-policy: keep`, so `helm uninstall`
+   * deliberately skips them. `helm show crds` only surfaces crds/-directory content, which
+   * this chart has none of, so CRD manifests are rendered via `helm template` instead and
+   * filtered down to just the CustomResourceDefinition documents. CRD-object deletion always
+   * runs, independent of whether a release is still found: a prior partial cleanup (e.g. one
+   * run before this fix existed) can leave the release gone but the CRD objects still
+   * orphaned, and there would otherwise be no way to recover them.
    */
-  static async cleanupAgentGatewayCRDs({ version, ociRegistry, chartName } = {}) {
+  static async cleanupAgentGatewayCRDs({ version, ociRegistry, chartName, helmValues } = {}) {
     const spinner = new SpinnerLogger();
     spinner.start(`Removing agentgateway CRDs (${ociRegistry}/${chartName}@${version})...`);
+    let hadError = false;
+    let tempValuesFile = null;
 
     if (version && ociRegistry && chartName) {
-      const crdManifests = await KubernetesHelper.helm(
-        ['show', 'crds', `${ociRegistry}/${chartName}`, '--version', version],
-        { ignoreError: true }
-      );
-      if (crdManifests?.stdout?.trim()) {
-        await KubernetesHelper.kubectl(['delete', '--ignore-not-found', '-f', '-'], {
-          input: crdManifests.stdout,
-          ignoreError: true,
-        });
-      } else {
-        Logger.warn(
-          `Could not fetch CRD manifests for ${ociRegistry}/${chartName}@${version}; CRD objects may need to be removed manually`
-        );
+      try {
+        const templateArgs = [
+          'template',
+          'agentgateway-crds-cleanup',
+          `${ociRegistry}/${chartName}`,
+          '--version',
+          version,
+          '--namespace',
+          AGENTGATEWAY_NAMESPACE,
+        ];
+        if (helmValues) {
+          tempValuesFile = join(tmpdir(), `agentgateway-crds-cleanup-values-${Date.now()}.yaml`);
+          await writeFile(tempValuesFile, yaml.dump(helmValues), 'utf8');
+          templateArgs.push('-f', tempValuesFile);
+        }
+
+        const rendered = await KubernetesHelper.helm(templateArgs, { ignoreError: true });
+        if (rendered?.exitCode !== 0) {
+          hadError = true;
+          Logger.warn(
+            `helm template failed: ${(rendered?.stderr || rendered?.message || 'unknown error').trim()}`
+          );
+          Logger.warn('CRD objects may need to be removed manually');
+        } else {
+          let crdDocs = [];
+          try {
+            crdDocs = yaml
+              .loadAll(rendered.stdout)
+              .filter(doc => doc?.kind === 'CustomResourceDefinition');
+          } catch (error) {
+            hadError = true;
+            Logger.warn(`Could not parse rendered chart templates: ${error.message}`);
+          }
+
+          if (crdDocs.length > 0) {
+            const crdYaml = crdDocs.map(doc => yaml.dump(doc)).join('---\n');
+            const deleteResult = await KubernetesHelper.kubectl(
+              ['delete', '--ignore-not-found', '-f', '-'],
+              { input: crdYaml, ignoreError: true }
+            );
+            if (deleteResult?.exitCode !== 0) {
+              hadError = true;
+              Logger.warn(
+                `kubectl delete failed: ${(deleteResult?.stderr || deleteResult?.message || 'unknown error').trim()}`
+              );
+              Logger.warn('CRD objects may need to be removed manually');
+            }
+          }
+        }
+      } finally {
+        if (tempValuesFile) {
+          try {
+            await unlink(tempValuesFile);
+          } catch {
+            // Ignore cleanup errors
+          }
+        }
       }
     } else {
+      hadError = true;
       Logger.warn(
         'No chart version/registry resolved; CRD objects may need to be removed manually'
       );
@@ -166,7 +214,12 @@ export class AgentGatewayManager {
         '--wait',
       ]);
     }
-    spinner.succeed('agentgateway CRDs removed');
+
+    if (hadError) {
+      spinner.fail('agentgateway CRDs may not be fully removed - see warnings above');
+    } else {
+      spinner.succeed('agentgateway CRDs removed');
+    }
   }
 
   static resolveVersionAndRegistry(profile) {
@@ -1330,7 +1383,7 @@ export class AgentGatewayManager {
       await this.clearInstallState();
 
       if (deleteNamespace) {
-        const { gatewayApiVersion, crdsVersion, crdsOciRegistry, crdsChartName } =
+        const { gatewayApiVersion, crdsVersion, crdsOciRegistry, crdsChartName, crdsHelmValues } =
           this.resolveVersionAndRegistry(profile);
         if (!profile) {
           Logger.warn(
@@ -1342,6 +1395,7 @@ export class AgentGatewayManager {
           version: crdsVersion,
           ociRegistry: crdsOciRegistry,
           chartName: crdsChartName,
+          helmValues: crdsHelmValues,
         });
 
         // Cleanup always targets the experimental channel regardless of what the profile

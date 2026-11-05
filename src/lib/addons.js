@@ -26,6 +26,20 @@ export function mergeAddonConfig(addon) {
   };
 }
 
+// Namespaces cleanup must never delete, even when an addon is configured to install into
+// one: Kubernetes' own reserved namespaces (the API server itself refuses to delete most of
+// these, but not all), plus agentgateway-system, which AgentGatewayManager.uninstall()
+// already owns and deletes separately. aws-load-balancer-controller installs into
+// kube-system by design (it must run there), so this guard is what stops a full addon
+// sweep from wiping out a shared system namespace just because one addon happens to live in it.
+const PROTECTED_NAMESPACES = new Set([
+  'default',
+  'kube-system',
+  'kube-public',
+  'kube-node-lease',
+  'agentgateway-system',
+]);
+
 const PROFILE_ADDONS = [
   { name: 'aws-load-balancer-controller', namespace: 'kube-system' },
   { name: 'telemetry', namespace: 'telemetry' },
@@ -118,7 +132,9 @@ export class AddonInstaller {
       await FeatureManager.cleanup(name, namespace ? { namespace, spinner } : { spinner });
       spinner.succeed(`Addon '${name}' cleaned up`);
 
-      if (deleteNamespace && namespace && namespace !== 'agentgateway-system') {
+      if (deleteNamespace && namespace && PROTECTED_NAMESPACES.has(namespace)) {
+        Logger.info(`Skipping deletion of protected namespace '${namespace}'`);
+      } else if (deleteNamespace && namespace) {
         const nsResult = await KubernetesHelper.kubectl(
           ['get', 'namespace', namespace, '-o', 'name'],
           { ignoreError: true }
