@@ -1,7 +1,7 @@
 apiVersion: agentgateway.demo/v1
 kind: Profile
 metadata:
-  name: local-single-cluster-with-solo-ui
+  name: local-single-cluster
   description: |
     Single bring-your-own Kubernetes cluster
     - Solo UI and full observability
