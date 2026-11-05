@@ -730,7 +730,10 @@ base
 base
   .command('clean')
   .description('Clean up agentgateway')
-  .option('-a, --addons', 'Also remove profile-based addons and their namespaces')
+  .option(
+    '-a, --addons',
+    'Also remove profile-based addons and their namespaces, and the agentgateway + Gateway API CRDs'
+  )
   .option(
     '-p, --profile <name>',
     'Profile whose addons to remove (overrides tracked install state)'
@@ -770,8 +773,8 @@ base
       let msg = 'This will uninstall the gateway. Are you sure?';
       if (options.addons) {
         msg = profileName
-          ? `This will uninstall the gateway and the addons from profile '${profileName}', and their namespaces. Are you sure?`
-          : 'This will uninstall the gateway, all addons, and their namespaces. Are you sure?';
+          ? `This will uninstall the gateway, the addons from profile '${profileName}' and their namespaces, and the agentgateway + Gateway API CRDs. Are you sure?`
+          : 'This will uninstall the gateway, all addons and their namespaces, and the agentgateway + Gateway API CRDs. Are you sure?';
       }
       const answers = await inquirer.prompt([
         { type: 'confirm', name: 'confirm', message: chalk.yellow(msg), default: false },
@@ -792,7 +795,10 @@ base
         }
       }
 
-      await AgentGatewayManager.uninstall({ deleteNamespace: options.addons });
+      await AgentGatewayManager.uninstall({
+        deleteNamespace: options.addons,
+        profile: profileData,
+      });
       Logger.success('Cleanup completed');
     } catch (error) {
       Logger.error(`Failed to cleanup: ${error.message}`);

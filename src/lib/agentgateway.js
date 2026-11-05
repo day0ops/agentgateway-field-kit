@@ -90,6 +90,37 @@ export class AgentGatewayManager {
     }
   }
 
+  /**
+   * Remove the Gateway API CRDs by deleting the same upstream release manifest used to
+   * install them. Best-effort: other controllers on the cluster may also depend on these
+   * cluster-scoped CRDs, so failures are logged rather than thrown.
+   */
+  static async cleanupGatewayAPICRDs(
+    gatewayApiVersion = GATEWAY_API_VERSION,
+    channel = 'standard'
+  ) {
+    const spinner = new SpinnerLogger();
+    const resolvedChannel = channel === 'experimental' ? 'experimental' : 'standard';
+    spinner.start(`Removing Gateway API CRDs ${gatewayApiVersion} (${resolvedChannel})...`);
+
+    const result = await KubernetesHelper.kubectl(
+      [
+        'delete',
+        '--ignore-not-found',
+        '-f',
+        `https://github.com/kubernetes-sigs/gateway-api/releases/download/${gatewayApiVersion}/${resolvedChannel}-install.yaml`,
+      ],
+      { ignoreError: true }
+    );
+
+    if (result?.exitCode === 0) {
+      spinner.succeed(`Gateway API CRDs ${gatewayApiVersion} (${resolvedChannel}) removed`);
+    } else {
+      spinner.fail('Failed to remove Gateway API CRDs');
+      Logger.warn('Continuing cleanup; Gateway API CRDs may need to be removed manually');
+    }
+  }
+
   static resolveVersionAndRegistry(profile) {
     const edition = resolveEdition(profile?.edition);
     const baseName = EDITION_BASE_NAME[edition];
@@ -505,6 +536,40 @@ export class AgentGatewayManager {
       for (const edition of EDITIONS) {
         const releaseName = EDITION_RELEASE_NAME[edition];
         if (names.has(releaseName)) return releaseName;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Detect which edition's agentgateway CRDs Helm release (if any) is installed. Checked by
+   * listing releases rather than recomputing the expected name, since AGENTGATEWAY_CRDS_RELEASE
+   * may differ between the install and the current shell session.
+   * @returns {Promise<string|null>} The installed CRDs release name, or null if none is found
+   */
+  static async detectInstalledCrdsRelease() {
+    if (!(await KubernetesHelper.isClusterAccessible())) {
+      throw new Error(
+        'Cannot reach the Kubernetes API — check your kubeconfig/credentials before continuing.'
+      );
+    }
+
+    try {
+      const result = await KubernetesHelper.helm(
+        ['list', '-n', AGENTGATEWAY_NAMESPACE, '-o', 'json'],
+        { ignoreError: true }
+      );
+      if (!result?.stdout) return null;
+      const releases = JSON.parse(result.stdout);
+      const names = new Set((releases || []).map(r => r.name));
+      const candidates = [
+        process.env.AGENTGATEWAY_CRDS_RELEASE,
+        ...Object.values(EDITION_BASE_NAME).map(baseName => `${baseName}-crds`),
+      ].filter(Boolean);
+      for (const name of candidates) {
+        if (names.has(name)) return name;
       }
       return null;
     } catch {
@@ -1179,7 +1244,7 @@ export class AgentGatewayManager {
     }
   }
 
-  static async uninstall({ deleteNamespace = false } = {}) {
+  static async uninstall({ deleteNamespace = false, profile = null } = {}) {
     Logger.info('Uninstalling agentgateway...');
 
     // Check if we can connect to the cluster first
@@ -1217,6 +1282,23 @@ export class AgentGatewayManager {
       await this.clearInstallState();
 
       if (deleteNamespace) {
+        const crdsReleaseName = await this.detectInstalledCrdsRelease();
+        if (crdsReleaseName) {
+          await KubernetesHelper.helm([
+            'uninstall',
+            crdsReleaseName,
+            '-n',
+            AGENTGATEWAY_NAMESPACE,
+            '--wait',
+          ]);
+          Logger.success('agentgateway CRDs uninstalled');
+        } else {
+          Logger.info('agentgateway CRDs helm release not found, skipping uninstall');
+        }
+
+        const { gatewayApiVersion, gatewayApiChannel } = this.resolveVersionAndRegistry(profile);
+        await this.cleanupGatewayAPICRDs(gatewayApiVersion, gatewayApiChannel);
+
         const nsResult = await KubernetesHelper.kubectl(
           ['get', 'namespace', AGENTGATEWAY_NAMESPACE, '-o', 'name'],
           { ignoreError: true }
