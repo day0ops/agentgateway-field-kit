@@ -1,7 +1,7 @@
 import { Feature } from '../../src/lib/feature.js';
 import { KubernetesHelper, CommandRunner } from '../../src/lib/common.js';
 
-const DEFAULT_VERSION = '2.2.19';
+const DEFAULT_VERSION = '2.2.143';
 const DEFAULT_NAMESPACE = 'opik';
 const HELM_REPO_NAME = 'opik';
 const HELM_REPO_URL = 'https://comet-ml.github.io/opik/';

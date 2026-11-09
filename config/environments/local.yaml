@@ -18,20 +18,20 @@ spec:
 
   addons:
     cert-manager:
-      version: 1.21.2
+      version: 1.21.3
     external-dns:
       version: 1.23.0
     telemetry:
       kube-prom-stack:
-        version: 91.5.0
+        version: 93.1.1
       loki:
-        version: 7.3.0
+        version: 7.5.0
       tempo:
         version: 1.61.3
       alloy:
-        version: 1.13.0
+        version: 1.15.0
       otel:
-        version: 0.175.1
+        version: 0.178.2
 
   # Custom demo images, built and pushed to this GAR repo. Each value is a full
   # repo:tag reference - bump the tag here to roll every usecase forward at once.
@@ -58,7 +58,7 @@ spec:
       opik-guardrail-webhook: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/opik-guardrail-webhook:0.1.2
       ext-mcp-guardrail: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/ext-mcp-guardrail:latest
     openfga:
-      openfga-engine: openfga/openfga:v1.10.3
+      openfga-engine: openfga/openfga:v1.22.1
       openfga-ext-authz: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/openfga-ext-authz:latest
     opaAuthz:
       opa-ext-authz: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/opa-ext-authz:latest

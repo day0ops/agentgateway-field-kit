@@ -4,7 +4,7 @@ import { KubernetesHelper, CommandRunner } from '../../src/lib/common.js';
 const HELM_REPO_NAME = 'eks';
 const HELM_REPO_URL = 'https://aws.github.io/eks-charts';
 const RELEASE_NAME = 'aws-load-balancer-controller';
-const DEFAULT_CHART_VERSION = '3.5.0';
+const DEFAULT_CHART_VERSION = '3.6.2';
 
 /**
  * Installs the AWS Load Balancer Controller (IRSA-backed), which provisions real

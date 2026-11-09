@@ -12,11 +12,11 @@ spec:
   infra: eks-single-cluster
 
   agentgateway:
-    version: 1.6.0
+    version: 1.7.0
     ociRegistry: oci://cr.agentgateway.dev/charts
 
   agentgateway-crds:
-    version: 1.6.0
+    version: 1.7.0
     ociRegistry: oci://cr.agentgateway.dev/charts
 
   gatewayApi:

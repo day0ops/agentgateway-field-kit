@@ -16,7 +16,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const CONFIG_DIR = join(__dirname, 'config');
 
-const KEYCLOAK_VERSION = '26.7.4';
+const KEYCLOAK_VERSION = '26.8.2';
 const POSTGRES_VERSION = '18.6-alpine';
 
 /**
