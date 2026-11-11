@@ -10,11 +10,11 @@ spec:
   environment: local
 
   agentgateway:
-    version: v2026.10.2
+    version: v2026.11.0
     ociRegistry: oci://us-docker.pkg.dev/solo-public/enterprise-agentgateway/charts
 
   agentgateway-crds:
-    version: v2026.10.2
+    version: v2026.11.0
     ociRegistry: oci://us-docker.pkg.dev/solo-public/enterprise-agentgateway/charts
     helmValues:
       installAgentgatewayModelCRD: true

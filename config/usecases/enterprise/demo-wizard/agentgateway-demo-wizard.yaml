@@ -3,13 +3,16 @@ kind: UseCase
 metadata:
   name: agentgateway-demo-wizard
   description: |
-    Deploys the agentgateway-demo-wizard clickops demo app (github.com/day0ops/agentgateway-demo-wizard), publicly reachable but locked to VPN source ranges behind its own HTTPS Gateway, pre-provisions the LLM provider backends its routing pillar expects to find already configured, and deploys the real ADK agents and MCP infrastructure backing its banking auth pillar: Impersonation (Accounts Agent reads the core-banking ledger), MCP tool-level RBAC (admin-only account detail; transfers only via the delegation chain), Delegation with a nested act chain of custody (Transfer Orchestrator -> Settlement -> core-banking), and Elicitation against a real external processor (Stripe sandbox), both Interactive and Brokered.
+    Deploys the agentgateway-demo-wizard clickops app (github.com/day0ops/agentgateway-demo-wizard), locked to VPN source ranges behind its own HTTPS Gateway.
+
+    - Routing pillar: pre-provisions the model-by-name, dynamic-tier, and fallback backends it displays
+    - Banking auth pillar: real ADK agents and MCP infrastructure demonstrating Impersonation, MCP tool-level RBAC, Delegation (nested act chain), and Elicitation (Stripe sandbox, Interactive + Brokered)
   docs: https://docs.solo.io/agentgateway/latest/mcp/token-exchange/
 spec:
   steps:
     - title: Pre-provision routing-by-name backends
       description: |
-        Create the OpenAI and Anthropic backends the wizard's model-by-name routing step displays read-only, with body-based routing already wired so the route is live from the start.
+        Creates the OpenAI and Anthropic backends for the wizard's model-by-name routing step, route already live.
       features:
         - name: providers
           config:
@@ -25,7 +28,7 @@ spec:
 
     - title: Pre-provision dynamic-tier backends
       description: |
-        Create the fast/premium backends the wizard's dynamic-tier routing step displays read-only. No route here - the agentgateway-demo-wizard feature bundles the X-Model-Tier header-matched HTTPRoute itself.
+        Creates the fast/premium backends for the wizard's dynamic-tier routing step; the HTTPRoute itself is bundled by the wizard feature.
       features:
         - name: providers
           config:
@@ -40,7 +43,7 @@ spec:
 
     - title: Pre-provision the fallback backend
       description: |
-        Create the priority-grouped fallback backend the wizard's automatic-fallback step displays read-only.
+        Creates the priority-grouped fallback backend for the wizard's automatic-fallback step.
       features:
         - name: providers
           config:
@@ -58,10 +61,7 @@ spec:
 
     - title: Deploy LLM provider
       description: |
-        Expose an OpenAI LLM provider at /openai so the four agents can route
-        completions through the gateway. Without this route, every agent's first
-        real (non-stub) LLM call fails outright - there is no backend behind
-        LLM_BASE_URL at all.
+        Exposes an OpenAI LLM provider at /openai that the four agents route completions through.
       features:
         - name: providers
           config:
@@ -72,9 +72,7 @@ spec:
 
     - title: Deploy Postgres for the ops-agents token exchange service
       description: |
-        A dedicated Postgres instance for this usecase's own STS database - required
-        because token-exchange's Helm upgrades never clear a previous usecase's
-        database.postgres.url, only ever set it.
+        Dedicated Postgres instance backing this usecase's own STS database.
       features:
         - name: postgres
           config:
@@ -82,37 +80,15 @@ spec:
 
     - title: Enable the Security Token Service (STS)
       description: |
-        Enables the agentgateway control plane's STS at port 7777. skipMayActClaimValidation
-        is set because this usecase's agents authenticate as their own Kubernetes
-        ServiceAccount (validated via the k8s actorValidator) rather than a Keycloak
-        client with a registered may_act claim. callbackUrl points at the Solo UI
-        elicitations page for the Interactive elicitation flow. oauthIssuerConfig
-        turns on the gateway's own OAuth issuer with its consent screen enabled -
-        required for the Brokered Stripe elicitation step below. downstream_server
-        reuses the agw-token-exchange client (public, PKCE, no secret) the wizard's
-        own "Real login" step already authenticates against; the issuer's agent-flow
-        path (used by Brokered) never actually drives this downstream leg since the
-        user already has a token by the time Brokered runs, but the controller
-        validates it unconditionally at startup, so it must still be well-formed.
+        Enables the agentgateway control plane's STS at port 7777 and its OAuth issuer (consent enabled) for the Brokered Stripe elicitation step below.
       features:
         - name: token-exchange
           config:
-            # Explicit subjectValidator/apiValidator below replace the feature's own
-            # keycloak:-block-derived defaults entirely - those build a cluster-internal
-            # Service DNS URL (keycloak.keycloak.svc.cluster.local), but this repo's
-            # keycloak addon's TLS certificate is only valid for the external hostname,
-            # so cluster-internal HTTPS JWKS fetches always fail certificate verification
-            # here. Use the real, externally-resolvable hostname instead (same pattern
-            # agentgateway-with-keycloak.yaml already uses successfully).
             subjectValidator:
               validatorType: remote
               remoteConfig:
                 url: 'https://{{env.domains.core.keycloak}}/realms/agw-dev/protocol/openid-connect/certs'
               skipMayActClaimValidation: true
-            # apiValidator validates Solo UI's own calls to the elicitation CRUD API, not the
-            # agw-dev-realm user tokens subjectValidator/actorValidator handle - Solo UI
-            # always authenticates against its own dedicated solo-ui realm in this repo, so
-            # it needs its own JWKS endpoint rather than inheriting agw-dev's default.
             apiValidator:
               validatorType: remote
               remoteConfig:
@@ -140,9 +116,7 @@ spec:
 
     - title: Deploy the Core Banking MCP server
       description: |
-        Deploys the internal core-banking MCP (a fake-but-relatable ledger) and
-        exposes it at /core-banking-standard. This route carries the
-        Standard/Impersonation exchange - the Accounts Agent reads through it.
+        Deploys the internal core-banking MCP (a fake ledger) at /core-banking-standard, carrying the Impersonation exchange the Accounts Agent reads through.
       features:
         - name: mcp-server
           config:
@@ -160,9 +134,7 @@ spec:
 
     - title: Expose a second route to the Core Banking MCP for the Delegation path
       description: |
-        Same pod, a different gateway route and backend - this one carries only
-        STS-issued (Delegation) tokens, never a raw Keycloak token. The Settlement
-        Agent calls transfer through it.
+        Second route/backend to the same pod, carrying only STS-issued Delegation tokens for the Settlement Agent's transfer calls.
       features:
         - name: mcp-server
           config:
@@ -180,10 +152,7 @@ spec:
 
     - title: Protect the standard route with the proxy-native Impersonation exchange
       description: |
-        Reuses the same agw-token-exchange Keycloak client already provisioned for
-        this wizard's auth pillar. The Accounts Agent presents the user's token
-        as-is; agentgateway performs the RFC 8693 Impersonation exchange here
-        (same identity, re-signed, no act claim) before forwarding.
+        Performs the RFC 8693 Impersonation exchange (re-signed, no act claim) on the standard route before forwarding to core-banking.
       features:
         - name: oauth-token-exchange
           config:
@@ -206,13 +175,7 @@ spec:
 
     - title: Protect the delegation route with STS-issued-token validation
       description: |
-        Validates that the token was issued by either the STS (the normal
-        delegation chain - the caller already exchanged at the STS before
-        arriving, so the act chain it carries can be trusted by the RBAC gate
-        below) or Keycloak directly (a raw user token, presented as-is by the
-        direct-call demo below - no act chain at all, which is exactly what
-        that demo needs to reach the RBAC gate instead of being rejected here
-        on a key it was never going to have).
+        Validates the delegation route accepts tokens from either the STS (normal chain) or Keycloak directly (raw token, used by the direct-call demo).
       features:
         - name: obo-token-exchange
           config:
@@ -235,9 +198,7 @@ spec:
 
     - title: Deploy the Accounts Agent (read-only, Impersonation)
       description: |
-        Reads the customer's own balances and transactions. Presents the user's
-        token unchanged; the gateway's Impersonation exchange on the standard route
-        re-signs it before forwarding to core-banking.
+        Reads the customer's balances/transactions, presenting the user's token unchanged for the gateway's Impersonation exchange.
       features:
         - name: workload-agent
           config:
@@ -253,9 +214,7 @@ spec:
 
     - title: Deploy the Transfer Orchestrator Agent (hop 1 of the delegation chain)
       description: |
-        Exchanges the user's token at the STS (actor = its own ServiceAccount),
-        then delegates the actual ledger operation to the Settlement Agent, passing
-        the exchanged token.
+        Exchanges the user's token at the STS, then delegates the ledger operation to the Settlement Agent.
       features:
         - name: workload-agent
           config:
@@ -274,9 +233,7 @@ spec:
 
     - title: Deploy the Settlement Agent (hop 2, re-exchanges and surfaces the chain)
       description: |
-        Re-exchanges the incoming delegated token at the STS (actor = its own
-        ServiceAccount), producing a nested act chain, then calls the core-banking
-        transfer tool on the delegation route and reports the full chain of custody.
+        Re-exchanges the delegated token at the STS (nested act chain), calls the core-banking transfer tool, and reports the chain of custody.
       features:
         - name: workload-agent
           config:
@@ -295,9 +252,7 @@ spec:
 
     - title: Deploy the Statements Agent (Elicitation)
       description: |
-        Reaches the external payment processor (Stripe sandbox) on the customer's
-        behalf. The gateway has no Stripe credential for the user yet, so the first
-        call triggers elicitation (Interactive or Brokered, below).
+        Reaches the Stripe sandbox on the customer's behalf; the first call with no stored credential triggers elicitation.
       features:
         - name: workload-agent
           config:
@@ -315,14 +270,7 @@ spec:
 
     - title: Create the PayPal OAuth client secret
       description: |
-        For the Interactive elicitation path. Stripe's OAuth app is DCR+PKCE only
-        (confirmed live: it never issues a client secret), which Interactive can't
-        use, so this path targets PayPal sandbox instead - confirmed live to
-        support classic confidential clients. Register a PayPal MCP OAuth client
-        (DCR: POST https://mcp.sandbox.paypal.com/register with redirect_uris set
-        to the Solo UI elicitations URL and token_endpoint_auth_method:
-        client_secret_post) and set AGW_DEMO_PAYPAL_CLIENT_ID /
-        AGW_DEMO_PAYPAL_CLIENT_SECRET in the environment before deploying.
+        Registers a PayPal MCP OAuth client (DCR) for the Interactive elicitation path, since Stripe's OAuth app can't issue a client secret.
       features:
         - name: elicitation-secret
           config:
@@ -332,11 +280,7 @@ spec:
 
     - title: Configure the PayPal MCP backend with Interactive Elicitation
       description: |
-        Points agentgateway at PayPal's real remote MCP server (sandbox). The first
-        call from a user with no stored PayPal token returns a pending consent URL;
-        after the user completes OAuth in the Solo UI, the STS injects a real
-        PayPal token into every subsequent call. PayPal doesn't advertise OAuth
-        scopes for this server, so none are requested here.
+        Points agentgateway at PayPal's sandbox MCP server with Interactive elicitation, prompting OAuth consent on first use.
       features:
         - name: elicitation-backend
           config:
@@ -359,14 +303,7 @@ spec:
 
     - title: Configure the Stripe MCP backend with Brokered Elicitation
       description: |
-        The same external processor, reached via the gateway's own OAuth issuer
-        instead of the after-the-fact Solo UI flow: because the user already
-        authenticated, the issuer brokers only the upstream Stripe credential inline
-        (DCR + PKCE against mcp.stripe.com) and shows its own consent screen.
-        Requires the gateway OAuth issuer's consent block from the STS step above -
-        wired in declaratively; still needs a live round-trip to confirm the
-        consent screen renders and the Stripe credential is actually banked and
-        injected on retry (plan Task 0.B).
+        Points agentgateway at Stripe's MCP server with Brokered elicitation, brokering the upstream credential inline via the gateway's own OAuth issuer and consent screen.
       features:
         - name: elicitation-backend
           config:
@@ -388,7 +325,7 @@ spec:
 
     - title: Deploy the wizard
       description: |
-        Deploy the wizard app itself: Deployment, Service, scoped RBAC, and its own VPN-locked HTTPS Gateway - plus the dynamic-tier HTTPRoute from the previous step's backends.
+        Deploys the wizard app: Deployment, Service, scoped RBAC, its own VPN-locked HTTPS Gateway, and the dynamic-tier HTTPRoute.
       features:
         - name: agentgateway-demo-wizard
           config:
@@ -402,17 +339,7 @@ spec:
 
     - title: Protect the auth pillar's real-agent routes with agentgateway's own ext-auth
       description: |
-        agentgateway itself becomes the auth pillar's policy enforcement point: the
-        /secure prefix (login trigger + the real ops-agent proxy calls) is gated by
-        agentgateway's own OAuth authorization code flow against a dedicated
-        confidential client, with the resulting access token forwarded upstream as a
-        standard Authorization: Bearer header and transparently refreshed
-        server-side - no token management left in the wizard's own Go code. Every
-        other pillar's routes are untouched; Gateway API's longest-path-match
-        precedence means the existing / route keeps serving everything that isn't
-        under /secure. The agw-ext-auth client itself is provisioned by the
-        Keycloak addon's declarative realms config (same profile entry as
-        agw-token-exchange), not by this usecase.
+        Gates the /secure prefix with agentgateway's own OAuth authorization-code flow, forwarding the token upstream as a Bearer header; other routes are untouched.
       features:
         - name: oauth-authorization-code
           config:

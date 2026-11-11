@@ -16,10 +16,10 @@ const UNCHANGED = [
 
 describe('agentgateway version bump scope', () => {
   for (const name of BUMPED) {
-    test(`${name} is pinned to v2026.10.2`, async () => {
+    test(`${name} is pinned to v2026.11.0`, async () => {
       const profile = await ProfileManager.load(`${ProfileManager.PROFILES_DIR}/${name}.yaml`);
-      expect(profile.agentgateway.version).toBe('v2026.10.2');
-      expect(profile['agentgateway-crds'].version).toBe('v2026.10.2');
+      expect(profile.agentgateway.version).toBe('v2026.11.0');
+      expect(profile['agentgateway-crds'].version).toBe('v2026.11.0');
     });
   }
 
