@@ -550,6 +550,9 @@ export class ProvidersFeature extends Feature {
 
     // Also clean up any body-routing policy created by this feature
     await this.deleteByLabel(POLICY_KIND[this.edition], labels);
+
+    // Also clean up any BackendTLSPolicy created for a typesafe provider
+    await this.deleteByLabel('BackendTLSPolicy', labels);
   }
 
   /**
