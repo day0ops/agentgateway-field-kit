@@ -97,15 +97,23 @@ export async function runHttpStep(step, context) {
 }
 
 /**
- * Fires `step.requestCount` GET requests and tallies responses - by `step.tallyBy`'s JSON
+ * Fires `step.requestCount` requests and tallies responses - by `step.tallyBy`'s JSON
  * body field, or by HTTP status code when `tallyBy` is the sentinel '$status' (used for a
- * rate-limit burst, where a 429 may have no parseable JSON body).
+ * rate-limit burst, where a 429 may have no parseable JSON body). Defaults to a bodyless
+ * GET; `step.method`/`step.body` let a traffic split exercise an AI route, which rejects a
+ * bodyless request outright (it has no prompt to complete) rather than returning one.
  */
 export async function runTrafficSplitStep(step, context) {
   const tally = {};
   const headers = await buildHeaders(step, context);
+  const method = step.method || 'GET';
+  const body = step.body;
   for (let i = 0; i < step.requestCount; i++) {
-    const response = await fetch(step.url, { headers });
+    const response = await fetch(step.url, {
+      method,
+      headers,
+      ...(body !== undefined && { body }),
+    });
     const bucket =
       step.tallyBy === '$status'
         ? String(response.status)
