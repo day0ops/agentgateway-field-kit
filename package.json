@@ -32,12 +32,14 @@
     "commander": "^14",
     "execa": "^9",
     "figlet": "^1.11.0",
+    "ink": "^8.0.0",
     "inquirer": "^13",
     "js-yaml": "^4.1.1",
     "log-symbols": "^7.0.1",
     "marked": "^18.0.10",
     "open": "^11.0.4",
     "ora": "^9",
+    "react": "^19.3.1",
     "string-width": "^8"
   },
   "devDependencies": {
@@ -47,6 +49,7 @@
     "eslint": "^10",
     "eslint-config-prettier": "^10.1.8",
     "globals": "^17.4.0",
+    "ink-testing-library": "^4.0.0",
     "playwright": "^1.58.2",
     "prettier": "^3.8.1"
   },
