@@ -2,12 +2,11 @@ apiVersion: agentgateway.demo/v1
 kind: Walkthrough
 metadata:
   name: llm-gateway-routing
-  description: A tour of agentgateway's LLM-routing intelligence across real providers - direct multi-model selection, load balancing, body-based routing, automatic failover, and AI-driven tier routing via a hosted decision model.
+  description: A tour of agentgateway's LLM-routing intelligence across real providers - direct multi-model selection, load balancing, body-based routing, automatic failover, and AI-driven tier routing via a hosted decision model. Before starting, port-forward the gateway with `kubectl port-forward -n agentgateway-system svc/models-gateway 8080:8080`.
 
 spec:
   environment: local
-  # models-gateway has no listener hostname, so it accepts any Host header - every step below
-  # assumes `kubectl port-forward -n agentgateway-system svc/models-gateway 8080:8080` is running.
+  # models-gateway has no listener hostname, so it accepts any Host header.
   preProvision:
     - name: gateway
       config:
@@ -28,7 +27,7 @@ spec:
     - name: multi-model-routing
       title: Multi-Model Routing
       narration: |
-        One gateway, multiple providers. The client picks the model directly - agentgateway routes each request to the right provider with no extra configuration per request.
+        One gateway, multiple providers. The client picks the model directly - agentgateway routes each request to the right provider with no extra configuration per request. Before running the steps below, port-forward the gateway with `kubectl port-forward -n agentgateway-system svc/models-gateway 8080:8080`.
       setup:
         - name: agentgateway-model
           config:
@@ -157,7 +156,7 @@ spec:
     - name: jev-decision-routing
       title: 'Jev: AI Decides the Tier'
       narration: |
-        Jev, TypeSafe's hosted decision model, classifies the prompt as cheap or premium - agentgateway then routes the completion to the matching model tier. Both calls go through the gateway, so the same auth, cost-tracking, and rate-limit policies apply to the classification call too, not just the completion.
+        Jev, TypeSafe's hosted decision model, classifies the prompt as cheap or premium - a presenter would normally route the next request to that tier. Both calls go through the gateway, so the same auth, cost-tracking, and rate-limit policies apply to the classification call too, not just the completion.
       setup:
         - name: providers
           config:
@@ -190,7 +189,7 @@ spec:
             higher quality output"}}}}
           expectStatus: 200
         - kind: http
-          label: 'POST /tier - routed to the resolved tier'
+          label: 'POST /tier with the tier Jev picked (cheap)'
           method: POST
           url: 'http://localhost:8080/tier'
           body: '{"model": "cheap", "messages": [{"role": "user", "content": "Say hello"}]}'
