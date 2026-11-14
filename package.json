@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "Agentgateway Field Kit - demo framework for agentgateway features and use cases",
   "type": "module",
-  "main": "src/index.js",
+  "main": "src/cli.js",
   "bin": {
     "agw": "./src/cli.js"
   },
@@ -13,9 +13,7 @@
     "test": "bun test test/**/*.test.js",
     "lint": "eslint src/**/*.js",
     "test:e2e": "playwright test",
-    "format": "prettier --write .",
-    "setup": "bun install && bun run src/cli.js base install-local",
-    "clean": "bun run src/cli.js base cleanup"
+    "format": "prettier --write ."
   },
   "keywords": [
     "agentgateway",
@@ -25,7 +23,7 @@
     "demo"
   ],
   "author": "",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "dependencies": {
     "beautiful-mermaid": "^1.1.2",
     "chalk": "^5.3.0",
