@@ -84,7 +84,7 @@ describe('WalkthroughManager.load', () => {
     );
     try {
       const walkthrough = await WalkthroughManager.load(filePath);
-      expect(walkthrough.screens).toEqual([{ name: 'one' }]);
+      expect(walkthrough.screens).toEqual([{ name: 'one', steps: [] }]);
       expect(walkthrough.credentials).toEqual({});
       expect(walkthrough.preProvision).toEqual([]);
       expect(walkthrough.edition).toBe('enterprise');

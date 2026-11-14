@@ -7,10 +7,20 @@ import { CredentialManager } from './oidc-credential.js';
 // FeatureManager.deploy's own spinner renders directly to the terminal via ora - fine before
 // the TUI mounts (preProvision), but every screen past the first applies its setup from
 // inside an already-mounted ink app, where a second renderer fighting for the same terminal
-// would corrupt the display. Passing this silences it: confirmed against src/lib/feature.js
-// that FeatureManager only ever calls setText()/checks isSpinning on a supplied spinner, never
-// start()/succeed()/fail(), once that spinner is externally supplied.
-const SILENT_SPINNER = { setText() {}, isSpinning: false };
+// would corrupt the display. isSpinning: true is intentional, not merely satisfying
+// FeatureManager's own direct spinner calls - Feature.log() (called from every feature's
+// deploy()/cleanup()) checks spinner.isSpinning to decide whether to route a log line through
+// spinner.logWhileSpinning() or straight to the raw console; with isSpinning: true every one of
+// those ~343 call sites routes through the no-op logWhileSpinning() below instead of printing
+// raw console output that would corrupt the alt-screen ink frame.
+const SILENT_SPINNER = {
+  setText() {},
+  start() {},
+  succeed() {},
+  fail() {},
+  logWhileSpinning() {},
+  isSpinning: true,
+};
 
 /**
  * Drives navigation and setup application for a resolved walkthrough. UI-agnostic -
@@ -45,8 +55,9 @@ export class WalkthroughEngine extends EventEmitter {
     return this.walkthrough.screens[this.screenIndex];
   }
 
+  /** @returns {?object} undefined when the current screen has no steps (e.g. narration-only) */
   get currentStep() {
-    return this.currentScreen.steps[this.stepIndex];
+    return (this.currentScreen.steps || [])[this.stepIndex];
   }
 
   resultKey(screenIndex = this.screenIndex, stepIndex = this.stepIndex) {
@@ -93,20 +104,22 @@ export class WalkthroughEngine extends EventEmitter {
         const docs = [];
         for (const featureRef of screen.setup || []) {
           const config = featureRef.config || {};
-          // Snapshot PolicyRegistry's coalesced state before the dry-run capture call below,
-          // and restore it right after: that call runs with PolicyRegistry still enabled for
-          // this whole batch, so a policy-emitting feature's applyResource() registers into
-          // the same policies/contributors maps as the real deploy call that follows it. Without
-          // reverting, the dry-run call's registration double-counts this feature as its own
-          // contributor, corrupting the committed resource's name/labels (e.g.
-          // "merged-<name>-<name>-..." instead of "<name>-...").
-          const policiesBeforePreview = new Map(PolicyRegistry.policies);
-          const contributorsBeforePreview = new Map(PolicyRegistry.contributors);
+          // Disable PolicyRegistry for just this one dry-run capture call: Feature.applyResource
+          // defers an EnterpriseAgentgatewayPolicy resource to PolicyRegistry.register() whenever
+          // PolicyRegistry.isEnabled() is true, which would otherwise mean a policy-emitting
+          // feature's dry-run call registers into the batch's coalesced state exactly like the
+          // real deploy call that follows it - double-registering this feature as its own
+          // contributor. Disabling it here makes applyResource() fall through to the normal
+          // _dryRunYaml capture path instead, so the preview panel shows this feature's own real
+          // (unmerged) YAML, and the dry-run call no longer touches PolicyRegistry's maps at all -
+          // the double-registration this was built to prevent can no longer happen. Reading/writing
+          // `enabled` directly (not enable()/disable()) because enable()'s clear() would wipe this
+          // batch's already-coalesced state from earlier features in the same loop.
+          const wasEnabled = PolicyRegistry.enabled;
+          PolicyRegistry.enabled = false;
           try {
             // Best-effort only, for the "Applied Configuration" preview panel - a feature whose
-            // dry-run isn't side-effect-pure must not block the real deploy below. A feature that
-            // emits a policy resource also legitimately captures nothing here: PolicyRegistry
-            // defers policy resources out of _dryRunYaml while enabled.
+            // dry-run isn't side-effect-pure must not block the real deploy below.
             const rendered = await FeatureManager.deploy(featureRef.name, config, {
               dryRun: true,
               edition: this.edition,
@@ -115,8 +128,7 @@ export class WalkthroughEngine extends EventEmitter {
           } catch {
             // see above
           } finally {
-            PolicyRegistry.policies = policiesBeforePreview;
-            PolicyRegistry.contributors = contributorsBeforePreview;
+            PolicyRegistry.enabled = wasEnabled;
           }
           await FeatureManager.deploy(featureRef.name, config, {
             edition: this.edition,
@@ -146,7 +158,8 @@ export class WalkthroughEngine extends EventEmitter {
     this.appliedScreens.delete(screenIndex);
     this.appliedYaml.delete(screenIndex);
     const screen = this.walkthrough.screens[screenIndex];
-    for (let stepIndex = 0; stepIndex < screen.steps.length; stepIndex++) {
+    const steps = screen.steps || [];
+    for (let stepIndex = 0; stepIndex < steps.length; stepIndex++) {
       const key = this.resultKey(screenIndex, stepIndex);
       this.stepResults.delete(key);
       this.responseRevealed.delete(key);
@@ -218,7 +231,7 @@ export class WalkthroughEngine extends EventEmitter {
    * setup yet, so its narration shows first; the next right-arrow press is what applies setup.
    */
   async advance() {
-    const steps = this.currentScreen.steps;
+    const steps = this.currentScreen.steps || [];
     if (this.stepIndex < steps.length - 1) {
       this.stepIndex += 1;
       this.emit('change');
@@ -243,7 +256,7 @@ export class WalkthroughEngine extends EventEmitter {
     if (this.screenIndex > 0) {
       const previous = this.walkthrough.screens[this.screenIndex - 1];
       this.screenIndex -= 1;
-      this.stepIndex = previous.steps.length - 1;
+      this.stepIndex = Math.max(0, (previous.steps || []).length - 1);
       this.emit('change');
     }
   }
@@ -259,6 +272,13 @@ export class WalkthroughEngine extends EventEmitter {
       this.emit('running');
       await this.ensureAppliedThrough(this.screenIndex);
       this.emit('change');
+      return;
+    }
+
+    // A narration-only screen (no steps) has nothing to preview/fire - once its setup is
+    // applied, the next right-arrow just moves on (or is a no-op on the last screen).
+    if (!this.currentStep) {
+      await this.advance();
       return;
     }
 

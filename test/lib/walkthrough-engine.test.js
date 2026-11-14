@@ -37,6 +37,24 @@ class PolicyFeature extends Feature {
   async cleanup() {}
 }
 
+// A second, distinct policy-emitting feature targeting the same ref as PolicyFeature, with a
+// different (non-conflicting) traffic field - for proving real cross-feature coalescing, not
+// just "one feature registers fine".
+class PolicyFeatureB extends Feature {
+  async deploy() {
+    await this.applyResource({
+      apiVersion: 'enterpriseagentgateway.solo.io/v1alpha1',
+      kind: 'EnterpriseAgentgatewayPolicy',
+      metadata: { name: 'policy-b-under-test', namespace: this.namespace },
+      spec: {
+        targetRefs: [{ kind: 'HTTPRoute', name: 'routing-basic' }],
+        traffic: { rateLimit: {} },
+      },
+    });
+  }
+  async cleanup() {}
+}
+
 function buildWalkthrough(overrides = {}) {
   return {
     screens: [
@@ -73,6 +91,7 @@ beforeEach(() => {
   FeatureManager.features = new Map();
   FeatureManager.register('recording-feature', RecordingFeature);
   FeatureManager.register('policy-feature', PolicyFeature);
+  FeatureManager.register('policy-feature-b', PolicyFeatureB);
   originalGatewayRef = FeatureManager.gatewayRef;
   originalDefaultNamespace = FeatureManager.defaultNamespace;
   originalFetch = globalThis.fetch;
@@ -198,11 +217,27 @@ describe('WalkthroughEngine navigation', () => {
 
   test('re-entering an already-applied screen re-runs its teardown/setup and clears cached step results', async () => {
     const engine = new WalkthroughEngine(buildWalkthrough());
-    await engine.jumpToScreen(1);
+    // Advance organically (not via jumpToScreen) into screen 1 and fire its one step, so there's
+    // a real cached result and revealed response to prove gets cleared below - a screen that was
+    // never fired would pass the getStepResult()/isResponseRevealed() assertions trivially.
+    await engine.handleRight(); // applies screen 0 setup
+    await engine.handleRight(); // preview screen 0 step 0
+    await engine.handleRight(); // fire screen 0 step 0
+    await engine.handleRight(); // advance to screen 0 step 1
+    await engine.handleRight(); // preview screen 0 step 1
+    await engine.handleRight(); // fire screen 0 step 1
+    await engine.handleRight(); // cross into screen 1 (lazy - indices only)
+    await engine.handleRight(); // apply screen 1's teardown+setup
+    await engine.handleRight(); // preview screen 1 step 0
+    await engine.handleRight(); // fire screen 1 step 0
+    expect(engine.getStepResult()).toMatchObject({ status: 200 });
+    expect(engine.isResponseRevealed()).toBe(true);
+
+    await engine.jumpToScreen(0); // jump away
     RecordingFeature.deployed = [];
     RecordingFeature.cleanedUp = [];
 
-    await engine.jumpToScreen(1);
+    await engine.jumpToScreen(1); // re-enter
     expect(RecordingFeature.cleanedUp).toMatchObject([
       { name: 'recording-feature', config: { step: 'one-teardown' } },
     ]);
@@ -210,6 +245,62 @@ describe('WalkthroughEngine navigation', () => {
       { name: 'recording-feature', config: { step: 'two' } },
     ]);
     expect(engine.getStepResult()).toBeNull();
+    expect(engine.isResponseRevealed()).toBe(false);
+  });
+});
+
+describe('WalkthroughEngine zero-step screens', () => {
+  test('a screen with no steps applies its setup then advances straight to the next screen on right-arrow', async () => {
+    const walkthrough = {
+      screens: [
+        {
+          name: 'intro',
+          setup: [{ name: 'recording-feature', config: { step: 'intro' } }],
+          // steps omitted entirely - a narration-only intro screen
+        },
+        {
+          name: 'two',
+          setup: [{ name: 'recording-feature', config: { step: 'two' } }],
+          steps: [{ kind: 'http', method: 'GET', url: 'http://example.com/c', expectStatus: 200 }],
+        },
+      ],
+      credentials: {},
+      preProvision: [],
+      edition: 'enterprise',
+    };
+    const engine = new WalkthroughEngine(walkthrough);
+
+    await engine.handleRight(); // applies screen 0 (intro) setup
+    expect(RecordingFeature.deployed).toMatchObject([
+      { name: 'recording-feature', config: { step: 'intro' } },
+    ]);
+    expect(engine.screenIndex).toBe(0);
+
+    await engine.handleRight(); // no steps to run - advances straight to screen 1
+    expect(engine.screenIndex).toBe(1);
+    expect(engine.stepIndex).toBe(0);
+  });
+
+  test('right-arrow on the last screen with no steps does nothing, after its setup is applied', async () => {
+    const walkthrough = {
+      screens: [
+        {
+          name: 'only',
+          setup: [{ name: 'recording-feature', config: { step: 'only' } }],
+          steps: [],
+        },
+      ],
+      credentials: {},
+      preProvision: [],
+      edition: 'enterprise',
+    };
+    const engine = new WalkthroughEngine(walkthrough);
+
+    await engine.handleRight(); // applies setup
+    await engine.handleRight(); // no steps, last screen - no-op
+
+    expect(engine.screenIndex).toBe(0);
+    expect(engine.stepIndex).toBe(0);
   });
 });
 
@@ -240,9 +331,15 @@ describe('WalkthroughEngine deploy calls', () => {
 });
 
 describe('WalkthroughEngine PolicyRegistry integration', () => {
-  test("coalesces a screen-entry batch's policy resources into one committed object, then disables", async () => {
+  test("coalesces a screen-entry batch's two distinct features' policy resources into one merged, committed object, then disables", async () => {
     const walkthrough = {
-      screens: [{ name: 'one', setup: [{ name: 'policy-feature' }], steps: [] }],
+      screens: [
+        {
+          name: 'one',
+          setup: [{ name: 'policy-feature' }, { name: 'policy-feature-b' }],
+          steps: [],
+        },
+      ],
       credentials: {},
       preProvision: [],
       edition: 'enterprise',
@@ -251,33 +348,24 @@ describe('WalkthroughEngine PolicyRegistry integration', () => {
     await engine.ensureAppliedThrough(0);
 
     expect(PolicyRegistry.isEnabled()).toBe(false);
-    expect(appliedYamlDocs.some(doc => doc.includes('EnterpriseAgentgatewayPolicy'))).toBe(true);
-  });
-
-  test("a setup feature's best-effort dry-run preview call doesn't double-register it as its own policy contributor", async () => {
-    // Regression test: the dry-run capture call in ensureAppliedThrough runs while
-    // PolicyRegistry is enabled for the whole batch, same as the real deploy call right
-    // after it. Without reverting PolicyRegistry's state between the two, a single
-    // policy-emitting feature gets registered twice and is merged with itself, producing
-    // a "merged-<name>-<name>-..." resource name instead of the clean single-contributor
-    // "<name>-..." name.
-    const walkthrough = {
-      screens: [{ name: 'one', setup: [{ name: 'policy-feature' }], steps: [] }],
-      credentials: {},
-      preProvision: [],
-      edition: 'enterprise',
-    };
-    const engine = new WalkthroughEngine(walkthrough);
-    await engine.ensureAppliedThrough(0);
-
-    const policyDoc = appliedYamlDocs
+    const committedDoc = appliedYamlDocs
       .map(doc => yaml.load(doc))
       .find(doc => doc.kind === 'EnterpriseAgentgatewayPolicy');
-    expect(policyDoc.metadata.name).toBe('policy-feature-routing-basic');
-    expect(policyDoc.metadata.labels['agentgateway.dev/contributors']).toBe('policy-feature');
+    expect(committedDoc.metadata.name).toBe('merged-policy-feature-policy-feature-b-routing-basic');
+    expect(committedDoc.metadata.labels['agentgateway.dev/contributors']).toBe(
+      'policy-feature_policy-feature-b'
+    );
+    // Both features' fields actually merged into the one committed resource.
+    expect(committedDoc.spec.traffic.jwtAuth).toBeDefined();
+    expect(committedDoc.spec.traffic.rateLimit).toBeDefined();
   });
 
-  test('a policy-emitting feature has no "Applied Configuration" preview captured (deferred to PolicyRegistry, not _dryRunYaml)', async () => {
+  test('a policy-emitting feature gets a real "Applied Configuration" preview of its own unmerged resource, and the real deploy still commits a clean single-contributor name', async () => {
+    // Disabling PolicyRegistry for just the dry-run capture call (not snapshotting/restoring its
+    // maps) makes Feature.applyResource fall through to its normal _dryRunYaml path for that one
+    // call, so the preview shows this feature's own real YAML - and, since that call never
+    // touches PolicyRegistry's maps at all, the real deploy call right after it is the only call
+    // that ever registers this feature as a contributor.
     const walkthrough = {
       screens: [{ name: 'one', setup: [{ name: 'policy-feature' }], steps: [] }],
       credentials: {},
@@ -286,7 +374,18 @@ describe('WalkthroughEngine PolicyRegistry integration', () => {
     };
     const engine = new WalkthroughEngine(walkthrough);
     await engine.ensureAppliedThrough(0);
-    expect(engine.getAppliedYaml(0)).toBeNull();
+
+    const previewYaml = engine.getAppliedYaml(0);
+    expect(previewYaml).toContain('EnterpriseAgentgatewayPolicy');
+    const previewDoc = yaml.load(previewYaml);
+    expect(previewDoc.metadata.name).toBe('policy-under-test'); // the feature's own, un-renamed resource
+    expect(previewDoc.metadata.name).not.toContain('merged-');
+
+    const committedDoc = appliedYamlDocs
+      .map(doc => yaml.load(doc))
+      .find(doc => doc.kind === 'EnterpriseAgentgatewayPolicy');
+    expect(committedDoc.metadata.name).toBe('policy-feature-routing-basic');
+    expect(committedDoc.metadata.labels['agentgateway.dev/contributors']).toBe('policy-feature');
   });
 });
 

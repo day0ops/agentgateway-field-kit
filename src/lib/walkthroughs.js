@@ -72,7 +72,12 @@ export class WalkthroughManager {
       walkthrough = EnvironmentManager.resolveAllTemplates(walkthrough, environment);
     }
 
-    const screens = walkthrough.screens || [];
+    // Default each screen's steps to [] (e.g. a narration-only intro/outro screen) - the schema
+    // doesn't require steps to be non-empty, so downstream consumers must not assume one exists.
+    const screens = (walkthrough.screens || []).map(screen => ({
+      ...screen,
+      steps: screen.steps || [],
+    }));
     const edition = resolveEdition(walkthrough.edition);
     const preProvision = walkthrough.preProvision || [];
     const allFeatureRefs = [
