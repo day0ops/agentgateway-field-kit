@@ -62,7 +62,7 @@ const PROVIDER_DEFAULTS = {
  *   accessTokenUrl: string,          // OAuth access token URL (required for custom providers)
  *   scopes: Array<string>,           // OAuth scopes requested during the flow
  *   redirectUri: string,             // OAuth redirect URI, registered with the provider
- *                                     // (default: 'http://localhost:4000/age/elicitations')
+ *                                     // (default: 'http://localhost:4000/elicitations')
  *
  *   // mode: 'brokered' (gateway-owned OAuth issuer; discovery + DCR + PKCE)
  *   brokered: {
@@ -118,7 +118,7 @@ export class ElicitationBackendFeature extends Feature {
     this.authorizeUrl = config.authorizeUrl || defaults.authorizeUrl || '';
     this.accessTokenUrl = config.accessTokenUrl || defaults.accessTokenUrl || '';
     this.scopes = config.scopes || defaults.scopes || [];
-    this.redirectUri = config.redirectUri || 'http://localhost:4000/age/elicitations';
+    this.redirectUri = config.redirectUri || 'http://localhost:4000/elicitations';
 
     this.brokered = config.brokered || {};
 

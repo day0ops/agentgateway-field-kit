@@ -58,7 +58,7 @@ spec:
               serviceName: keycloak
               serviceNamespace: keycloak
             tokenExpiration: 24h
-            callbackUrl: http://localhost:4000/age/elicitations
+            callbackUrl: http://localhost:4000/elicitations
             database:
               postgres:
                 url: postgres://tokenexchange:tokenexchange@elicitation-oauth-flow-postgres.agentgateway-system.svc.cluster.local:5432/tokenexchange?sslmode=disable
@@ -87,7 +87,7 @@ spec:
             provider: github
             clientIdEnvVar: GITHUB_ISSUER_CLIENT_ID
             scopes: ['read:user', 'repo']
-            redirectUri: http://localhost:4000/age/elicitations
+            redirectUri: http://localhost:4000/elicitations
             upstream:
               host: api.github.com
               port: 443

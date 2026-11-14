@@ -21,7 +21,7 @@ describe('ElicitationBackendFeature policy shape', () => {
         provider: 'github',
         clientId: 'placeholder',
         scopes: ['read:user', 'repo'],
-        redirectUri: 'https://soloui.example.com/age/elicitations',
+        redirectUri: 'https://soloui.example.com/elicitations',
         upstream: { host: 'api.githubcopilot.com', port: 443, tls: true },
       },
       { dryRun: true }
@@ -42,7 +42,7 @@ describe('ElicitationBackendFeature policy shape', () => {
         secretName: 'ops-agents-github-oauth',
         provider: 'github',
         clientId: 'placeholder',
-        redirectUri: 'https://soloui.example.com/age/elicitations',
+        redirectUri: 'https://soloui.example.com/elicitations',
         upstream: { host: 'api.githubcopilot.com', port: 443, tls: true },
       },
       { dryRun: true }
@@ -99,7 +99,7 @@ describe('ElicitationBackendFeature policy shape', () => {
       provider: 'github',
       clientId: 'placeholder',
       scopes: ['read:user', 'repo'],
-      redirectUri: 'https://soloui.example.com/age/elicitations',
+      redirectUri: 'https://soloui.example.com/elicitations',
       upstream: { host: 'api.githubcopilot.com', port: 443, tls: true },
     };
 
@@ -117,7 +117,7 @@ describe('ElicitationBackendFeature policy shape', () => {
         clientId: 'placeholder',
         clientSecretRef: { name: 'ops-agents-github-oauth' },
         scopes: ['read:user', 'repo'],
-        redirectUri: 'https://soloui.example.com/age/elicitations',
+        redirectUri: 'https://soloui.example.com/elicitations',
         authorizeUrl: 'https://github.com/login/oauth/authorize',
         accessTokenUrl: 'https://github.com/login/oauth/access_token',
       });
