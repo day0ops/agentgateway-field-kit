@@ -939,7 +939,7 @@ export class ProvidersFeature extends Feature {
   async createSingleRouteWithBackendRefs() {
     const gatewayRef = FeatureManager.getGatewayRef();
     const backendRefs = this.normalizedProviders.map(provider => ({
-      name: provider.name,
+      name: this.getResourceName(provider.name),
       namespace: this.namespace,
       group: BACKEND_API_GROUP[this.edition],
       kind: BACKEND_KIND[this.edition],
@@ -1147,7 +1147,7 @@ export class ProvidersFeature extends Feature {
           ],
           backendRefs: [
             {
-              name: provider.name,
+              name: this.getResourceName(provider.name),
               namespace: this.namespace,
               group: BACKEND_API_GROUP[this.edition],
               kind: BACKEND_KIND[this.edition],
@@ -1249,7 +1249,7 @@ export class ProvidersFeature extends Feature {
           ],
           backendRefs: [
             {
-              name: provider.name,
+              name: this.getResourceName(provider.name),
               namespace: this.namespace,
               group: BACKEND_API_GROUP[this.edition],
               kind: BACKEND_KIND[this.edition],
