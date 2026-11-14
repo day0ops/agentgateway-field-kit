@@ -281,13 +281,14 @@ export function WalkthroughApp({ engine, installedVersion }) {
   );
 }
 
-/** Reconstructs the step's request as a copyable curl command. */
+/** Reconstructs the step's request as a copyable curl command, including its body if any. */
 function buildCurlLine(request) {
   const headerFlags = Object.entries(request.headers)
     .map(([key, value]) => `-H '${key}: ${value}'`)
     .join(' ');
   const methodFlag = request.method !== 'GET' ? `-X ${request.method} ` : '';
-  return `curl ${methodFlag}${headerFlags ? headerFlags + ' ' : ''}'${request.url}'`;
+  const dataFlag = request.body !== undefined ? `-d '${request.body}' ` : '';
+  return `curl ${methodFlag}${dataFlag}${headerFlags ? headerFlags + ' ' : ''}'${request.url}'`;
 }
 
 const BODY_PREVIEW_LENGTH = 500;

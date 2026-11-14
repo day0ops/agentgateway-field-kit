@@ -66,6 +66,51 @@ describe('buildHttpRequest', () => {
     );
     expect(request.headers['api-key']).toBe('abc');
   });
+
+  test('includes the body when step.body is set', async () => {
+    const request = await buildHttpRequest(
+      { method: 'POST', url: 'http://example.com', body: '{"prompt":"hi"}' },
+      { credentials: {}, variables: new Map() }
+    );
+    expect(request.body).toBe('{"prompt":"hi"}');
+  });
+
+  test('omits body entirely when step.body is not set', async () => {
+    const request = await buildHttpRequest(
+      { method: 'GET', url: 'http://example.com' },
+      { credentials: {}, variables: new Map() }
+    );
+    expect('body' in request).toBe(false);
+  });
+
+  test('defaults Content-Type to application/json when a body is set and none is given', async () => {
+    const request = await buildHttpRequest(
+      { method: 'POST', url: 'http://example.com', body: '{"prompt":"hi"}' },
+      { credentials: {}, variables: new Map() }
+    );
+    expect(request.headers['Content-Type']).toBe('application/json');
+  });
+
+  test('does not override an explicitly-set Content-Type header', async () => {
+    const request = await buildHttpRequest(
+      {
+        method: 'POST',
+        url: 'http://example.com',
+        body: 'plain text',
+        headers: { 'Content-Type': 'text/plain' },
+      },
+      { credentials: {}, variables: new Map() }
+    );
+    expect(request.headers['Content-Type']).toBe('text/plain');
+  });
+
+  test('does not add Content-Type when there is no body', async () => {
+    const request = await buildHttpRequest(
+      { method: 'GET', url: 'http://example.com' },
+      { credentials: {}, variables: new Map() }
+    );
+    expect(request.headers['Content-Type']).toBeUndefined();
+  });
 });
 
 describe('executeHttpRequest', () => {
@@ -167,6 +212,33 @@ describe('runHttpStep', () => {
       { credentials: {}, variables: new Map() }
     );
     expect(result).toMatchObject({ kind: 'http', status: 200, passed: true });
+  });
+
+  test('sends the body through to fetch when step.body is set', async () => {
+    let seenOptions;
+    globalThis.fetch = async (_url, options) => {
+      seenOptions = options;
+      return new Response('ok', { status: 200 });
+    };
+    await runHttpStep(
+      { method: 'POST', url: 'http://example.com', body: '{"prompt":"hi"}' },
+      { credentials: {}, variables: new Map() }
+    );
+    expect(seenOptions.body).toBe('{"prompt":"hi"}');
+    expect(seenOptions.headers['Content-Type']).toBe('application/json');
+  });
+
+  test('sends no body to fetch when step.body is not set', async () => {
+    let seenOptions;
+    globalThis.fetch = async (_url, options) => {
+      seenOptions = options;
+      return new Response('ok', { status: 200 });
+    };
+    await runHttpStep(
+      { method: 'GET', url: 'http://example.com' },
+      { credentials: {}, variables: new Map() }
+    );
+    expect('body' in seenOptions).toBe(false);
   });
 });
 
