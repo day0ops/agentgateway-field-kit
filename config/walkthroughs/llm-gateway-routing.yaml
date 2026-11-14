@@ -170,6 +170,7 @@ spec:
         - name: model-aliasing
           config:
             provider: openai
+            pathPrefix: /tier
             aliases:
               cheap: gpt-4o-mini
               premium: gpt-4o
@@ -181,8 +182,8 @@ spec:
           body: '{"prompt": "Say hello", "questions": ["cheap", "premium"]}'
           expectStatus: 200
         - kind: http
-          label: 'POST /model - routed to the resolved tier'
+          label: 'POST /tier - routed to the resolved tier'
           method: POST
-          url: 'http://localhost:8080/model'
+          url: 'http://localhost:8080/tier'
           body: '{"model": "cheap", "messages": [{"role": "user", "content": "Say hello"}]}'
           expectStatus: 200
