@@ -7,6 +7,7 @@ metadata:
 
     - Routing pillar: pre-provisions the model-by-name, dynamic-tier, and fallback backends it displays
     - Banking auth pillar: real ADK agents and MCP infrastructure demonstrating Impersonation, MCP tool-level RBAC, Delegation (nested act chain), and Elicitation (Stripe sandbox, Interactive + Brokered)
+    - Tool-modes pillar: federates Core Banking + stock + currency MCP servers under four toolMode routes (Standard/Search/Code/CodeSearch) so the wizard's savings scoreboard measures a real gateway, not a mock
   docs: https://docs.solo.io/agentgateway/latest/mcp/token-exchange/
 spec:
   steps:
@@ -92,10 +93,10 @@ spec:
             apiValidator:
               validatorType: remote
               remoteConfig:
-                url: 'https://{{env.domains.core.keycloak}}/realms/solo-ui/protocol/openid-connect/certs'
+                url: 'https://{{env.domains.core.keycloak}}/realms/agw-dev/protocol/openid-connect/certs'
             tokenExpiration: 1h
             skipMayActClaimValidation: true
-            callbackUrl: 'https://{{env.domains.core.agentgatewayUi}}/age/elicitations'
+            callbackUrl: 'https://{{env.domains.core.agentgatewayUi}}/elicitations'
             database:
               postgres:
                 url: postgres://tokenexchange:tokenexchange@ops-agents-postgres.agentgateway-system.svc.cluster.local:5432/tokenexchange?sslmode=disable
@@ -196,6 +197,121 @@ spec:
                 kind: HTTPRoute
                 name: core-banking-delegation
 
+    - title: Deploy the stock and currency MCP server workloads for tool-mode federation
+      description: |
+        Deploys the stock and currency MCP servers the four tool-mode backends below federate alongside Core Banking. This step's own AgentgatewayBackend/HTTPRoute are not used by this demo - each mcp-enterprise backend federates the same underlying Services via label selectors.
+      features:
+        - name: mcp-server
+          config:
+            backendName: mcp-modes-workloads-backend
+            routeName: mcp-modes-workloads
+            protocol: StreamableHTTP
+            mcpPath: /mcp
+            servers:
+              - name: stock-server-mcp
+                image: '{{env.images.common.stock-server-mcp}}'
+                serverPort: 8000
+                servicePort: 80
+              - name: currency-server-mcp
+                image: '{{env.images.common.currency-server-mcp}}'
+                serverPort: 8000
+                servicePort: 80
+            targets:
+              - name: stock-server-mcp
+                matchLabels:
+                  app: stock-server-mcp
+              - name: currency-server-mcp
+                matchLabels:
+                  app: currency-server-mcp
+
+    - title: Federate the tool-mode catalog with toolMode Standard
+      description: |
+        Baseline backend for the wizard's tool-modes scoreboard: Core Banking + stock + currency federated with every tool listed individually.
+      features:
+        - name: mcp-enterprise
+          config:
+            backendName: mcp-modes-standard-backend
+            routeName: mcp-modes-standard
+            pathPrefix: /mcp-modes/standard
+            toolMode: Standard
+            targets:
+              - name: core-banking
+                matchLabels:
+                  app: core-banking
+              - name: stock-server-mcp
+                matchLabels:
+                  app: stock-server-mcp
+              - name: currency-server-mcp
+                matchLabels:
+                  app: currency-server-mcp
+
+    - title: Federate the tool-mode catalog with toolMode Search
+      description: |
+        Same federated catalog, collapsed into get_tool/invoke_tool meta-tools for the wizard's Search mode.
+      features:
+        - name: mcp-enterprise
+          config:
+            backendName: mcp-modes-search-backend
+            routeName: mcp-modes-search
+            pathPrefix: /mcp-modes/search
+            toolMode: Search
+            targets:
+              - name: core-banking
+                matchLabels:
+                  app: core-banking
+              - name: stock-server-mcp
+                matchLabels:
+                  app: stock-server-mcp
+              - name: currency-server-mcp
+                matchLabels:
+                  app: currency-server-mcp
+
+    - title: Federate the tool-mode catalog with toolMode Code
+      description: |
+        Same federated catalog, collapsed into a single run_code tool for the wizard's Code mode.
+      features:
+        - name: mcp-enterprise
+          config:
+            backendName: mcp-modes-code-backend
+            routeName: mcp-modes-code
+            pathPrefix: /mcp-modes/code
+            toolMode: Code
+            codeMode:
+              timeout: 7s
+            targets:
+              - name: core-banking
+                matchLabels:
+                  app: core-banking
+              - name: stock-server-mcp
+                matchLabels:
+                  app: stock-server-mcp
+              - name: currency-server-mcp
+                matchLabels:
+                  app: currency-server-mcp
+
+    - title: Federate the tool-mode catalog with toolMode CodeSearch
+      description: |
+        Same federated catalog, exposing get_tool/run_code meta-tools for the wizard's CodeSearch mode.
+      features:
+        - name: mcp-enterprise
+          config:
+            backendName: mcp-modes-codesearch-backend
+            routeName: mcp-modes-codesearch
+            pathPrefix: /mcp-modes/codesearch
+            toolMode: CodeSearch
+            codeMode:
+              timeout: 7s
+            targets:
+              - name: core-banking
+                matchLabels:
+                  app: core-banking
+              - name: stock-server-mcp
+                matchLabels:
+                  app: stock-server-mcp
+              - name: currency-server-mcp
+                matchLabels:
+                  app: currency-server-mcp
+
     - title: Deploy the Accounts Agent (read-only, Impersonation)
       description: |
         Reads the customer's balances/transactions, presenting the user's token unchanged for the gateway's Impersonation exchange.
@@ -294,7 +410,7 @@ spec:
             clientIdEnvVar: AGW_DEMO_PAYPAL_CLIENT_ID
             authorizeUrl: https://mcp.sandbox.paypal.com/authorize
             accessTokenUrl: https://mcp.sandbox.paypal.com/token
-            redirectUri: 'https://{{env.domains.core.agentgatewayUi}}/age/elicitations'
+            redirectUri: 'https://{{env.domains.core.agentgatewayUi}}/elicitations'
             upstream:
               host: mcp.sandbox.paypal.com
               port: 443

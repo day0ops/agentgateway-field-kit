@@ -30,7 +30,7 @@ spec:
       enabled: true
     oidc:
       enabled: true
-      issuerUrl: 'https://{{env.domains.core.keycloak}}/realms/solo-ui'
+      issuerUrl: 'https://{{env.domains.core.keycloak}}/realms/agw-dev'
       backendClientSecret: solo-ui-backend-secret
     features:
       costManagement:
@@ -164,6 +164,9 @@ spec:
                 firstName: Alpha
                 lastName: User
                 email: user1@acme-corp.demo
+                # Temporary: testing whether global.Reader is sufficient for a tenant
+                # user to view/approve their own pending elicitation in Solo UI.
+                soloUiGroup: readers
                 attributes:
                   org_id: acme-corp
                   team_id: team-alpha
@@ -198,7 +201,7 @@ spec:
                   is_org: 'false'
         soloUiClients:
           enabled: true
-          realm: solo-ui
+          realm: agw-dev
           hostname: 'https://{{env.domains.core.agentgatewayUi}}'
           backendClientId: enterprise-agentgateway-ui-backend
           backendClientSecret: solo-ui-backend-secret

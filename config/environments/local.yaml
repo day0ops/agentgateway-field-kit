@@ -73,10 +73,13 @@ spec:
       settlement-agent: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/settlement-agent:v0.2.6
       statements-agent: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/statements-agent:v0.2.6
     wizard:
-      agentgateway-demo-wizard: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/agentgateway-demo-wizard:v0.9.0
+      agentgateway-demo-wizard: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/agentgateway-demo-wizard:v0.11.0
 
   internal:
-    agentgateway: http://agentgateway.agentgateway-system.svc.cluster.local:8080
+    # Service name matches EDITION_GATEWAY_NAME.enterprise (src/lib/editions.js) - the
+    # Gateway API controller auto-provisions a Service named after the Gateway object,
+    # not a bare "agentgateway" (that name doesn't exist on an enterprise-edition cluster).
+    agentgateway: http://agentgateway-gw.agentgateway-system.svc.cluster.local:8080
     sts: http://enterprise-agentgateway.agentgateway-system.svc.cluster.local:7777/oauth2/token
     stsIssuer: enterprise-agentgateway.agentgateway-system.svc.cluster.local:7777
 
