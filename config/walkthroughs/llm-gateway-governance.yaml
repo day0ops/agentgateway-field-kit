@@ -1,0 +1,92 @@
+apiVersion: agentgateway.demo/v1
+kind: Walkthrough
+metadata:
+  name: llm-gateway-governance
+  description: A tour of agentgateway's access-control and traffic-shaping capabilities for LLM traffic - identity and RBAC, budget and spend limits, prompt guardrails, token rate limiting, and a capstone screen stacking all of them - against real OpenAI and Anthropic traffic. Before starting, port-forward the gateway with `kubectl port-forward -n agentgateway-system svc/agentgateway-gw 8080:8080`. This walkthrough and llm-gateway-routing cannot both be deployed live on the same cluster - both place a policy on the shared Gateway's PreRouting phase, and whichever deploys last silently replaces the other's. Fully clean up one before running the other.
+
+spec:
+  environment: local
+  credentials:
+    alice:
+      issuerUrl: 'https://{{env.domains.core.keycloak}}/realms/agw-dev'
+      clientId: agw-client-public
+  screens:
+    - name: identity-and-access
+      title: Identity and Access
+      narration: |
+        One endpoint, two gates: a Keycloak-issued JWT proves who's calling, then OpenFGA decides whether that identity is allowed to use the requested model - via org membership, team allowlists, or a direct grant. This screen also switches on Gateway-level API-key authentication that a later screen in this walkthrough uses, even though these steps only exercise the JWT path. Before running the steps below, port-forward the gateway with `kubectl port-forward -n agentgateway-system svc/agentgateway-gw 8080:8080`.
+      setup:
+        - name: openfga
+          config:
+            namespace: openfga
+            image: '{{env.images.openfga.openfga-engine}}'
+        - name: providers
+          config:
+            bodyRouting: true
+            pathPrefix: /gov-chat
+            providers:
+              - name: openai-gpt4o
+                providerName: openai
+                model: gpt-4o
+              - name: openai-gpt35
+                providerName: openai
+                model: gpt-3.5-turbo
+              - name: anthropic-claude35
+                providerName: anthropic
+                model: claude-sonnet-5
+        - name: keycloak-jwt-auth
+          config:
+            keycloakHost: '{{env.domains.core.keycloak}}'
+            mode: Optional
+            claimHeaders:
+              - claim: preferred_username
+                header: x-user-id
+                fallback: "apiKey['user_id']"
+        - name: virtual-keys
+          config:
+            mode: Optional
+            location:
+              header:
+                name: X-Api-Key
+            keys:
+              - name: alice
+                key: sk-alice-demo-abc123def456
+                userId: alice
+                tokenBudget: 100000
+              - name: bob
+                key: sk-bob-demo-xyz789uvw012
+                userId: bob
+                tokenBudget: 100000
+              - name: team-ci
+                key: sk-team-ci-demo-9f3c7a1e
+                userId: team-ci
+                tokenBudget: 5000
+        - name: openfga-authz
+          config:
+            policyName: openfga-rebac-policy
+            adapterImage: '{{env.images.openfga.openfga-ext-authz}}'
+            targetRefs:
+              - group: gateway.networking.k8s.io
+                kind: HTTPRoute
+                name: providers-gov-chat-route
+      steps:
+        - kind: http
+          label: 'POST /gov-chat (gpt-4o, no credentials)'
+          method: POST
+          url: 'http://localhost:8080/gov-chat'
+          body: '{"model": "gpt-4o", "messages": [{"role": "user", "content": "What is 2+2?"}]}'
+          expectStatus: 401
+        - kind: http
+          label: 'POST /gov-chat (gpt-4o, alice via JWT)'
+          credential: alice
+          method: POST
+          url: 'http://localhost:8080/gov-chat'
+          body: '{"model": "gpt-4o", "messages": [{"role": "user", "content": "What is 2+2?"}]}'
+          expectStatus: 200
+        - kind: http
+          label: 'POST /gov-chat (claude-sonnet-5, alice via JWT)'
+          credential: alice
+          method: POST
+          url: 'http://localhost:8080/gov-chat'
+          body: '{"model": "claude-sonnet-5", "messages": [{"role": "user", "content": "What is 2+2?"}]}'
+          expectStatus: 403
