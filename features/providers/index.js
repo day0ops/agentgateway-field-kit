@@ -114,6 +114,7 @@ import {
  * - Bedrock (authMode!=credentials): AWS_BEDROCK_API_KEY
  * - Vertex AI: GOOGLE_APPLICATION_CREDENTIALS
  * - OpenAI-compatible: OPENAI_COMPATIBLE_API_KEY
+ * - TypeSafe (Jev): TYPESAFE_API_KEY
  */
 export class ProvidersFeature extends Feature {
   constructor(name, config) {
