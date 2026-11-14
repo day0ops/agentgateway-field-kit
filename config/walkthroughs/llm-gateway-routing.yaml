@@ -1,0 +1,188 @@
+apiVersion: agentgateway.demo/v1
+kind: Walkthrough
+metadata:
+  name: llm-gateway-routing
+  description: A tour of agentgateway's LLM-routing intelligence across real providers - direct multi-model selection, load balancing, body-based routing, automatic failover, and AI-driven tier routing via a hosted decision model.
+
+spec:
+  environment: local
+  # models-gateway has no listener hostname, so it accepts any Host header - every step below
+  # assumes `kubectl port-forward -n agentgateway-system svc/models-gateway 8080:8080` is running.
+  preProvision:
+    - name: gateway
+      config:
+        name: models-gateway
+        listeners:
+          - name: http
+            port: 8080
+            protocol: HTTP
+            allowedRoutes:
+              namespaces:
+                from: All
+              kinds:
+                - group: gateway.networking.k8s.io
+                  kind: HTTPRoute
+                - group: agentgateway.dev
+                  kind: AgentgatewayModel
+  screens:
+    - name: multi-model-routing
+      title: Multi-Model Routing
+      narration: |
+        One gateway, multiple providers. The client picks the model directly - agentgateway routes each request to the right provider with no extra configuration per request.
+      setup:
+        - name: agentgateway-model
+          config:
+            sectionName: http
+            models:
+              - name: gpt-4o-mini
+                provider: openai
+              - name: claude-sonnet-5
+                provider: anthropic
+      steps:
+        - kind: http
+          label: 'POST /v1/chat/completions (gpt-4o-mini)'
+          method: POST
+          url: 'http://localhost:8080/v1/chat/completions'
+          body: '{"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "What is 2+2?"}]}'
+          expectStatus: 200
+        - kind: http
+          label: 'POST /v1/chat/completions (claude-sonnet-5)'
+          method: POST
+          url: 'http://localhost:8080/v1/chat/completions'
+          body: '{"model": "claude-sonnet-5", "messages": [{"role": "user", "content": "What is 2+2?"}]}'
+          expectStatus: 200
+
+    - name: load-balancing
+      title: Load Balancing (Power of Two Choices)
+      narration: |
+        Same traffic, no single model - requests spread across OpenAI and Vertex AI automatically, picking whichever of two randomly-sampled backends is healthier and less loaded.
+      setup:
+        - name: load-balancing
+          config:
+            pathPrefix: /model
+            providers:
+              - name: openai
+                model: gpt-4o-mini
+              - name: vertex-ai
+                model: google/gemini-2.5-flash
+                location: us-east5
+      steps:
+        - kind: traffic-split
+          label: '20 requests across both providers'
+          url: 'http://localhost:8080/model'
+          requestCount: 20
+          tallyBy: model
+
+    - name: body-based-routing
+      title: Body-Based Routing
+      narration: |
+        A single /chat endpoint routes to different providers based on the model field in the request body - the client never needs to know which provider is behind which model.
+      setup:
+        - name: providers
+          config:
+            pathPrefix: /chat
+            bodyRouting: true
+            providers:
+              - name: openai
+                providerName: openai
+                model: 'gpt-.*'
+                modelMatch: RegularExpression
+              - name: vertex-ai
+                providerName: vertex-ai
+                model: 'google/gemini-.*'
+                modelMatch: RegularExpression
+      steps:
+        - kind: http
+          label: 'POST /chat (gpt-4o-mini, body-matched to OpenAI)'
+          method: POST
+          url: 'http://localhost:8080/chat'
+          body: '{"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "What is 2+2?"}]}'
+          expectStatus: 200
+        - kind: http
+          label: 'POST /chat (gemini-2.5-flash, body-matched to Vertex AI)'
+          method: POST
+          url: 'http://localhost:8080/chat'
+          body: '{"model": "google/gemini-2.5-flash", "messages": [{"role": "user", "content": "What is 2+2?"}]}'
+          expectStatus: 200
+
+    - name: automatic-failover
+      title: Automatic Failover
+      narration: |
+        A virtual model with a priority list - the first request is served by the primary provider; once it's marked unhealthy, the next request fails over to a different provider automatically.
+      setup:
+        - name: agentgateway-model
+          config:
+            sectionName: http
+            models:
+              - name: internal-openai-primary
+                provider: openai
+                visibility: Internal
+                transformations:
+                  - field: model
+                    expression: '"gpt-4o"'
+                health:
+                  unhealthyCondition: 'true'
+                  eviction:
+                    consecutiveFailures: 1
+              - name: internal-anthropic-fallback
+                provider: anthropic
+                visibility: Internal
+                transformations:
+                  - field: model
+                    expression: '"claude-sonnet-5"'
+              - name: resilient-chat
+                virtualModel:
+                  failover:
+                    targets:
+                      - name: internal-openai-primary
+                        priority: 0
+                      - name: internal-anthropic-fallback
+                        priority: 1
+      steps:
+        - kind: http
+          label: 'First request - served by the OpenAI primary'
+          method: POST
+          url: 'http://localhost:8080/v1/chat/completions'
+          body: '{"model": "resilient-chat", "messages": [{"role": "user", "content": "What is 2+2?"}]}'
+          expectStatus: 200
+        - kind: http
+          label: 'Second request - primary now evicted, fails over to Anthropic'
+          method: POST
+          url: 'http://localhost:8080/v1/chat/completions'
+          body: '{"model": "resilient-chat", "messages": [{"role": "user", "content": "What is 2+2?"}]}'
+          expectStatus: 200
+
+    - name: jev-decision-routing
+      title: 'Jev: AI Decides the Tier'
+      narration: |
+        Jev, TypeSafe's hosted decision model, classifies the prompt as cheap or premium - agentgateway then routes the completion to the matching model tier. Both calls go through the gateway, so the same auth, cost-tracking, and rate-limit policies apply to the classification call too, not just the completion.
+      setup:
+        - name: providers
+          config:
+            providers:
+              - name: jev
+                providerName: typesafe
+                pathPrefix: /jev
+                policies:
+                  ai:
+                    routes:
+                      '*': Passthrough
+        - name: model-aliasing
+          config:
+            provider: openai
+            aliases:
+              cheap: gpt-4o-mini
+              premium: gpt-4o
+      steps:
+        - kind: http
+          label: 'POST /jev - classify the prompt'
+          method: POST
+          url: 'http://localhost:8080/jev'
+          body: '{"prompt": "Say hello", "questions": ["cheap", "premium"]}'
+          expectStatus: 200
+        - kind: http
+          label: 'POST /model - routed to the resolved tier'
+          method: POST
+          url: 'http://localhost:8080/model'
+          body: '{"model": "cheap", "messages": [{"role": "user", "content": "Say hello"}]}'
+          expectStatus: 200
