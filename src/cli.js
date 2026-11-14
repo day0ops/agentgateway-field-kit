@@ -10,6 +10,8 @@ import { AgentGatewayManager } from './lib/agentgateway.js';
 import { checkDependencies, Logger, KubernetesHelper, formatDuration } from './lib/common.js';
 import { ProfileManager } from './lib/profiles.js';
 import { UseCaseManager } from './lib/usecase.js';
+import { WalkthroughManager } from './lib/walkthroughs.js';
+import { runWalkthrough, cleanWalkthrough } from './lib/walkthrough-runner.js';
 import { AddonInstaller } from './lib/addons.js';
 import { CLI_VERSION, CLI_DESCRIPTION } from './lib/version.js';
 import { InfraManager } from './lib/infra-manager.js';
@@ -1081,6 +1083,88 @@ usecase
       }
     } catch (error) {
       Logger.error(error.message);
+      process.exit(1);
+    }
+  });
+
+// Walkthrough commands
+async function resolveWalkthroughName(name) {
+  if (name) return name;
+  const walkthroughs = await WalkthroughManager.list();
+  if (walkthroughs.length === 0) {
+    throw new Error('No walkthroughs found in config/walkthroughs/');
+  }
+  const choices = walkthroughs.map(w => ({
+    name: w.description ? `${w.name} - ${w.description}` : w.name,
+    value: w.name,
+  }));
+  return Prompts.select('Select walkthrough:', choices);
+}
+
+const walkthrough = program.command('walkthrough').description('Full-screen TUI demo walkthroughs');
+
+walkthrough
+  .command('list')
+  .description('List available walkthroughs')
+  .action(async () => {
+    try {
+      const walkthroughs = await WalkthroughManager.list();
+      if (walkthroughs.length === 0) {
+        console.log('No walkthroughs found in config/walkthroughs/');
+        return;
+      }
+      console.log('\nAvailable walkthroughs:');
+      walkthroughs.forEach(w => {
+        console.log(`  ${chalk.cyan('•')} ${w.name}${w.description ? ` - ${w.description}` : ''}`);
+      });
+      console.log('');
+    } catch (error) {
+      Logger.error(`Failed to list walkthroughs: ${error.message}`);
+      process.exit(1);
+    }
+  });
+
+walkthrough
+  .command('run')
+  .description('Run a walkthrough full-screen')
+  .option('-n, --name <name>', 'Walkthrough name')
+  .option('--context <name>', 'kubectl context to use (overrides auto-detected infra context)')
+  .action(async options => {
+    try {
+      await applyKubeContextOption(options);
+
+      if (!(await KubernetesHelper.isClusterAccessible())) {
+        Logger.error('Cluster not accessible. Check your kubeconfig/context.');
+        process.exit(1);
+      }
+
+      const name = await resolveWalkthroughName(options.name);
+      await runWalkthrough(name);
+    } catch (error) {
+      Logger.error(`Failed to run walkthrough: ${error.message}`);
+      process.exit(1);
+    }
+  });
+
+walkthrough
+  .command('clean')
+  .description('Remove everything a walkthrough applied')
+  .option('-n, --name <name>', 'Walkthrough name')
+  .option('--context <name>', 'kubectl context to use (overrides auto-detected infra context)')
+  .action(async options => {
+    try {
+      await applyKubeContextOption(options);
+
+      if (!(await KubernetesHelper.isClusterAccessible())) {
+        Logger.error('Cluster not accessible. Check your kubeconfig/context.');
+        process.exit(1);
+      }
+
+      const name = await resolveWalkthroughName(options.name);
+      await cleanWalkthrough(name);
+      Logger.success(`Walkthrough '${name}' cleaned up`);
+    } catch (error) {
+      Logger.error(`Failed to clean walkthrough: ${error.message}`);
       process.exit(1);
     }
   });

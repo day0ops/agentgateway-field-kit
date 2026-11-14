@@ -1,4 +1,4 @@
-import { test, expect, describe, beforeEach } from 'bun:test';
+import { test, expect, describe, beforeEach, afterEach } from 'bun:test';
 import yaml from 'js-yaml';
 import '../../features/index.js';
 import { FeatureManager } from '../../src/lib/feature.js';
@@ -209,4 +209,109 @@ describe('ProvidersFeature createRoute flag', () => {
       const backend = findDoc(docs, 'EnterpriseAgentgatewayBackend', 'openai');
       expect(backend.spec.policies.http).toEqual({ version: 'HTTP1' });
     }));
+});
+
+describe('ProvidersFeature backendRefs on a non-default gateway', () => {
+  afterEach(() => {
+    FeatureManager.gatewayRef = null;
+  });
+
+  test('body-routing mode backendRefs use the gateway-prefixed backend name, not the bare provider name', () =>
+    withEnv({ OPENAI_API_KEY: 'sk-test' }, async () => {
+      FeatureManager.setGatewayRef({ name: 'models-gateway', namespace: 'agentgateway-system' });
+      const docs = await FeatureManager.deploy(
+        'providers',
+        {
+          namespace: 'agentgateway-system',
+          pathPrefix: '/chat',
+          bodyRouting: true,
+          providers: [
+            {
+              name: 'openai',
+              providerName: 'openai',
+              model: 'gpt-.*',
+              modelMatch: 'RegularExpression',
+            },
+          ],
+        },
+        { dryRun: true }
+      );
+      const route = findDoc(docs, 'HTTPRoute', 'providers-chat-route');
+      expect(route.spec.rules[0].backendRefs[0].name).toBe('models-gateway-openai');
+    }));
+});
+
+describe('ProvidersFeature typesafe provider', () => {
+  test('typesafe provider defaults host/port/path/model and emits a BackendTLSPolicy', () =>
+    withEnv({ TYPESAFE_API_KEY: 'test-typesafe-key' }, async () => {
+      const docs = await FeatureManager.deploy(
+        'providers',
+        {
+          namespace: 'agentgateway-system',
+          providers: [{ name: 'jev', providerName: 'typesafe', pathPrefix: '/jev' }],
+        },
+        { dryRun: true }
+      );
+      const backend = findDoc(docs, 'EnterpriseAgentgatewayBackend', 'jev');
+      expect(backend.spec.ai.provider.openai.model).toBe('jev-latest');
+      expect(backend.spec.ai.provider.host).toBe('api.typesafe.ai');
+      expect(backend.spec.ai.provider.port).toBe(443);
+      expect(backend.spec.ai.provider.path).toBe('/v1/systemone');
+
+      const tlsPolicy = findDoc(docs, 'BackendTLSPolicy', 'jev-tls');
+      expect(tlsPolicy).toBeTruthy();
+      expect(tlsPolicy.spec.validation.hostname).toBe('api.typesafe.ai');
+      expect(tlsPolicy.spec.targetRefs[0]).toMatchObject({
+        kind: 'EnterpriseAgentgatewayBackend',
+        name: 'jev',
+      });
+    }));
+
+  test('typesafe provider accepts an overridden model name and host', () =>
+    withEnv({ TYPESAFE_API_KEY: 'test-typesafe-key' }, async () => {
+      const docs = await FeatureManager.deploy(
+        'providers',
+        {
+          namespace: 'agentgateway-system',
+          providers: [
+            {
+              name: 'jev',
+              providerName: 'typesafe',
+              pathPrefix: '/jev',
+              model: 'jev-v2',
+              host: 'jev-custom.typesafe.ai',
+            },
+          ],
+        },
+        { dryRun: true }
+      );
+      const backend = findDoc(docs, 'EnterpriseAgentgatewayBackend', 'jev');
+      expect(backend.spec.ai.provider.openai.model).toBe('jev-v2');
+      expect(backend.spec.ai.provider.host).toBe('jev-custom.typesafe.ai');
+
+      const tlsPolicy = findDoc(docs, 'BackendTLSPolicy', 'jev-tls');
+      expect(tlsPolicy.spec.validation.hostname).toBe('jev-custom.typesafe.ai');
+    }));
+
+  test('missing TYPESAFE_API_KEY is reported as a required env var for a real (non-dry-run) deploy', async () => {
+    // Construct the feature directly and call deploy() on it, instead of going through
+    // FeatureManager.deploy(..., {}) - that wrapper's non-dry-run path runs
+    // KubernetesHelper.ensureNamespace() (a real kubectl call) before feature.deploy()
+    // ever runs, so it needs a reachable, authenticated cluster just to reach this
+    // assertion. Calling feature.deploy() directly skips that pre-flight entirely: the
+    // env var check is the first thing deploySingleProviders() does, and it throws
+    // before any secret/backend/route is applied.
+    const savedKey = process.env.TYPESAFE_API_KEY;
+    delete process.env.TYPESAFE_API_KEY;
+    try {
+      const { ProvidersFeature } = await import('../../features/providers/index.js');
+      const feature = new ProvidersFeature('providers', {
+        namespace: 'agentgateway-system',
+        providers: [{ name: 'jev', providerName: 'typesafe', pathPrefix: '/jev' }],
+      });
+      await expect(feature.deploy()).rejects.toThrow(/TYPESAFE_API_KEY/);
+    } finally {
+      if (savedKey !== undefined) process.env.TYPESAFE_API_KEY = savedKey;
+    }
+  });
 });

@@ -29,6 +29,7 @@ bun run format                  # prettier --write .
 export ENTERPRISE_AGENTGATEWAY_LICENSE=<key>   # required
 export OPENAI_API_KEY=                 # OpenAI provider
 export ANTHROPIC_API_KEY=              # Anthropic provider
+export TYPESAFE_API_KEY=               # TypeSafe/Jev provider
 export GEMINI_API_KEY=                 # Gemini provider
 export AZURE_OPENAI_API_KEY=           # Azure OpenAI provider
 export AWS_ACCESS_KEY_ID=              # Bedrock / EKS
