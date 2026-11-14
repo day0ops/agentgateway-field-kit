@@ -69,7 +69,9 @@ spec:
       steps:
         - kind: traffic-split
           label: '20 requests across both providers'
+          method: POST
           url: 'http://localhost:8080/model'
+          body: '{"messages": [{"role": "user", "content": "What is 2+2?"}]}'
           requestCount: 20
           tallyBy: model
 
@@ -179,7 +181,13 @@ spec:
           label: 'POST /jev - classify the prompt'
           method: POST
           url: 'http://localhost:8080/jev'
-          body: '{"prompt": "Say hello", "questions": ["cheap", "premium"]}'
+          body: >-
+            {"model": "jev-latest", "state": "Say hello", "questions": {"tier":
+            {"type": "choice", "instructions": "Does this request need a premium
+            (complex reasoning) or cheap (simple, routine) model to answer well?",
+            "criteria": {"cheap": "Simple, routine request any capable model can
+            answer well", "premium": "Complex request needing deeper reasoning or
+            higher quality output"}}}}
           expectStatus: 200
         - kind: http
           label: 'POST /tier - routed to the resolved tier'
