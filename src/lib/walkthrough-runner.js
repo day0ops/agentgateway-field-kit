@@ -6,7 +6,7 @@ import { FeatureManager } from './feature.js';
 import { WalkthroughApp } from '../tui/WalkthroughApp.js';
 import { AgentGatewayManager } from './agentgateway.js';
 import { ProfileManager } from './profiles.js';
-import { Logger } from './common.js';
+import { Logger, KubernetesHelper } from './common.js';
 
 async function loadEngine(name) {
   const walkthroughs = await WalkthroughManager.list();
@@ -68,6 +68,62 @@ export async function runWalkthrough(name) {
   }
 }
 
+/**
+ * Deletes every merged EnterpriseAgentgatewayPolicy resource PolicyRegistry.commit() created
+ * while this walkthrough ran. A per-feature cleanup() can only delete a policy by that feature's
+ * OWN expected name, never the renamed `<feature>-<target>`/`merged-<a>-<b>-<target>` object
+ * PolicyRegistry.commit() actually applies, so those resources are otherwise orphaned and keep
+ * being enforced. Mirrors UseCaseManager.cleanup()'s equivalent sweep (src/lib/usecase.js) -
+ * duplicated rather than shared, since this plan's Non-Goals exclude changing UseCaseManager.
+ * Best-effort: never throws, only warns.
+ */
+async function cleanupMergedPolicies() {
+  try {
+    const result = await KubernetesHelper.kubectl(
+      [
+        'get',
+        'enterpriseagentgatewaypolicy',
+        '-n',
+        FeatureManager.getDefaultNamespace(),
+        '-l',
+        'agentgateway.dev/merged-policy=true',
+        '-o',
+        'jsonpath={.items[*].metadata.name}',
+      ],
+      { ignoreError: true }
+    );
+
+    if (result.exitCode !== 0) {
+      Logger.warn(
+        `Failed to list merged EnterpriseAgentgatewayPolicy resources for cleanup: ${result.stderr?.trim() || `exit code ${result.exitCode}`}`
+      );
+      return;
+    }
+
+    const policyNames = result.stdout.trim().split(/\s+/).filter(Boolean);
+    for (const policyName of policyNames) {
+      const deleteResult = await KubernetesHelper.kubectl(
+        [
+          'delete',
+          'enterpriseagentgatewaypolicy',
+          policyName,
+          '-n',
+          FeatureManager.getDefaultNamespace(),
+          '--ignore-not-found=true',
+        ],
+        { ignoreError: true }
+      );
+      if (deleteResult.exitCode !== 0) {
+        Logger.warn(
+          `Failed to delete merged policy '${policyName}': ${deleteResult.stderr?.trim() || `exit code ${deleteResult.exitCode}`}`
+        );
+      }
+    }
+  } catch (error) {
+    Logger.warn(`Merged-policy cleanup failed: ${error.message}`);
+  }
+}
+
 /** Cleans up every feature a walkthrough's screens and pre-provisioning applied, in reverse order. */
 export async function cleanWalkthrough(name) {
   const engine = await loadEngine(name);
@@ -84,4 +140,5 @@ export async function cleanWalkthrough(name) {
       Logger.warn(`Failed to clean up feature '${featureRef.name}': ${error.message}`);
     }
   }
+  await cleanupMergedPolicies();
 }
