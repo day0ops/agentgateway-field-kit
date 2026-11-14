@@ -114,6 +114,7 @@ import {
  * - Bedrock (authMode!=credentials): AWS_BEDROCK_API_KEY
  * - Vertex AI: GOOGLE_APPLICATION_CREDENTIALS
  * - OpenAI-compatible: OPENAI_COMPATIBLE_API_KEY
+ * - TypeSafe (Jev): TYPESAFE_API_KEY
  */
 export class ProvidersFeature extends Feature {
   constructor(name, config) {
@@ -208,6 +209,9 @@ export class ProvidersFeature extends Feature {
         if (providerName === 'openai-compatible') {
           return { ...base, ...this.applyOpenAICompatibleDefaults(provider) };
         }
+        if (providerName === 'typesafe') {
+          return { ...base, ...this.applyTypesafeDefaults(provider) };
+        }
         return base;
       }
     });
@@ -229,6 +233,29 @@ export class ProvidersFeature extends Feature {
    */
   applyOpenAICompatibleDefaults(config) {
     const defaults = ProvidersFeature.getOpenAICompatibleDefaults();
+    return {
+      ...defaults,
+      ...config,
+      path: config.path ? { ...defaults.path, ...config.path } : defaults.path,
+    };
+  }
+
+  /**
+   * Defaults for typesafe provider (Jev decision API). User can override via config.
+   */
+  static getTypesafeDefaults() {
+    return {
+      host: 'api.typesafe.ai',
+      port: 443,
+      path: { full: '/v1/systemone' },
+    };
+  }
+
+  /**
+   * Apply typesafe defaults to a provider config; user values override.
+   */
+  applyTypesafeDefaults(config) {
+    const defaults = ProvidersFeature.getTypesafeDefaults();
     return {
       ...defaults,
       ...config,
@@ -523,6 +550,9 @@ export class ProvidersFeature extends Feature {
 
     // Also clean up any body-routing policy created by this feature
     await this.deleteByLabel(POLICY_KIND[this.edition], labels);
+
+    // Also clean up any BackendTLSPolicy created for a typesafe provider
+    await this.deleteByLabel('BackendTLSPolicy', labels);
   }
 
   /**
@@ -659,6 +689,46 @@ export class ProvidersFeature extends Feature {
 
     await this.applyYamlFile('backend.yaml', overrides);
     this.log(`${BACKEND_KIND[this.edition]} created for ${backendName}`, 'info');
+
+    if ((provider.providerName || provider.name) === 'typesafe') {
+      await this.createBackendTLSPolicy(provider, backendName);
+    }
+  }
+
+  /**
+   * Emit a BackendTLSPolicy so the proxy upgrades its connection to a typesafe
+   * provider's host/port to TLS - unlike this feature's other openai-compatible
+   * examples (Ollama, vLLM, mock-provider), Jev is a real external HTTPS host.
+   */
+  async createBackendTLSPolicy(provider, backendName) {
+    const hostname = provider.host || ProvidersFeature.getTypesafeDefaults().host;
+    const policy = {
+      apiVersion: 'gateway.networking.k8s.io/v1',
+      kind: 'BackendTLSPolicy',
+      metadata: {
+        name: `${backendName}-tls`,
+        namespace: this.namespace,
+        labels: {
+          'app.kubernetes.io/managed-by': 'agentgateway-demo',
+          'agentgateway.dev/feature': this.name,
+        },
+      },
+      spec: {
+        targetRefs: [
+          {
+            group: BACKEND_API_GROUP[this.edition],
+            kind: BACKEND_KIND[this.edition],
+            name: backendName,
+          },
+        ],
+        validation: {
+          hostname,
+          wellKnownCACertificates: 'System',
+        },
+      },
+    };
+    await this.applyResource(policy);
+    this.log(`BackendTLSPolicy created for ${backendName} (TLS to ${hostname})`, 'info');
   }
 
   /**
@@ -746,6 +816,25 @@ export class ProvidersFeature extends Feature {
         const pathStr =
           typeof pathObj === 'string' ? pathObj : (pathObj?.full ?? '/v1/chat/completions');
         config.openai = { model: provider.model };
+        if (provider.authHeader) config.openai.authHeader = provider.authHeader;
+        config.host = host;
+        config.port = port;
+        config.path = pathStr;
+        break;
+      }
+
+      case 'typesafe': {
+        // Jev (TypeSafe AI): hosted decision-making API, not a chat-completions endpoint.
+        // Fronted the same way openai-compatible fronts a custom host - the `openai.model`
+        // field carries Jev's model identifier purely because the CRD requires it, not
+        // because the body is reshaped as an OpenAI chat payload (see the usecase's
+        // policies.ai.routes Passthrough override).
+        const defaults = ProvidersFeature.getTypesafeDefaults();
+        const host = provider.host ?? defaults.host;
+        const port = provider.port ?? defaults.port;
+        const pathObj = provider.path ? { ...defaults.path, ...provider.path } : defaults.path;
+        const pathStr = typeof pathObj === 'string' ? pathObj : (pathObj?.full ?? '/v1/systemone');
+        config.openai = { model: provider.model || 'jev-latest' };
         if (provider.authHeader) config.openai.authHeader = provider.authHeader;
         config.host = host;
         config.port = port;
@@ -854,7 +943,7 @@ export class ProvidersFeature extends Feature {
   async createSingleRouteWithBackendRefs() {
     const gatewayRef = FeatureManager.getGatewayRef();
     const backendRefs = this.normalizedProviders.map(provider => ({
-      name: provider.name,
+      name: this.getResourceName(provider.name),
       namespace: this.namespace,
       group: BACKEND_API_GROUP[this.edition],
       kind: BACKEND_KIND[this.edition],
@@ -1062,7 +1151,7 @@ export class ProvidersFeature extends Feature {
           ],
           backendRefs: [
             {
-              name: provider.name,
+              name: this.getResourceName(provider.name),
               namespace: this.namespace,
               group: BACKEND_API_GROUP[this.edition],
               kind: BACKEND_KIND[this.edition],
@@ -1164,7 +1253,7 @@ export class ProvidersFeature extends Feature {
           ],
           backendRefs: [
             {
-              name: provider.name,
+              name: this.getResourceName(provider.name),
               namespace: this.namespace,
               group: BACKEND_API_GROUP[this.edition],
               kind: BACKEND_KIND[this.edition],
