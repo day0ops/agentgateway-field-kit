@@ -86,7 +86,7 @@ export function WalkthroughApp({ engine, installedVersion }) {
 
   useInput((input, key) => {
     const currentStep = engine.currentStep;
-    if (currentStep.kind === 'prompt' && !engine.getStepResult()) {
+    if (currentStep?.kind === 'prompt' && !engine.getStepResult()) {
       if (key.return) {
         engine.submitPromptValue(promptBuffer);
         return;
@@ -119,6 +119,12 @@ export function WalkthroughApp({ engine, installedVersion }) {
       setScrollOffset(offset => Math.max(offset - 1, 0));
       return;
     }
+    // q must quit even mid-operation (a stalled browser login or slow deploy shouldn't trap the
+    // presenter behind ctrl+c) - every other key still waits for the current one to finish.
+    if (input === 'q') {
+      exit();
+      return;
+    }
     if (busyRef.current) return;
     busyRef.current = true;
     (async () => {
@@ -130,8 +136,6 @@ export function WalkthroughApp({ engine, installedVersion }) {
           await engine.handleLeft();
         } else if (/^[1-9]$/.test(input)) {
           await engine.jumpToScreen(Number(input) - 1);
-        } else if (input === 'q') {
-          exit();
         }
       } catch (err) {
         setError(err.message);
@@ -220,14 +224,15 @@ export function WalkthroughApp({ engine, installedVersion }) {
               { label: 'Applied Configuration', borderColor: 'blue' },
               React.createElement(Text, { dimColor: true }, appliedYaml)
             ),
-          React.createElement(
-            Text,
-            { dimColor: true },
-            `Step ${engine.stepIndex + 1}/${screen.steps.length}: ${step.label}`
-          ),
+          step &&
+            React.createElement(
+              Text,
+              { dimColor: true },
+              `Step ${engine.stepIndex + 1}/${(screen.steps || []).length}: ${step.label}`
+            ),
           running && React.createElement(Text, { color: 'yellow' }, 'Running...'),
           error && React.createElement(Text, { color: 'red' }, `Error: ${error}`),
-          step.kind === 'prompt' &&
+          step?.kind === 'prompt' &&
             !result &&
             React.createElement(
               Panel,
@@ -268,8 +273,8 @@ export function WalkthroughApp({ engine, installedVersion }) {
       React.createElement(
         Text,
         { dimColor: true },
-        step.kind === 'prompt' && !result
-          ? '← back · enter submit · 1-9 jump to screen · q quit'
+        step?.kind === 'prompt' && !result
+          ? 'type your answer · enter submit · ctrl+c quit'
           : `← back · → ${result ? 'next' : 'run'} · 1-9 jump to screen · q quit`
       )
     )
@@ -384,27 +389,6 @@ function StepResultView({ result, responseRevealed }) {
       ...Object.entries(result.tally).map(([bucket, count]) =>
         React.createElement(Text, { key: bucket }, `${bucket}: ${count}/${result.requestCount}`)
       )
-    );
-  }
-  if (result.kind === 'git-push') {
-    return React.createElement(
-      Panel,
-      { label: 'Git Push' },
-      React.createElement(Text, null, `${result.filePath} -> ${result.fieldPath}: ${result.value}`)
-    );
-  }
-  if (result.kind === 'wait-for-sync') {
-    return React.createElement(
-      Panel,
-      { label: 'ArgoCD Sync', borderColor: 'green' },
-      React.createElement(Text, { color: 'green' }, `${result.application}: Synced`)
-    );
-  }
-  if (result.kind === 'promote') {
-    return React.createElement(
-      Panel,
-      { label: 'Promote', borderColor: 'green' },
-      React.createElement(Text, { color: 'green' }, `${result.rollout}: Promoted`)
     );
   }
   return null;
