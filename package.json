@@ -36,6 +36,7 @@
     "js-yaml": "^4.1.1",
     "log-symbols": "^7.0.1",
     "marked": "^18.0.10",
+    "open": "^11.0.4",
     "ora": "^9",
     "string-width": "^8"
   },
