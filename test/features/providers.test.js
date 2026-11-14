@@ -1,4 +1,4 @@
-import { test, expect, describe, beforeEach } from 'bun:test';
+import { test, expect, describe, beforeEach, afterEach } from 'bun:test';
 import yaml from 'js-yaml';
 import '../../features/index.js';
 import { FeatureManager } from '../../src/lib/feature.js';
@@ -208,6 +208,36 @@ describe('ProvidersFeature createRoute flag', () => {
       );
       const backend = findDoc(docs, 'EnterpriseAgentgatewayBackend', 'openai');
       expect(backend.spec.policies.http).toEqual({ version: 'HTTP1' });
+    }));
+});
+
+describe('ProvidersFeature backendRefs on a non-default gateway', () => {
+  afterEach(() => {
+    FeatureManager.gatewayRef = null;
+  });
+
+  test('body-routing mode backendRefs use the gateway-prefixed backend name, not the bare provider name', () =>
+    withEnv({ OPENAI_API_KEY: 'sk-test' }, async () => {
+      FeatureManager.setGatewayRef({ name: 'models-gateway', namespace: 'agentgateway-system' });
+      const docs = await FeatureManager.deploy(
+        'providers',
+        {
+          namespace: 'agentgateway-system',
+          pathPrefix: '/chat',
+          bodyRouting: true,
+          providers: [
+            {
+              name: 'openai',
+              providerName: 'openai',
+              model: 'gpt-.*',
+              modelMatch: 'RegularExpression',
+            },
+          ],
+        },
+        { dryRun: true }
+      );
+      const route = findDoc(docs, 'HTTPRoute', 'providers-chat-route');
+      expect(route.spec.rules[0].backendRefs[0].name).toBe('models-gateway-openai');
     }));
 });
 

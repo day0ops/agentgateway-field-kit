@@ -225,6 +225,40 @@ describe('runTrafficSplitStep', () => {
     );
     expect(seenHeaders['api-key']).toBe('abc');
   });
+
+  test('sends method and body when step.method/step.body are set', async () => {
+    let seenOptions;
+    globalThis.fetch = async (_url, options) => {
+      seenOptions = options;
+      return new Response(JSON.stringify({ color: 'blue' }), { status: 200 });
+    };
+    await runTrafficSplitStep(
+      {
+        url: 'http://example.com',
+        requestCount: 1,
+        tallyBy: 'color',
+        method: 'POST',
+        body: '{"prompt":"hi"}',
+      },
+      { credentials: {}, variables: new Map() }
+    );
+    expect(seenOptions.method).toBe('POST');
+    expect(seenOptions.body).toBe('{"prompt":"hi"}');
+  });
+
+  test('defaults to a bodyless GET when step.method/step.body are not set', async () => {
+    let seenOptions;
+    globalThis.fetch = async (_url, options) => {
+      seenOptions = options;
+      return new Response(JSON.stringify({ color: 'blue' }), { status: 200 });
+    };
+    await runTrafficSplitStep(
+      { url: 'http://example.com', requestCount: 1, tallyBy: 'color' },
+      { credentials: {}, variables: new Map() }
+    );
+    expect(seenOptions.method).toBe('GET');
+    expect('body' in seenOptions).toBe(false);
+  });
 });
 
 describe('runStep', () => {
