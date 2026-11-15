@@ -1088,16 +1088,35 @@ usecase
   });
 
 // Walkthrough commands
+
+/**
+ * Splits a (possibly multi-line) description into its headline (first line,
+ * always shown next to the name) and the rest (shown only when focused, via
+ * the picker's `detail` field).
+ * @param {string} description
+ * @returns {{headline: string, detail: string}}
+ */
+function splitWalkthroughDescription(description) {
+  const lines = (description || '').split('\n');
+  const headline = lines[0] || '';
+  const detail = lines.slice(1).join('\n').trim();
+  return { headline, detail };
+}
+
 async function resolveWalkthroughName(name) {
   if (name) return name;
   const walkthroughs = await WalkthroughManager.list();
   if (walkthroughs.length === 0) {
     throw new Error('No walkthroughs found in config/walkthroughs/');
   }
-  const choices = walkthroughs.map(w => ({
-    name: w.description ? `${w.name} - ${w.description}` : w.name,
-    value: w.name,
-  }));
+  const choices = walkthroughs.map(w => {
+    const { headline, detail } = splitWalkthroughDescription(w.description);
+    return {
+      name: headline ? `${w.name} - ${headline}` : w.name,
+      value: w.name,
+      detail,
+    };
+  });
   return Prompts.select('Select walkthrough:', choices);
 }
 
@@ -1115,7 +1134,11 @@ walkthrough
       }
       console.log('\nAvailable walkthroughs:');
       walkthroughs.forEach(w => {
-        console.log(`  ${chalk.cyan('•')} ${w.name}${w.description ? ` - ${w.description}` : ''}`);
+        const { headline, detail } = splitWalkthroughDescription(w.description);
+        console.log(`  ${chalk.cyan('•')} ${w.name}${headline ? ` - ${headline}` : ''}`);
+        if (detail) {
+          detail.split('\n').forEach(line => console.log(chalk.dim(`    ${line}`)));
+        }
       });
       console.log('');
     } catch (error) {
