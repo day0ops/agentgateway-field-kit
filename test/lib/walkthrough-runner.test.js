@@ -130,13 +130,13 @@ describe('cleanWalkthrough merged-policy sweep', () => {
               {
                 metadata: {
                   name: 'merged-feature-a-feature-b-routing-basic',
-                  labels: { 'agentgateway.dev/contributor-deployments': 'demo' },
+                  labels: { 'agentgateway.dev/contributor-deployments': 'walkthrough.demo' },
                 },
               },
               {
                 metadata: {
                   name: 'policy-feature-c-routing-basic',
-                  labels: { 'agentgateway.dev/contributor-deployments': 'demo' },
+                  labels: { 'agentgateway.dev/contributor-deployments': 'walkthrough.demo' },
                 },
               },
             ],
@@ -173,7 +173,9 @@ describe('cleanWalkthrough merged-policy sweep', () => {
               {
                 metadata: {
                   name: 'merged-feature-a-feature-b-routing-basic',
-                  labels: { 'agentgateway.dev/contributor-deployments': 'demo_someone-else' },
+                  labels: {
+                    'agentgateway.dev/contributor-deployments': 'walkthrough.demo_someone-else',
+                  },
                 },
               },
             ],

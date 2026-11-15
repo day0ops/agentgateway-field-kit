@@ -615,7 +615,9 @@ export class UseCaseManager {
           const { name: featureName, config = {} } = feature;
           await FeatureManager.deploy(featureName, config, {
             edition,
-            deploymentId: metadata.name,
+            // Prefixed so a usecase and a walkthrough sharing a bare name are never treated
+            // as the same deployment for cleanup scoping purposes.
+            deploymentId: `usecase.${metadata.name}`,
           });
         }
       }
@@ -738,7 +740,9 @@ export class UseCaseManager {
           const yamlDocs = await FeatureManager.deploy(featureName, config, {
             dryRun: true,
             edition,
-            deploymentId: metadata.name,
+            // Prefixed so a usecase and a walkthrough sharing a bare name are never treated
+            // as the same deployment for cleanup scoping purposes.
+            deploymentId: `usecase.${metadata.name}`,
           });
           if (yamlDocs && yamlDocs.length > 0) {
             collected.push({ featureName, yamlDocs });
@@ -977,7 +981,9 @@ export class UseCaseManager {
         try {
           await FeatureManager.cleanup(featureName, config, {
             edition,
-            deploymentId: metadata.name,
+            // Prefixed so a usecase and a walkthrough sharing a bare name are never treated
+            // as the same deployment for cleanup scoping purposes.
+            deploymentId: `usecase.${metadata.name}`,
           });
         } catch (error) {
           Logger.warn(`Failed to clean up feature '${featureName}': ${error.message}`);
