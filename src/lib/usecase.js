@@ -613,7 +613,10 @@ export class UseCaseManager {
 
         for (const feature of step.features) {
           const { name: featureName, config = {} } = feature;
-          await FeatureManager.deploy(featureName, config, { edition });
+          await FeatureManager.deploy(featureName, config, {
+            edition,
+            deploymentId: metadata.name,
+          });
         }
       }
 
@@ -735,6 +738,7 @@ export class UseCaseManager {
           const yamlDocs = await FeatureManager.deploy(featureName, config, {
             dryRun: true,
             edition,
+            deploymentId: metadata.name,
           });
           if (yamlDocs && yamlDocs.length > 0) {
             collected.push({ featureName, yamlDocs });
@@ -971,56 +975,20 @@ export class UseCaseManager {
         const { name: featureName, config = {} } = feature;
 
         try {
-          await FeatureManager.cleanup(featureName, config, { edition });
+          await FeatureManager.cleanup(featureName, config, {
+            edition,
+            deploymentId: metadata.name,
+          });
         } catch (error) {
           Logger.warn(`Failed to clean up feature '${featureName}': ${error.message}`);
         }
       }
 
-      // Clean up any merged policies created by this use case
-      try {
-        const result = await KubernetesHelper.kubectl(
-          [
-            'get',
-            'enterpriseagentgatewaypolicy',
-            '-n',
-            FeatureManager.getDefaultNamespace(),
-            '-l',
-            'agentgateway.dev/merged-policy=true',
-            '-o',
-            'jsonpath={.items[*].metadata.name}',
-          ],
-          { ignoreError: true }
-        );
-
-        if (result.exitCode !== 0) {
-          Logger.warn(
-            `Failed to list merged EnterpriseAgentgatewayPolicy resources for cleanup: ${result.stderr?.trim() || `exit code ${result.exitCode}`}`
-          );
-        } else {
-          const policyNames = result.stdout.trim().split(/\s+/).filter(Boolean);
-          for (const policyName of policyNames) {
-            const deleteResult = await KubernetesHelper.kubectl(
-              [
-                'delete',
-                'enterpriseagentgatewaypolicy',
-                policyName,
-                '-n',
-                FeatureManager.getDefaultNamespace(),
-                '--ignore-not-found=true',
-              ],
-              { ignoreError: true }
-            );
-            if (deleteResult.exitCode !== 0) {
-              Logger.warn(
-                `Failed to delete merged policy '${policyName}': ${deleteResult.stderr?.trim() || `exit code ${deleteResult.exitCode}`}`
-              );
-            }
-          }
-        }
-      } catch (error) {
-        Logger.warn(`Merged-policy cleanup failed: ${error.message}`);
-      }
+      // Clean up any merged policies created by this use case (not shared with another one)
+      await PolicyRegistry.cleanupMergedPolicies(
+        metadata.name,
+        FeatureManager.getDefaultNamespace()
+      );
 
       const currentUseCase = await this.getCurrentUseCase();
       if (currentUseCase === filePath) {
