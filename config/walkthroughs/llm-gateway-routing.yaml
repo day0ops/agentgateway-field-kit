@@ -215,6 +215,50 @@ spec:
           requestCount: 20
           tallyBy: model
 
+    - name: conditional-virtual-model
+      title: Conditional Virtual Model
+      narration: |
+        Same idea as the weighted screen, but the choice of target isn't a fixed percentage - it's decided by a signal on the request itself. The client only ever sees "tiered" - behind it, a virtual model inspects the x-model-tier header and routes to the premium target when it's set to "premium", falling back to the fast target for everything else.
+      setup:
+        - name: agentgateway-model
+          config:
+            sectionName: http
+            models:
+              - name: internal-fast
+                provider: openai
+                visibility: Internal
+                transformations:
+                  - field: model
+                    expression: '"gpt-4o-mini"'
+              - name: internal-premium
+                provider: openai
+                visibility: Internal
+                transformations:
+                  - field: model
+                    expression: '"gpt-4o"'
+              - name: tiered
+                virtualModel:
+                  conditional:
+                    targets:
+                      - when: 'request.headers["x-model-tier"] == "premium"'
+                        name: internal-premium
+                      - name: internal-fast
+      steps:
+        - kind: http
+          label: 'POST /v1/chat/completions (tiered, x-model-tier: premium)'
+          method: POST
+          url: 'http://localhost:8080/v1/chat/completions'
+          headers:
+            x-model-tier: premium
+          body: '{"model": "tiered", "messages": [{"role": "user", "content": "What is 2+2?"}]}'
+          expectStatus: 200
+        - kind: http
+          label: 'POST /v1/chat/completions (tiered, no header, falls back)'
+          method: POST
+          url: 'http://localhost:8080/v1/chat/completions'
+          body: '{"model": "tiered", "messages": [{"role": "user", "content": "What is 2+2?"}]}'
+          expectStatus: 200
+
     - name: automatic-failover
       title: Automatic Failover
       narration: |
