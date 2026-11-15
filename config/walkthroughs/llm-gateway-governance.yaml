@@ -176,3 +176,51 @@ spec:
             X-Api-Key: sk-alice-demo-abc123def456
           body: '{"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "Hello"}]}'
           expectStatus: 200
+    - name: prompt-guardrails
+      title: Prompt Guardrails
+      narration: |
+        Unlike the previous two screens, this one shares no Gateway-level policy, credential, or API key - it's a single route guarded by its own prompt-guards policy, scoped via targetRefs so it only applies here. agentgateway's guardrail engine scans both the request and the response: built-in PII detectors (SSN, credit card, phone number) and custom regex patterns (credit card mentions, prompt-injection phrases, password requests) reject a request before it reaches the LLM, and the same builtins mask sensitive data in anything that comes back. No JWT and no API key are involved - these requests are unauthenticated by design, since this screen only exercises guardrail behavior. Before running the steps below, port-forward the gateway with `kubectl port-forward -n agentgateway-system svc/agentgateway-gw 8080:8080`.
+      setup:
+        - name: providers
+          config:
+            providers:
+              - name: gov-guardrails-openai
+                providerName: openai
+                pathPrefix: /gov-guardrails
+                model: gpt-4o
+        - name: prompt-guards
+          config:
+            targetRefs:
+              - group: gateway.networking.k8s.io
+                kind: HTTPRoute
+                name: gov-guardrails-openai
+            request:
+              customResponse:
+                message: 'Request rejected due to policy violation'
+              matches:
+                - 'credit card'
+                - 'ignore previous instructions'
+                - 'disregard previous instructions'
+                - '(?i)password|passwd|pwd'
+              builtins:
+                - CreditCard
+                - Ssn
+                - PhoneNumber
+            response:
+              builtins:
+                - CreditCard
+                - Ssn
+                - Email
+      steps:
+        - kind: http
+          label: 'POST /gov-guardrails (SSN in prompt, blocked)'
+          method: POST
+          url: 'http://localhost:8080/gov-guardrails'
+          body: '{"model": "gpt-4o", "messages": [{"role": "user", "content": "My SSN is 123-45-6789, can you help me?"}]}'
+          expectStatus: 403
+        - kind: http
+          label: 'POST /gov-guardrails (clean prompt, allowed)'
+          method: POST
+          url: 'http://localhost:8080/gov-guardrails'
+          body: '{"model": "gpt-4o", "messages": [{"role": "user", "content": "What is the capital of France?"}]}'
+          expectStatus: 200
