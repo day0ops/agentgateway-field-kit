@@ -14,6 +14,8 @@ metadata:
     - automatic failover
     - AI-driven tier routing via a hosted decision model
 
+    Requires a profile with the cert-manager addon installed (e.g. `local-single-cluster`).
+
 spec:
   environment: local
   preProvision:
