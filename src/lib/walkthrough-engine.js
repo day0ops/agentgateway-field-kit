@@ -28,10 +28,11 @@ const SILENT_SPINNER = {
  * and calls handleRight/handleLeft/jumpToScreen/submitPromptValue in response to input.
  */
 export class WalkthroughEngine extends EventEmitter {
-  /** @param {{screens: object[], credentials: object, preProvision: object[], edition: string, namespace?: string}} walkthrough */
+  /** @param {{name?: string, screens: object[], credentials: object, preProvision: object[], edition: string, namespace?: string}} walkthrough */
   constructor(walkthrough) {
     super();
     this.walkthrough = walkthrough;
+    this.name = walkthrough.name;
     this.edition = walkthrough.edition;
     this.screenIndex = 0;
     this.stepIndex = 0;
@@ -97,7 +98,7 @@ export class WalkthroughEngine extends EventEmitter {
           await FeatureManager.cleanup(
             featureRef.name,
             { ...(featureRef.config || {}), spinner: SILENT_SPINNER },
-            { edition: this.edition }
+            { edition: this.edition, deploymentId: this.name }
           );
         }
 
@@ -123,6 +124,7 @@ export class WalkthroughEngine extends EventEmitter {
             const rendered = await FeatureManager.deploy(featureRef.name, config, {
               dryRun: true,
               edition: this.edition,
+              deploymentId: this.name,
             });
             docs.push(...(rendered || []));
           } catch {
@@ -132,6 +134,7 @@ export class WalkthroughEngine extends EventEmitter {
           }
           await FeatureManager.deploy(featureRef.name, config, {
             edition: this.edition,
+            deploymentId: this.name,
             spinner: SILENT_SPINNER,
           });
         }
