@@ -942,6 +942,10 @@ export class UseCaseManager {
       usecase = EnvironmentManager.resolveAllTemplates(usecase, env);
 
       const { metadata, spec } = usecase;
+      // Computed once and reused at every call site below - two independent call sites each
+      // inlining this template string is exactly how the sweep call previously fell out of
+      // sync with the per-feature cleanup calls and silently stopped matching anything.
+      const deploymentId = `usecase.${metadata.name}`;
 
       const { namespace } = spec;
       const steps = this.getSteps(spec);
@@ -979,12 +983,7 @@ export class UseCaseManager {
         const { name: featureName, config = {} } = feature;
 
         try {
-          await FeatureManager.cleanup(featureName, config, {
-            edition,
-            // Prefixed so a usecase and a walkthrough sharing a bare name are never treated
-            // as the same deployment for cleanup scoping purposes.
-            deploymentId: `usecase.${metadata.name}`,
-          });
+          await FeatureManager.cleanup(featureName, config, { edition, deploymentId });
         } catch (error) {
           Logger.warn(`Failed to clean up feature '${featureName}': ${error.message}`);
         }
@@ -992,7 +991,7 @@ export class UseCaseManager {
 
       // Clean up any merged policies created by this use case (not shared with another one)
       await PolicyRegistry.cleanupMergedPolicies(
-        metadata.name,
+        deploymentId,
         FeatureManager.getDefaultNamespace()
       );
 
