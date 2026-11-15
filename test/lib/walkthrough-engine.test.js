@@ -388,7 +388,7 @@ describe('WalkthroughEngine PolicyRegistry integration', () => {
     expect(committedDoc.metadata.labels['agentgateway.dev/contributors']).toBe('policy-feature');
   });
 
-  test('a single batch spanning two screens that both declare the same Gateway-level feature de-duplicates the contributor name instead of doubling it', async () => {
+  test('a single batch spanning two screens that both declare the same feature targeting the same object de-duplicates the contributor name instead of doubling it', async () => {
     const walkthrough = {
       screens: [
         { name: 'one', setup: [{ name: 'policy-feature' }], steps: [] },
@@ -408,6 +408,39 @@ describe('WalkthroughEngine PolicyRegistry integration', () => {
     // single contributor, single-contributor naming scheme applies.
     expect(committedDoc.metadata.name).toBe('policy-feature-routing-basic');
     expect(committedDoc.metadata.labels['agentgateway.dev/contributors']).toBe('policy-feature');
+  });
+
+  test('a single batch spanning two screens that both declare the same two features preserves ordering and de-duplicates, instead of doubling the merged name', async () => {
+    const walkthrough = {
+      screens: [
+        {
+          name: 'one',
+          setup: [{ name: 'policy-feature' }, { name: 'policy-feature-b' }],
+          steps: [],
+        },
+        {
+          name: 'two',
+          setup: [{ name: 'policy-feature' }, { name: 'policy-feature-b' }],
+          steps: [],
+        },
+      ],
+      credentials: {},
+      preProvision: [],
+      edition: 'enterprise',
+    };
+    const engine = new WalkthroughEngine(walkthrough);
+    await engine.ensureAppliedThrough(1); // spans both screens in ONE batch
+
+    const committedDoc = appliedYamlDocs
+      .map(doc => yaml.load(doc))
+      .find(doc => doc.kind === 'EnterpriseAgentgatewayPolicy');
+    // Two distinct features, each re-declared by both screens, must still produce the
+    // same 2-contributor name (in first-registration order) as a single-screen batch would -
+    // not a 4-entry doubled list.
+    expect(committedDoc.metadata.name).toBe('merged-policy-feature-policy-feature-b-routing-basic');
+    expect(committedDoc.metadata.labels['agentgateway.dev/contributors']).toBe(
+      'policy-feature_policy-feature-b'
+    );
   });
 });
 
