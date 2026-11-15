@@ -177,8 +177,9 @@ describe('Feature.applyResource deployment labeling', () => {
       appliedYamlDocs.push(yamlContent);
     };
     // commit() (used below, without dryRun) reads back the live object's existing
-    // contributor-deployments label before writing - mock it so this suite never depends on
-    // a real cluster. Default: no existing object (as if nothing's been deployed yet).
+    // contributor-deployments annotation before writing - mock it so this suite never
+    // depends on a real cluster. Default: no existing object (as if nothing's been deployed
+    // yet).
     originalKubectl = KubernetesHelper.kubectl;
     KubernetesHelper.kubectl = async () => ({ exitCode: 1, stdout: '', stderr: 'not found' });
   });
@@ -518,7 +519,7 @@ describe('PolicyRegistry.cleanupMergedPolicies', () => {
     await PolicyRegistry.cleanupMergedPolicies('my-walkthrough', 'agentgateway-system');
 
     expect(callsOf('delete')).toHaveLength(0);
-    expect(callsOf('label')).toHaveLength(0);
+    expect(callsOf('annotate')).toHaveLength(0);
     expect(warnings).toHaveLength(0);
   });
 
