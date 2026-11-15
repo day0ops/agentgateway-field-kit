@@ -387,6 +387,28 @@ describe('WalkthroughEngine PolicyRegistry integration', () => {
     expect(committedDoc.metadata.name).toBe('policy-feature-routing-basic');
     expect(committedDoc.metadata.labels['agentgateway.dev/contributors']).toBe('policy-feature');
   });
+
+  test('a single batch spanning two screens that both declare the same Gateway-level feature de-duplicates the contributor name instead of doubling it', async () => {
+    const walkthrough = {
+      screens: [
+        { name: 'one', setup: [{ name: 'policy-feature' }], steps: [] },
+        { name: 'two', setup: [{ name: 'policy-feature' }], steps: [] },
+      ],
+      credentials: {},
+      preProvision: [],
+      edition: 'enterprise',
+    };
+    const engine = new WalkthroughEngine(walkthrough);
+    await engine.ensureAppliedThrough(1); // spans both screens in ONE batch - this is the crash trigger
+
+    const committedDoc = appliedYamlDocs
+      .map(doc => yaml.load(doc))
+      .find(doc => doc.kind === 'EnterpriseAgentgatewayPolicy');
+    // Same feature registering twice for the same target must not double the name -
+    // single contributor, single-contributor naming scheme applies.
+    expect(committedDoc.metadata.name).toBe('policy-feature-routing-basic');
+    expect(committedDoc.metadata.labels['agentgateway.dev/contributors']).toBe('policy-feature');
+  });
 });
 
 describe('WalkthroughEngine prompt steps', () => {

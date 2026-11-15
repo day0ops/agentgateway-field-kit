@@ -295,7 +295,6 @@ export class PolicyRegistry {
         this.policies.set(key, merged);
       } else {
         const entry = JSON.parse(JSON.stringify(policy));
-        entry._contributors = [featureName];
         entry._targetRefKey = key;
         this.policies.set(key, entry);
       }
@@ -334,7 +333,6 @@ export class PolicyRegistry {
       );
     }
 
-    merged._contributors = [...(merged._contributors || []), featureName];
     return merged;
   }
 
@@ -386,11 +384,10 @@ export class PolicyRegistry {
     const { dryRun = false, spinner = null } = options;
     const yamlDocs = [];
 
-    for (const [, policy] of this.policies) {
-      const contributors = policy._contributors || [];
+    for (const [key, policy] of this.policies) {
+      const contributors = Array.from(this.contributors.get(key) || []);
       const targetRefKey = policy._targetRefKey || '';
       const cleanPolicy = JSON.parse(JSON.stringify(policy));
-      delete cleanPolicy._contributors;
       delete cleanPolicy._targetRefKey;
 
       // Single contributor: use <feature>-<targetRef name> for clarity
