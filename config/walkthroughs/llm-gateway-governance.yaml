@@ -224,3 +224,38 @@ spec:
           url: 'http://localhost:8080/gov-guardrails'
           body: '{"model": "gpt-4o", "messages": [{"role": "user", "content": "What is the capital of France?"}]}'
           expectStatus: 200
+    - name: token-rate-limiting
+      title: Token Rate Limiting
+      narration: |
+        This screen's policy counts input tokens per proxy replica, not centrally - each replica enforces its own budget independently, with no shared rate-limit server. The route is scoped to its own rate-limit policy via targetRefs, with no shared Gateway-level policy, credential, or API key - fully self-contained like the guardrails screen. "What is your favorite poem?" consumes about 5 tokens, and the budget is 5 tokens per minute, so the first request fits but the second - fired immediately after, within the same minute - exceeds it and gets a 429. Because the counter is per-replica, this demo only behaves this way if the gateway is running a single replica; with more than one replica, the second request could land on a different replica with its own fresh budget and succeed instead. Before running the steps below, port-forward the gateway with `kubectl port-forward -n agentgateway-system svc/agentgateway-gw 8080:8080`.
+      setup:
+        - name: providers
+          config:
+            providers:
+              - name: gov-ratelimit-openai
+                providerName: openai
+                pathPrefix: /gov-ratelimit
+                model: gpt-4o-mini
+        - name: rate-limit
+          config:
+            mode: local
+            tokens: 5
+            burst: 0
+            unit: MINUTE
+            targetRefs:
+              - group: gateway.networking.k8s.io
+                kind: HTTPRoute
+                name: gov-ratelimit-openai
+      steps:
+        - kind: http
+          label: 'POST /gov-ratelimit (first request, within 5-token/minute budget)'
+          method: POST
+          url: 'http://localhost:8080/gov-ratelimit'
+          body: '{"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "What is your favorite poem?"}]}'
+          expectStatus: 200
+        - kind: http
+          label: 'POST /gov-ratelimit (second request, same minute, budget exceeded)'
+          method: POST
+          url: 'http://localhost:8080/gov-ratelimit'
+          body: '{"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "What is your favorite poem?"}]}'
+          expectStatus: 429
