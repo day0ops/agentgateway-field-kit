@@ -486,6 +486,15 @@ describe('overrideAddress', () => {
     );
   });
 
+  test('resolve throws when its port does not match the URL port', async () => {
+    await expect(
+      overrideAddress(
+        { label: 'Call the gateway', resolve: 'models-gateway.test:8443:10.0.0.9' },
+        'https://models-gateway.test/v1/chat'
+      )
+    ).rejects.toThrow("Step 'Call the gateway' resolve port '8443' does not match its URL's port");
+  });
+
   test('resolve throws when the value is not in host:port:address form', async () => {
     await expect(
       overrideAddress(

@@ -62,9 +62,14 @@ export async function overrideAddress(step, url) {
         `Step '${step.label}' resolve '${step.resolve}' is not in host:port:address form`
       );
     }
-    const [, host, , address] = match;
-    if (host !== new URL(url).hostname) {
+    const [, host, port, address] = match;
+    const target = new URL(url);
+    if (host !== target.hostname) {
       throw new Error(`Step '${step.label}' resolve host '${host}' does not match its URL's host`);
+    }
+    const targetPort = target.port || (target.protocol === 'https:' ? '443' : '80');
+    if (port !== targetPort) {
+      throw new Error(`Step '${step.label}' resolve port '${port}' does not match its URL's port`);
     }
     return address;
   }
@@ -153,8 +158,8 @@ export function assertTlsOptionsSupported(step, versions = process.versions) {
  * unchanged, alongside `tls`, when the step sets no address override.
  */
 export async function connectionTarget(step, url, headers) {
-  const tls = await buildTlsOptions(step);
   assertTlsOptionsSupported(step);
+  const tls = await buildTlsOptions(step);
   const address = await overrideAddress(step, url);
   if (!address) {
     return { url, headers, tls };
