@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 
 import { Command, Option } from 'commander';
 import { basename, join, resolve } from 'path';
