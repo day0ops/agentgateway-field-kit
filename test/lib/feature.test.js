@@ -321,7 +321,7 @@ describe('PolicyRegistry deployment-contributor tracking', () => {
     expect(doc).toContain('agentgateway.dev/contributor-deployments: walkthrough-a_walkthrough-b');
   });
 
-  test('the label is omitted entirely when no caller ever passed a deploymentId', async () => {
+  test('the annotation is omitted entirely when no caller ever passed a deploymentId', async () => {
     PolicyRegistry.register(policy(), 'feature-a', 'default');
     const [doc] = await PolicyRegistry.commit({ dryRun: true });
     expect(doc).not.toContain('agentgateway.dev/contributor-deployments');
@@ -523,7 +523,7 @@ describe('PolicyRegistry.cleanupMergedPolicies', () => {
     expect(warnings).toHaveLength(0);
   });
 
-  test('skips (no warning) an unlabeled merged policy predating this fix, rather than assuming it is safe to delete, but surfaces an info note so the gap is not silent', async () => {
+  test('skips (no warning) an un-annotated merged policy predating this fix, rather than assuming it is safe to delete, but surfaces an info note so the gap is not silent', async () => {
     items = [{ metadata: { name: 'merged-a-b-my-route' } }];
 
     await PolicyRegistry.cleanupMergedPolicies('my-walkthrough', 'agentgateway-system');

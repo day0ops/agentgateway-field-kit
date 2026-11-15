@@ -33,7 +33,7 @@ const usecaseYaml =
   `    - name: __test-uc-cleanup-scoping\n`;
 
 describe('UseCaseManager.cleanup merged-policy sweep deploymentId', () => {
-  let tmpRoot, originalResolveActive, originalLoad, originalKubectl;
+  let tmpRoot, originalResolveActive, originalLoad, originalKubectl, originalGatewayRef;
 
   afterAll(async () => {
     if (tmpRoot) await rm(tmpRoot, { recursive: true, force: true });
@@ -49,6 +49,9 @@ describe('UseCaseManager.cleanup merged-policy sweep deploymentId', () => {
     EnvironmentManager.resolveActive = async () => 'local';
     originalLoad = EnvironmentManager.load;
     EnvironmentManager.load = async () => ({});
+    // cleanup() calls FeatureManager.setGatewayRef() as a side effect - restore it so this
+    // test doesn't leak a non-default gatewayRef into whichever test file runs next.
+    originalGatewayRef = FeatureManager.gatewayRef;
 
     const getCalls = [];
     const deleteCalls = [];
@@ -85,6 +88,7 @@ describe('UseCaseManager.cleanup merged-policy sweep deploymentId', () => {
       EnvironmentManager.resolveActive = originalResolveActive;
       EnvironmentManager.load = originalLoad;
       KubernetesHelper.kubectl = originalKubectl;
+      FeatureManager.gatewayRef = originalGatewayRef;
     }
 
     expect(getCalls.length).toBeGreaterThan(0);

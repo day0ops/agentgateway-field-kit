@@ -581,7 +581,7 @@ export class PolicyRegistry {
         return;
       }
 
-      let unlabeledCount = 0;
+      let unannotatedCount = 0;
 
       for (const item of items) {
         const policyName = item.metadata?.name;
@@ -592,7 +592,7 @@ export class PolicyRegistry {
         const deployments = deploymentsAnnotation
           ? deploymentsAnnotation.split('_').filter(Boolean)
           : [];
-        if (!deploymentsAnnotation) unlabeledCount++;
+        if (!deploymentsAnnotation) unannotatedCount++;
 
         if (!deployments.includes(deploymentId)) {
           // Not ours - some other deployment's (or an unlabeled/pre-migration) merged policy.
@@ -641,9 +641,9 @@ export class PolicyRegistry {
         }
       }
 
-      if (unlabeledCount > 0) {
+      if (unannotatedCount > 0) {
         Logger.info(
-          `${unlabeledCount} merged EnterpriseAgentgatewayPolicy resource(s) predate this cleanup scoping and have no contributor-deployments annotation - left in place; redeploy and clean up again, or remove manually if no longer needed.`
+          `${unannotatedCount} merged EnterpriseAgentgatewayPolicy resource(s) predate this cleanup scoping and have no contributor-deployments annotation - left in place; redeploy and clean up again, or remove manually if no longer needed.`
         );
       }
     } catch (error) {
