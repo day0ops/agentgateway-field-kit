@@ -51,29 +51,6 @@ spec:
           body: '{"model": "claude-sonnet-5", "messages": [{"role": "user", "content": "What is 2+2?"}]}'
           expectStatus: 200
 
-    - name: load-balancing
-      title: Load Balancing (Power of Two Choices)
-      narration: |
-        Same traffic, no single model - requests spread across OpenAI and Vertex AI automatically, picking whichever of two randomly-sampled backends is healthier and less loaded.
-      setup:
-        - name: load-balancing
-          config:
-            pathPrefix: /model
-            providers:
-              - name: openai
-                model: gpt-4o-mini
-              - name: vertex-ai
-                model: google/gemini-2.5-flash
-                location: us-east5
-      steps:
-        - kind: traffic-split
-          label: '20 requests across both providers'
-          method: POST
-          url: 'http://localhost:8080/model'
-          body: '{"messages": [{"role": "user", "content": "What is 2+2?"}]}'
-          requestCount: 20
-          tallyBy: model
-
     - name: body-based-routing
       title: Body-Based Routing
       narration: |
@@ -105,6 +82,29 @@ spec:
           url: 'http://localhost:8080/chat'
           body: '{"model": "google/gemini-2.5-flash", "messages": [{"role": "user", "content": "What is 2+2?"}]}'
           expectStatus: 200
+
+    - name: load-balancing
+      title: Load Balancing (Power of Two Choices)
+      narration: |
+        Same traffic, no single model - requests spread across OpenAI and Vertex AI automatically, picking whichever of two randomly-sampled backends is healthier and less loaded.
+      setup:
+        - name: load-balancing
+          config:
+            pathPrefix: /model
+            providers:
+              - name: openai
+                model: gpt-4o-mini
+              - name: vertex-ai
+                model: google/gemini-2.5-flash
+                location: us-east5
+      steps:
+        - kind: traffic-split
+          label: '20 requests across both providers'
+          method: POST
+          url: 'http://localhost:8080/model'
+          body: '{"messages": [{"role": "user", "content": "What is 2+2?"}]}'
+          requestCount: 20
+          tallyBy: model
 
     - name: automatic-failover
       title: Automatic Failover
