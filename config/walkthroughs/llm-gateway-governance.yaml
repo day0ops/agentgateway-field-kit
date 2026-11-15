@@ -90,3 +90,89 @@ spec:
           url: 'http://localhost:8080/gov-chat'
           body: '{"model": "claude-sonnet-5", "messages": [{"role": "user", "content": "What is 2+2?"}]}'
           expectStatus: 403
+    - name: budget-and-spend-limits
+      title: Budget and Spend Limits
+      narration: |
+        Virtual API keys carry their own identity and token budgets - no JWT required. This screen issues alice, bob, and team-ci keys scoped to a dedicated route, then layers per-key budgets on top: bob's daily budget is exhausted by any real request and blocks with 429, alice's is also exhausted but only audits (logs) the overage and lets the request through, and a wildcard org-wide monthly ceiling acts as a catch-all safety net. Because screen 1 already switched on a Gateway-wide Optional API-key policy, these requests use X-Api-Key instead of Authorization - a present-but-malformed Authorization header would otherwise be parsed as a JWT and rejected. Before running the steps below, port-forward the gateway with `kubectl port-forward -n agentgateway-system svc/agentgateway-gw 8080:8080`.
+      setup:
+        - name: providers
+          config:
+            providers:
+              - name: gov-cost-openai
+                providerName: openai
+                pathPrefix: /gov-cost
+                model: gpt-4o-mini
+        - name: virtual-keys
+          config:
+            mode: Optional
+            location:
+              header:
+                name: X-Api-Key
+            targetRefs:
+              - group: gateway.networking.k8s.io
+                kind: HTTPRoute
+                name: gov-cost-openai
+            keys:
+              - name: alice
+                key: sk-alice-demo-abc123def456
+                userId: alice
+                tokenBudget: 100000
+              - name: bob
+                key: sk-bob-demo-xyz789uvw012
+                userId: bob
+                tokenBudget: 100000
+              - name: team-ci
+                key: sk-team-ci-demo-9f3c7a1e
+                userId: team-ci
+                tokenBudget: 5000
+        - name: budget-limits
+          config:
+            targetRefs:
+              - group: gateway.networking.k8s.io
+                kind: HTTPRoute
+                name: gov-cost-openai
+            budgets:
+              - name: bob-daily-tokens
+                subject:
+                  virtualKey: bob
+                limit:
+                  unit: Tokens
+                  amount: 1
+                window:
+                  unit: Day
+                onBudgetExceeded: Block
+              - name: alice-daily-tokens
+                subject:
+                  virtualKey: alice
+                limit:
+                  unit: Tokens
+                  amount: 1
+                window:
+                  unit: Day
+                onBudgetExceeded: Audit
+              - name: org-wide-monthly-ceiling
+                subject:
+                  virtualKey: '*'
+                limit:
+                  unit: Tokens
+                  amount: 10000000
+                window:
+                  unit: Month
+                onBudgetExceeded: Audit
+      steps:
+        - kind: http
+          label: 'POST /gov-cost (bob, 1-token daily budget exceeded, Block)'
+          method: POST
+          url: 'http://localhost:8080/gov-cost'
+          headers:
+            X-Api-Key: sk-bob-demo-xyz789uvw012
+          body: '{"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "Hello"}]}'
+          expectStatus: 429
+        - kind: http
+          label: 'POST /gov-cost (alice, 1-token daily budget exceeded, Audit only)'
+          method: POST
+          url: 'http://localhost:8080/gov-cost'
+          headers:
+            X-Api-Key: sk-alice-demo-abc123def456
+          body: '{"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "Hello"}]}'
+          expectStatus: 200
