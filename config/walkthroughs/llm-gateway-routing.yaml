@@ -86,7 +86,7 @@ spec:
     - name: load-balancing
       title: Load Balancing (Power of Two Choices)
       narration: |
-        Same traffic, no single model - requests spread across OpenAI and Vertex AI automatically, picking whichever of two randomly-sampled backends is healthier and less loaded.
+        Same traffic, no single model - requests spread across three providers automatically, picking whichever of two randomly-sampled backends looks less loaded. The third provider is deliberately misconfigured with a model that doesn't exist, simulating a misbehaving provider - every request routed to it fails. A retry policy configures resilience here, retrying on the specific failure signal this demo's broken provider returns, so every client request still succeeds despite a consistently failing backend in the mix.
       setup:
         - name: load-balancing
           config:
@@ -97,14 +97,32 @@ spec:
               - name: vertex-ai
                 model: google/gemini-2.5-flash
                 location: us-east5
+              - name: anthropic
+                model: claude-does-not-exist
+        - name: traffic-policy
+          config:
+            targetRef:
+              name: load-balancing
+              kind: HTTPRoute
+            retry:
+              attempts: 20
+              backoff: 25ms
+              codes: [404]
       steps:
         - kind: traffic-split
-          label: '20 requests across both providers'
+          label: '20 requests - only the two working providers ever show up in the tally'
           method: POST
           url: 'http://localhost:8080/model'
           body: '{"messages": [{"role": "user", "content": "What is 2+2?"}]}'
           requestCount: 20
           tallyBy: model
+        - kind: traffic-split
+          label: 'Same 20 requests, tallied by status - the retry policy keeps every one at 200'
+          method: POST
+          url: 'http://localhost:8080/model'
+          body: '{"messages": [{"role": "user", "content": "What is 2+2?"}]}'
+          requestCount: 20
+          tallyBy: '$status'
 
     - name: automatic-failover
       title: Automatic Failover
