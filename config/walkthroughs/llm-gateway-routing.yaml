@@ -177,6 +177,44 @@ spec:
           requestCount: 20
           tallyBy: '$status'
 
+    - name: weighted-virtual-model
+      title: Weighted Virtual Model
+      narration: |
+        The client only ever sees "balanced" - behind it, a virtual model splits traffic 80/20 across two concrete targets, and neither target is directly requestable. A single request can't show a weighted split, so this runs 20 and tallies which target served each one. Real customer interest in weighted routing usually comes with a session-affinity caveat - a user's follow-up requests landing on a different target than their first - which this demo doesn't cover.
+      setup:
+        - name: agentgateway-model
+          config:
+            sectionName: http
+            models:
+              - name: internal-fast
+                provider: openai
+                visibility: Internal
+                transformations:
+                  - field: model
+                    expression: '"gpt-4o-mini"'
+              - name: internal-premium
+                provider: openai
+                visibility: Internal
+                transformations:
+                  - field: model
+                    expression: '"gpt-4o"'
+              - name: balanced
+                virtualModel:
+                  weighted:
+                    targets:
+                      - name: internal-fast
+                        weight: 80
+                      - name: internal-premium
+                        weight: 20
+      steps:
+        - kind: traffic-split
+          label: '20 requests to balanced, tallied by which target served each one'
+          method: POST
+          url: 'http://localhost:8080/v1/chat/completions'
+          body: '{"model": "balanced", "messages": [{"role": "user", "content": "What is 2+2?"}]}'
+          requestCount: 20
+          tallyBy: model
+
     - name: automatic-failover
       title: Automatic Failover
       narration: |
