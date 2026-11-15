@@ -45,6 +45,7 @@ describe('local-single-cluster profile', () => {
       'user2',
       'team-alpha-admin',
       'team-beta-admin',
+      'alice',
     ]);
 
     const user1 = agwDev.users.find(u => u.username === 'user1');
