@@ -1,4 +1,9 @@
-import { test, expect, describe, beforeEach, afterEach } from 'bun:test';
+import { test, expect, describe, beforeEach, afterEach, beforeAll, afterAll } from 'bun:test';
+import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
+import { createServer } from 'node:https';
+import { execaSync } from 'execa';
 import {
   runStep,
   resolveVariables,
@@ -6,7 +11,14 @@ import {
   executeHttpRequest,
   runHttpStep,
   runTrafficSplitStep,
+  applyResolve,
+  overrideAddress,
+  buildTlsOptions,
+  assertTlsOptionsSupported,
+  connectionTarget,
 } from '../../src/lib/walkthrough-steps.js';
+import { KubernetesHelper } from '../../src/lib/common.js';
+import { FeatureManager } from '../../src/lib/feature.js';
 
 describe('resolveVariables', () => {
   test('substitutes a known variable', () => {
@@ -330,6 +342,497 @@ describe('runTrafficSplitStep', () => {
     );
     expect(seenOptions.method).toBe('GET');
     expect('body' in seenOptions).toBe(false);
+  });
+});
+
+describe('applyResolve', () => {
+  test('rewrites hostname to the override address, keeps original Host header and SNI', () => {
+    const result = applyResolve('https://models-gateway.test/path', '10.0.0.5');
+    expect(result.url).toBe('https://10.0.0.5/path');
+    expect(result.hostHeader).toBe('models-gateway.test');
+    expect(result.serverName).toBe('models-gateway.test');
+  });
+
+  test('wraps an IPv6 override address in brackets', () => {
+    const result = applyResolve('https://models-gateway.test/path', '::1');
+    expect(result.url).toBe('https://[::1]/path');
+  });
+
+  test('throws when the override address is not a real IP or DNS name', () => {
+    expect(() => applyResolve('https://models-gateway.test/path', '<LB-IP>')).toThrow(
+      /not an IP address or hostname/
+    );
+  });
+
+  test('accepts a DNS name override address', () => {
+    const result = applyResolve('https://models-gateway.test/path', 'lb.internal.example.com');
+    expect(result.url).toBe('https://lb.internal.example.com/path');
+  });
+
+  test('keeps the original host (with port) as hostHeader when the URL has an explicit port', () => {
+    const result = applyResolve('https://models-gateway.test:8443/path', '10.0.0.5');
+    expect(result.hostHeader).toBe('models-gateway.test:8443');
+    expect(result.serverName).toBe('models-gateway.test');
+  });
+});
+
+describe('overrideAddress', () => {
+  let originalGetLoadBalancerAddress;
+  beforeEach(() => {
+    originalGetLoadBalancerAddress = KubernetesHelper.getLoadBalancerAddress;
+  });
+  afterEach(() => {
+    KubernetesHelper.getLoadBalancerAddress = originalGetLoadBalancerAddress;
+  });
+
+  test('resolveGateway calls getLoadBalancerAddress with the right namespace/name/timeout and returns its result', async () => {
+    const calls = [];
+    KubernetesHelper.getLoadBalancerAddress = async (namespace, name, timeout) => {
+      calls.push({ namespace, name, timeout });
+      return '10.0.0.9';
+    };
+    const address = await overrideAddress(
+      {
+        label: 'Call the gateway',
+        resolveGateway: { name: 'models-gateway', namespace: 'custom-ns' },
+      },
+      'https://models-gateway.test/v1/chat'
+    );
+    expect(address).toBe('10.0.0.9');
+    expect(calls).toEqual([{ namespace: 'custom-ns', name: 'models-gateway', timeout: 30 }]);
+  });
+
+  test('resolveGateway defaults namespace via FeatureManager.getDefaultNamespace()', async () => {
+    const calls = [];
+    KubernetesHelper.getLoadBalancerAddress = async (namespace, name) => {
+      calls.push({ namespace, name });
+      return '10.0.0.9';
+    };
+    await overrideAddress(
+      { label: 'Call the gateway', resolveGateway: { name: 'models-gateway' } },
+      'https://models-gateway.test/v1/chat'
+    );
+    expect(calls[0].namespace).toBe(FeatureManager.getDefaultNamespace());
+  });
+
+  test('rethrows a resolveGateway timeout with the step label and namespace/name, not the bare message', async () => {
+    KubernetesHelper.getLoadBalancerAddress = async () => {
+      throw new Error('Timeout waiting for LoadBalancer address');
+    };
+    await expect(
+      overrideAddress(
+        {
+          label: 'Call the gateway',
+          resolveGateway: { name: 'models-gateway', namespace: 'custom-ns' },
+        },
+        'https://models-gateway.test/v1/chat'
+      )
+    ).rejects.toThrow(
+      "Step 'Call the gateway' resolveGateway 'custom-ns/models-gateway': no LoadBalancer address within 30s"
+    );
+  });
+
+  test('rethrown resolveGateway timeout keeps the original error as .cause', async () => {
+    const originalError = new Error('Timeout waiting for LoadBalancer address');
+    KubernetesHelper.getLoadBalancerAddress = async () => {
+      throw originalError;
+    };
+    try {
+      await overrideAddress(
+        {
+          label: 'Call the gateway',
+          resolveGateway: { name: 'models-gateway', namespace: 'custom-ns' },
+        },
+        'https://models-gateway.test/v1/chat'
+      );
+      throw new Error('expected overrideAddress to throw');
+    } catch (error) {
+      expect(error.cause).toBe(originalError);
+    }
+  });
+
+  test('resolveGateway timeout still throws even when the step also sets expectConnectionFailure', async () => {
+    KubernetesHelper.getLoadBalancerAddress = async () => {
+      throw new Error('Timeout waiting for LoadBalancer address');
+    };
+    await expect(
+      overrideAddress(
+        {
+          label: 'Call the gateway',
+          resolveGateway: { name: 'models-gateway', namespace: 'custom-ns' },
+          expectConnectionFailure: true,
+        },
+        'https://models-gateway.test/v1/chat'
+      )
+    ).rejects.toThrow(/no LoadBalancer address/);
+  });
+
+  test('resolve returns just the address part when host matches the URL', async () => {
+    const address = await overrideAddress(
+      { label: 'Call the gateway', resolve: 'models-gateway.test:443:10.0.0.9' },
+      'https://models-gateway.test/v1/chat'
+    );
+    expect(address).toBe('10.0.0.9');
+  });
+
+  test('resolve throws when its host does not match the URL hostname', async () => {
+    await expect(
+      overrideAddress(
+        { label: 'Call the gateway', resolve: 'wrong-host.test:443:10.0.0.9' },
+        'https://models-gateway.test/v1/chat'
+      )
+    ).rejects.toThrow(
+      "Step 'Call the gateway' resolve host 'wrong-host.test' does not match its URL's host"
+    );
+  });
+
+  test('resolve throws when its port does not match the URL port', async () => {
+    await expect(
+      overrideAddress(
+        { label: 'Call the gateway', resolve: 'models-gateway.test:8443:10.0.0.9' },
+        'https://models-gateway.test/v1/chat'
+      )
+    ).rejects.toThrow("Step 'Call the gateway' resolve port '8443' does not match its URL's port");
+  });
+
+  test('resolve throws when the value is not in host:port:address form', async () => {
+    await expect(
+      overrideAddress(
+        { label: 'Call the gateway', resolve: 'not-valid' },
+        'https://models-gateway.test/v1/chat'
+      )
+    ).rejects.toThrow(
+      "Step 'Call the gateway' resolve 'not-valid' is not in host:port:address form"
+    );
+  });
+
+  test('both resolve and resolveGateway set throws', async () => {
+    await expect(
+      overrideAddress(
+        {
+          label: 'Call the gateway',
+          resolve: 'models-gateway.test:443:10.0.0.9',
+          resolveGateway: { name: 'models-gateway' },
+        },
+        'https://models-gateway.test/v1/chat'
+      )
+    ).rejects.toThrow("Step 'Call the gateway' sets both resolve and resolveGateway");
+  });
+
+  test('neither set returns null', async () => {
+    const address = await overrideAddress(
+      { label: 'Call the gateway' },
+      'https://models-gateway.test/v1/chat'
+    );
+    expect(address).toBeNull();
+  });
+});
+
+describe('buildTlsOptions', () => {
+  let originalKubectl;
+  let tmpDir;
+  beforeEach(() => {
+    originalKubectl = KubernetesHelper.kubectl;
+    tmpDir = mkdtempSync(join(tmpdir(), 'agw-walkthrough-steps-test-'));
+  });
+  afterEach(() => {
+    KubernetesHelper.kubectl = originalKubectl;
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  test('insecure sets rejectUnauthorized: false', async () => {
+    const tls = await buildTlsOptions({ label: 'Call it', insecure: true });
+    expect(tls).toMatchObject({ rejectUnauthorized: false });
+  });
+
+  test('clientCertRef without clientKeyRef throws', async () => {
+    await expect(
+      buildTlsOptions({ label: 'Call it', clientCertRef: '/tmp/cert.pem' })
+    ).rejects.toThrow(/clientCertRef/);
+  });
+
+  test('clientKeyRef without clientCertRef throws', async () => {
+    await expect(
+      buildTlsOptions({ label: 'Call it', clientKeyRef: '/tmp/key.pem' })
+    ).rejects.toThrow(/clientKeyRef/);
+  });
+
+  test('both clientCertRef and clientCertSecret set throws', async () => {
+    await expect(
+      buildTlsOptions({
+        label: 'Call it',
+        clientCertRef: '/tmp/cert.pem',
+        clientKeyRef: '/tmp/key.pem',
+        clientCertSecret: { name: 'my-tls' },
+      })
+    ).rejects.toThrow(/clientCertSecret/);
+  });
+
+  test('neither TLS field set resolves to undefined', async () => {
+    const tls = await buildTlsOptions({ label: 'Call it' });
+    expect(tls).toBeUndefined();
+  });
+
+  test('reads clientCertRef/clientKeyRef from local PEM files', async () => {
+    const certPath = join(tmpDir, 'cert.pem');
+    const keyPath = join(tmpDir, 'key.pem');
+    writeFileSync(certPath, '-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n');
+    writeFileSync(keyPath, '-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----\n');
+    const tls = await buildTlsOptions({
+      label: 'Call it',
+      clientCertRef: certPath,
+      clientKeyRef: keyPath,
+    });
+    expect(tls.cert).toContain('BEGIN CERTIFICATE');
+    expect(tls.key).toContain('BEGIN PRIVATE KEY');
+  });
+
+  test('clientCertSecret reads a live kubernetes.io/tls Secret and base64-decodes tls.crt/tls.key', async () => {
+    const calls = [];
+    KubernetesHelper.kubectl = async args => {
+      calls.push(args);
+      return {
+        exitCode: 0,
+        stdout: JSON.stringify({
+          type: 'kubernetes.io/tls',
+          data: {
+            'tls.crt': Buffer.from('cert-contents').toString('base64'),
+            'tls.key': Buffer.from('key-contents').toString('base64'),
+          },
+        }),
+      };
+    };
+    const tls = await buildTlsOptions({
+      label: 'Call it',
+      clientCertSecret: { name: 'my-tls', namespace: 'custom-ns' },
+    });
+    expect(tls.cert).toBe('cert-contents');
+    expect(tls.key).toBe('key-contents');
+    expect(calls).toEqual([['get', 'secret', 'my-tls', '-n', 'custom-ns', '-o', 'json']]);
+  });
+
+  test('clientCertSecret defaults namespace via FeatureManager.getDefaultNamespace()', async () => {
+    const calls = [];
+    KubernetesHelper.kubectl = async args => {
+      calls.push(args);
+      return {
+        exitCode: 0,
+        stdout: JSON.stringify({
+          data: {
+            'tls.crt': Buffer.from('cert-contents').toString('base64'),
+            'tls.key': Buffer.from('key-contents').toString('base64'),
+          },
+        }),
+      };
+    };
+    await buildTlsOptions({ label: 'Call it', clientCertSecret: { name: 'my-tls' } });
+    expect(calls[0]).toContain(FeatureManager.getDefaultNamespace());
+  });
+
+  test('a malformed Secret (missing tls.crt/tls.key) throws', async () => {
+    KubernetesHelper.kubectl = async () => ({ exitCode: 0, stdout: JSON.stringify({ data: {} }) });
+    await expect(
+      buildTlsOptions({ label: 'Call it', clientCertSecret: { name: 'my-tls', namespace: 'ns' } })
+    ).rejects.toThrow(/my-tls/);
+  });
+
+  test('a malformed Secret still throws even when expectConnectionFailure is set', async () => {
+    KubernetesHelper.kubectl = async () => ({ exitCode: 0, stdout: JSON.stringify({ data: {} }) });
+    await expect(
+      buildTlsOptions({
+        label: 'Call it',
+        clientCertSecret: { name: 'my-tls', namespace: 'ns' },
+        expectConnectionFailure: true,
+      })
+    ).rejects.toThrow(/my-tls/);
+  });
+
+  test('a kubectl read failure (secret not found) throws, even when expectConnectionFailure is set', async () => {
+    KubernetesHelper.kubectl = async () => {
+      throw new Error('secrets "my-tls" not found');
+    };
+    await expect(
+      buildTlsOptions({
+        label: 'Call it',
+        clientCertSecret: { name: 'my-tls', namespace: 'ns' },
+        expectConnectionFailure: true,
+      })
+    ).rejects.toThrow(/not found/);
+  });
+});
+
+describe('assertTlsOptionsSupported', () => {
+  test('passes when versions.bun is set and the step has a TLS option', () => {
+    expect(() =>
+      assertTlsOptionsSupported({ label: 'Call it', insecure: true }, { bun: '1.3.14' })
+    ).not.toThrow();
+  });
+
+  test('throws the exact message when versions.bun is not set and insecure is set', () => {
+    expect(() => assertTlsOptionsSupported({ label: 'Call it', insecure: true }, {})).toThrow(
+      "Step 'Call it' needs TLS options only Bun's fetch supports - run agw with Bun (bun src/cli.js)"
+    );
+  });
+
+  test('throws when versions.bun is not set and ONLY resolveGateway is set (no other TLS option)', () => {
+    expect(() =>
+      assertTlsOptionsSupported(
+        { label: 'Call it', resolveGateway: { name: 'models-gateway' } },
+        {}
+      )
+    ).toThrow(
+      "Step 'Call it' needs TLS options only Bun's fetch supports - run agw with Bun (bun src/cli.js)"
+    );
+  });
+
+  test('throws when versions.bun is not set and ONLY resolve is set (no other TLS option)', () => {
+    expect(() =>
+      assertTlsOptionsSupported(
+        { label: 'Call it', resolve: 'models-gateway.test:443:10.0.0.9' },
+        {}
+      )
+    ).toThrow(/needs TLS options only Bun's fetch supports/);
+  });
+
+  test('does not throw when neither a TLS option nor an address override is set, regardless of versions.bun', () => {
+    expect(() => assertTlsOptionsSupported({ label: 'Call it' }, {})).not.toThrow();
+  });
+});
+
+describe('against a real TLS server (resolve/insecure/client-cert/body)', () => {
+  let tmpDir, serverKeyPath, serverCertPath, clientKeyPath, clientCertPath, server, port, received;
+
+  beforeAll(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'agw-walkthrough-steps-tls-'));
+    serverKeyPath = join(tmpDir, 'server-key.pem');
+    serverCertPath = join(tmpDir, 'server-cert.pem');
+    clientKeyPath = join(tmpDir, 'client-key.pem');
+    clientCertPath = join(tmpDir, 'client-cert.pem');
+
+    // Self-signed certs (own issuer == own subject) - the server trusts the client cert
+    // directly as its CA, so no separate CA keypair is needed for this test.
+    execaSync('openssl', [
+      'req',
+      '-x509',
+      '-newkey',
+      'rsa:2048',
+      '-keyout',
+      serverKeyPath,
+      '-out',
+      serverCertPath,
+      '-days',
+      '1',
+      '-nodes',
+      '-subj',
+      '/CN=models-gateway.invalid.test',
+    ]);
+    execaSync('openssl', [
+      'req',
+      '-x509',
+      '-newkey',
+      'rsa:2048',
+      '-keyout',
+      clientKeyPath,
+      '-out',
+      clientCertPath,
+      '-days',
+      '1',
+      '-nodes',
+      '-subj',
+      '/CN=test-client',
+    ]);
+  });
+
+  afterAll(() => {
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  beforeEach(async () => {
+    received = [];
+    server = createServer(
+      {
+        key: readFileSync(serverKeyPath),
+        cert: readFileSync(serverCertPath),
+        ca: readFileSync(clientCertPath),
+        requestCert: true,
+        rejectUnauthorized: true,
+      },
+      (req, res) => {
+        let body = '';
+        req.on('data', chunk => (body += chunk));
+        req.on('end', () => {
+          received.push({ host: req.headers.host, body, contentType: req.headers['content-type'] });
+          res.end('ok');
+        });
+      }
+    );
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    port = server.address().port;
+  });
+
+  afterEach(async () => {
+    await new Promise(resolve => server.close(resolve));
+  });
+
+  test('http step: sends client cert, honors insecure, rewrites via resolve, keeps Host/content-type/body', async () => {
+    const step = {
+      label: 'Call the gateway',
+      kind: 'http',
+      method: 'POST',
+      url: `https://models-gateway.invalid.test:${port}/post`,
+      resolve: `models-gateway.invalid.test:${port}:127.0.0.1`,
+      insecure: true,
+      clientCertRef: clientCertPath,
+      clientKeyRef: clientKeyPath,
+      body: '{"hello":"world"}',
+    };
+
+    const result = await runHttpStep(step, { credentials: {}, variables: new Map() });
+
+    expect(result.status).toBe(200);
+    expect(received).toEqual([
+      {
+        host: `models-gateway.invalid.test:${port}`,
+        body: '{"hello":"world"}',
+        contentType: 'application/json',
+      },
+    ]);
+  });
+
+  test('traffic-split step: resolveGateway resolved once, every request POSTs its body to the server', async () => {
+    const originalGetLoadBalancerAddress = KubernetesHelper.getLoadBalancerAddress;
+    const lbCalls = [];
+    KubernetesHelper.getLoadBalancerAddress = async (...args) => {
+      lbCalls.push(args);
+      return '127.0.0.1';
+    };
+    try {
+      const step = {
+        label: 'Burst traffic',
+        kind: 'traffic-split',
+        method: 'POST',
+        url: `https://models-gateway.invalid.test:${port}/post`,
+        resolveGateway: { name: 'models-gateway', namespace: 'custom-ns' },
+        insecure: true,
+        clientCertRef: clientCertPath,
+        clientKeyRef: clientKeyPath,
+        body: '{"hello":"world"}',
+        requestCount: 3,
+        tallyBy: '$status',
+      };
+
+      const result = await runStep(step, { credentials: {}, variables: new Map() });
+
+      expect(result.tally).toEqual({ 200: 3 });
+      expect(received).toHaveLength(3);
+      for (const req of received) {
+        expect(req.body).toBe('{"hello":"world"}');
+        expect(req.host).toBe(`models-gateway.invalid.test:${port}`);
+      }
+      expect(lbCalls).toEqual([['custom-ns', 'models-gateway', 30]]);
+    } finally {
+      KubernetesHelper.getLoadBalancerAddress = originalGetLoadBalancerAddress;
+    }
   });
 });
 

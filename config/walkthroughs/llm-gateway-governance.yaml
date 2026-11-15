@@ -12,12 +12,34 @@ metadata:
 
     Requires a profile with `budgetDimensions` configured and an `alice` Keycloak user in the `agw-dev` realm (`agentgateway-with-keycloak`, or `local-single-cluster`, which already carries the same config) - when a credential step opens a browser login, sign in as `alice` with the cluster's `KEYCLOAK_DEFAULT_PASSWORD`.
 
-    Before starting, port-forward the gateway with `kubectl port-forward -n agentgateway-system svc/agentgateway-gw 8080:8080`.
-
-    Shares the default `agentgateway-gw` Gateway, so it cannot run live at the same time as any other usecase that also attaches a Gateway-level `keycloak-jwt-auth`, `virtual-keys`, or body-routing `providers` policy to that same Gateway - including its own source usecases, `security/openfga-rebac` and `cost-management/tiered-cost-control` - whichever deploys last silently replaces the other's policy. Does NOT conflict with `llm-gateway-routing`, which provisions its own separate `models-gateway` Gateway. Once this walkthrough is live, any other demo sending a raw, non-JWT bearer token in its Authorization header to `agentgateway-gw` is also rejected by its Gateway-wide `Optional` JWT policy. Fully clean up one conflicting usecase before running another.
+    Provisions its own dedicated `governance-gateway` Gateway, so it does not conflict with any other usecase or walkthrough that attaches a Gateway-level `keycloak-jwt-auth`, `virtual-keys`, or body-routing `providers` policy to the shared default `agentgateway-gw` Gateway - including its own source usecases, `security/openfga-rebac` and `cost-management/tiered-cost-control`.
 
 spec:
   environment: local
+  preProvision:
+    - name: certificate
+      config:
+        name: governance-gateway-tls
+        secretName: governance-gateway-tls
+        issuer: '{{env.tls.issuer}}'
+        dnsNames: [governance-gateway.test]
+    - name: gateway
+      config:
+        name: governance-gateway
+        listeners:
+          - name: https
+            port: 443
+            protocol: HTTPS
+            hostname: governance-gateway.test
+            tls: { mode: Terminate, certificateRefs: [{ name: governance-gateway-tls }] }
+            allowedRoutes:
+              namespaces:
+                from: All
+              kinds:
+                - group: gateway.networking.k8s.io
+                  kind: HTTPRoute
+                - group: agentgateway.dev
+                  kind: AgentgatewayModel
   credentials:
     alice:
       issuerUrl: 'https://{{env.domains.core.keycloak}}/realms/agw-dev'
@@ -29,7 +51,7 @@ spec:
     - name: identity-and-access
       title: Identity and Access
       narration: |
-        One endpoint, two gates: a Keycloak-issued JWT proves who's calling, then OpenFGA decides whether that identity is allowed to use the requested model - via org membership, team allowlists, or a direct grant. This screen also switches on Gateway-level API-key authentication that a later screen in this walkthrough uses, even though these steps only exercise the JWT path. The JWT is cached for this session and isn't refreshed - revisiting this screen's steps a few minutes after signing in may show a 401 instead of 200/403 simply because the token expired; the capstone screen signs in again under its own credential, so it isn't affected. Before running the steps below, port-forward the gateway with `kubectl port-forward -n agentgateway-system svc/agentgateway-gw 8080:8080`.
+        One endpoint, two gates: a Keycloak-issued JWT proves who's calling, then OpenFGA decides whether that identity is allowed to use the requested model - via org membership, team allowlists, or a direct grant. This screen also switches on Gateway-level API-key authentication that a later screen in this walkthrough uses, even though these steps only exercise the JWT path. The JWT is cached for this session and isn't refreshed - revisiting this screen's steps a few minutes after signing in may show a 401 instead of 200/403 simply because the token expired; the capstone screen signs in again under its own credential, so it isn't affected.
       setup:
         - name: openfga
           config:
@@ -51,6 +73,7 @@ spec:
                 model: claude-sonnet-5
         - name: keycloak-jwt-auth
           config:
+            gatewayName: governance-gateway
             keycloakHost: '{{env.domains.core.keycloak}}'
             mode: Optional
             claimHeaders:
@@ -88,27 +111,33 @@ spec:
         - kind: http
           label: 'POST /gov-chat (gpt-4o, no credentials)'
           method: POST
-          url: 'http://localhost:8080/gov-chat'
+          url: 'https://governance-gateway.test/gov-chat'
+          resolveGateway: { name: governance-gateway }
+          insecure: true
           body: '{"model": "gpt-4o", "messages": [{"role": "user", "content": "What is 2+2?"}]}'
           expectStatus: 401
         - kind: http
           label: 'POST /gov-chat (gpt-4o, alice via JWT)'
           credential: alice
           method: POST
-          url: 'http://localhost:8080/gov-chat'
+          url: 'https://governance-gateway.test/gov-chat'
+          resolveGateway: { name: governance-gateway }
+          insecure: true
           body: '{"model": "gpt-4o", "messages": [{"role": "user", "content": "What is 2+2?"}]}'
           expectStatus: 200
         - kind: http
           label: 'POST /gov-chat (claude-sonnet-5, alice via JWT)'
           credential: alice
           method: POST
-          url: 'http://localhost:8080/gov-chat'
+          url: 'https://governance-gateway.test/gov-chat'
+          resolveGateway: { name: governance-gateway }
+          insecure: true
           body: '{"model": "claude-sonnet-5", "messages": [{"role": "user", "content": "What is 2+2?"}]}'
           expectStatus: 403
     - name: budget-and-spend-limits
       title: Budget and Spend Limits
       narration: |
-        Virtual API keys carry their own identity and token budgets - no JWT required. This screen issues alice, bob, and team-ci keys scoped to a dedicated route, then layers per-key budgets on top: bob's daily budget is exhausted by the first real request of the day and blocks every one after it with 429 (budget usage is recorded after a request completes, so the very first request in a fresh window still goes through), alice's is also exhausted but only audits (logs) the overage and lets the request through, and a wildcard org-wide monthly ceiling acts as a catch-all safety net. Because screen 1 already switched on a Gateway-wide Optional API-key policy, these requests use X-Api-Key instead of Authorization - a present-but-malformed Authorization header would otherwise be parsed as a JWT and rejected. This route's own key check is also Optional, not Strict - a Route-scoped Strict check on the same header never sees it once the Gateway-level Optional check has already read it, so it would reject every request outright. The tradeoff: a malformed key is still rejected, but a request with no key at all is forwarded unauthenticated, since no other auth method is stacked on this route. Before running the steps below, port-forward the gateway with `kubectl port-forward -n agentgateway-system svc/agentgateway-gw 8080:8080`.
+        Virtual API keys carry their own identity and token budgets - no JWT required. This screen issues alice, bob, and team-ci keys scoped to a dedicated route, then layers per-key budgets on top: bob's daily budget is exhausted by the first real request of the day and blocks every one after it with 429 (budget usage is recorded after a request completes, so the very first request in a fresh window still goes through), alice's is also exhausted but only audits (logs) the overage and lets the request through, and a wildcard org-wide monthly ceiling acts as a catch-all safety net. Because screen 1 already switched on a Gateway-wide Optional API-key policy, these requests use X-Api-Key instead of Authorization - a present-but-malformed Authorization header would otherwise be parsed as a JWT and rejected. This route's own key check is also Optional, not Strict - a Route-scoped Strict check on the same header never sees it once the Gateway-level Optional check has already read it, so it would reject every request outright. The tradeoff: a malformed key is still rejected, but a request with no key at all is forwarded unauthenticated, since no other auth method is stacked on this route.
       setup:
         - name: providers
           config:
@@ -126,7 +155,7 @@ spec:
             targetRefs:
               - group: gateway.networking.k8s.io
                 kind: HTTPRoute
-                name: gov-cost-openai
+                name: governance-gateway-gov-cost-openai
             keys:
               - name: alice
                 key: sk-alice-demo-abc123def456
@@ -145,7 +174,7 @@ spec:
             targetRefs:
               - group: gateway.networking.k8s.io
                 kind: HTTPRoute
-                name: gov-cost-openai
+                name: governance-gateway-gov-cost-openai
             budgets:
               - name: bob-daily-tokens
                 subject:
@@ -178,7 +207,9 @@ spec:
         - kind: http
           label: 'POST /gov-cost (bob, 1-token daily budget exceeded, Block)'
           method: POST
-          url: 'http://localhost:8080/gov-cost'
+          url: 'https://governance-gateway.test/gov-cost'
+          resolveGateway: { name: governance-gateway }
+          insecure: true
           headers:
             X-Api-Key: sk-bob-demo-xyz789uvw012
           body: '{"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "Hello"}]}'
@@ -186,7 +217,9 @@ spec:
         - kind: http
           label: 'POST /gov-cost (alice, 1-token daily budget exceeded, Audit only)'
           method: POST
-          url: 'http://localhost:8080/gov-cost'
+          url: 'https://governance-gateway.test/gov-cost'
+          resolveGateway: { name: governance-gateway }
+          insecure: true
           headers:
             X-Api-Key: sk-alice-demo-abc123def456
           body: '{"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "Hello"}]}'
@@ -194,7 +227,7 @@ spec:
     - name: prompt-guardrails
       title: Prompt Guardrails
       narration: |
-        Unlike the previous two screens, this one shares no Gateway-level policy, credential, or API key - it's a single route guarded by its own prompt-guards policy, scoped via targetRefs so it only applies here. agentgateway's guardrail engine scans both the request and the response: built-in PII detectors (SSN, credit card, phone number) and custom regex patterns (credit card mentions, prompt-injection phrases, password requests) reject a request before it reaches the LLM, and the same builtins mask sensitive data in anything that comes back. No JWT and no API key are involved - these requests are unauthenticated by design, since this screen only exercises guardrail behavior. Before running the steps below, port-forward the gateway with `kubectl port-forward -n agentgateway-system svc/agentgateway-gw 8080:8080`.
+        Unlike the previous two screens, this one shares no Gateway-level policy, credential, or API key - it's a single route guarded by its own prompt-guards policy, scoped via targetRefs so it only applies here. agentgateway's guardrail engine scans both the request and the response: built-in PII detectors (SSN, credit card, phone number) and custom regex patterns (credit card mentions, prompt-injection phrases, password requests) reject a request before it reaches the LLM, and the same builtins mask sensitive data in anything that comes back. No JWT and no API key are involved - these requests are unauthenticated by design, since this screen only exercises guardrail behavior.
       setup:
         - name: providers
           config:
@@ -208,7 +241,7 @@ spec:
             targetRefs:
               - group: gateway.networking.k8s.io
                 kind: HTTPRoute
-                name: gov-guardrails-openai
+                name: governance-gateway-gov-guardrails-openai
             request:
               customResponse:
                 message: 'Request rejected due to policy violation'
@@ -230,19 +263,23 @@ spec:
         - kind: http
           label: 'POST /gov-guardrails (SSN in prompt, blocked)'
           method: POST
-          url: 'http://localhost:8080/gov-guardrails'
+          url: 'https://governance-gateway.test/gov-guardrails'
+          resolveGateway: { name: governance-gateway }
+          insecure: true
           body: '{"model": "gpt-4o", "messages": [{"role": "user", "content": "My SSN is 123-45-6789, can you help me?"}]}'
           expectStatus: 403
         - kind: http
           label: 'POST /gov-guardrails (clean prompt, allowed)'
           method: POST
-          url: 'http://localhost:8080/gov-guardrails'
+          url: 'https://governance-gateway.test/gov-guardrails'
+          resolveGateway: { name: governance-gateway }
+          insecure: true
           body: '{"model": "gpt-4o", "messages": [{"role": "user", "content": "What is the capital of France?"}]}'
           expectStatus: 200
     - name: token-rate-limiting
       title: Token Rate Limiting
       narration: |
-        This screen's policy counts input tokens per proxy replica, not centrally - each replica enforces its own budget independently, with no shared rate-limit server. The route is scoped to its own rate-limit policy via targetRefs, with no shared Gateway-level policy, credential, or API key - fully self-contained like the guardrails screen. "What is your favorite poem?" consumes about 5 tokens, and the budget is 5 tokens per minute, so the first request fits but the second - fired immediately after, within the same minute - exceeds it and gets a 429. Because the counter is per-replica, this demo only behaves this way if the gateway is running a single replica; with more than one replica, the second request could land on a different replica with its own fresh budget and succeed instead. Before running the steps below, port-forward the gateway with `kubectl port-forward -n agentgateway-system svc/agentgateway-gw 8080:8080`.
+        This screen's policy counts input tokens per proxy replica, not centrally - each replica enforces its own budget independently, with no shared rate-limit server. The route is scoped to its own rate-limit policy via targetRefs, with no shared Gateway-level policy, credential, or API key - fully self-contained like the guardrails screen. "What is your favorite poem?" consumes about 5 tokens, and the budget is 5 tokens per minute, so the first request fits but the second - fired immediately after, within the same minute - exceeds it and gets a 429. Because the counter is per-replica, this demo only behaves this way if the gateway is running a single replica; with more than one replica, the second request could land on a different replica with its own fresh budget and succeed instead.
       setup:
         - name: providers
           config:
@@ -260,24 +297,28 @@ spec:
             targetRefs:
               - group: gateway.networking.k8s.io
                 kind: HTTPRoute
-                name: gov-ratelimit-openai
+                name: governance-gateway-gov-ratelimit-openai
       steps:
         - kind: http
           label: 'POST /gov-ratelimit (first request, within 5-token/minute budget)'
           method: POST
-          url: 'http://localhost:8080/gov-ratelimit'
+          url: 'https://governance-gateway.test/gov-ratelimit'
+          resolveGateway: { name: governance-gateway }
+          insecure: true
           body: '{"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "What is your favorite poem?"}]}'
           expectStatus: 200
         - kind: http
           label: 'POST /gov-ratelimit (second request, same minute, budget exceeded)'
           method: POST
-          url: 'http://localhost:8080/gov-ratelimit'
+          url: 'https://governance-gateway.test/gov-ratelimit'
+          resolveGateway: { name: governance-gateway }
+          insecure: true
           body: '{"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "What is your favorite poem?"}]}'
           expectStatus: 429
     - name: defense-in-depth
       title: Defense in Depth
       narration: |
-        The capstone: every control in this walkthrough, stacked on one route. A Keycloak JWT or a virtual API key proves identity - the same Gateway-level policy screen 1 switched on - OpenFGA ReBAC decides which models that identity can reach, five independent budgets cap spend across four levels - org, team, per-user, and the automation key - and a token-based rate limit catches bursts within the minute. Authentication, authorization, budget, and rate limit are each enforced independently - a request can pass one and still be rejected by the next. alice can reach gpt-4o-mini via her org:acme entitlement, but claude-sonnet-5 is denied by OpenFGA before the budget layer is ever reached, since she isn't on team:acme-ml. team-ci authenticates via its own API key and is entitled to gpt-4o-mini, but its 1-token daily budget is exhausted by the first real request of the day and blocks every one after it with 429 (budget usage is recorded after a request completes, so the very first request in a fresh window still goes through) - so it's the budget layer, not authz, that rejects it. Before running the steps below, port-forward the gateway with `kubectl port-forward -n agentgateway-system svc/agentgateway-gw 8080:8080`.
+        The capstone: every control in this walkthrough, stacked on one route. A Keycloak JWT or a virtual API key proves identity - the same Gateway-level policy screen 1 switched on - OpenFGA ReBAC decides which models that identity can reach, five independent budgets cap spend across four levels - org, team, per-user, and the automation key - and a token-based rate limit catches bursts within the minute. Authentication, authorization, budget, and rate limit are each enforced independently - a request can pass one and still be rejected by the next. alice can reach gpt-4o-mini via her org:acme entitlement, but claude-sonnet-5 is denied by OpenFGA before the budget layer is ever reached, since she isn't on team:acme-ml. team-ci authenticates via its own API key and is entitled to gpt-4o-mini, but its 1-token daily budget is exhausted by the first real request of the day and blocks every one after it with 429 (budget usage is recorded after a request completes, so the very first request in a fresh window still goes through) - so it's the budget layer, not authz, that rejects it.
       setup:
         - name: openfga
           config:
@@ -299,6 +340,7 @@ spec:
                 model: claude-sonnet-5
         - name: keycloak-jwt-auth
           config:
+            gatewayName: governance-gateway
             keycloakHost: '{{env.domains.core.keycloak}}'
             mode: Optional
             claimHeaders:
@@ -400,20 +442,26 @@ spec:
           label: 'POST /gov-chat-tiered (gpt-4o-mini, alice via JWT, allowed)'
           credential: alice2
           method: POST
-          url: 'http://localhost:8080/gov-chat-tiered'
+          url: 'https://governance-gateway.test/gov-chat-tiered'
+          resolveGateway: { name: governance-gateway }
+          insecure: true
           body: '{"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "What is 2+2?"}]}'
           expectStatus: 200
         - kind: http
           label: 'POST /gov-chat-tiered (claude-sonnet-5, alice via JWT, denied by OpenFGA)'
           credential: alice2
           method: POST
-          url: 'http://localhost:8080/gov-chat-tiered'
+          url: 'https://governance-gateway.test/gov-chat-tiered'
+          resolveGateway: { name: governance-gateway }
+          insecure: true
           body: '{"model": "claude-sonnet-5", "messages": [{"role": "user", "content": "What is 2+2?"}]}'
           expectStatus: 403
         - kind: http
           label: 'POST /gov-chat-tiered (gpt-4o-mini, team-ci via API key, denied by budget)'
           method: POST
-          url: 'http://localhost:8080/gov-chat-tiered'
+          url: 'https://governance-gateway.test/gov-chat-tiered'
+          resolveGateway: { name: governance-gateway }
+          insecure: true
           headers:
             X-Api-Key: sk-team-ci-demo-9f3c7a1e
           body: '{"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "Hello"}]}'
