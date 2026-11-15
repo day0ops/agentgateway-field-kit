@@ -441,9 +441,10 @@ export class PolicyRegistry {
    * contributors. Each `agw usecase deploy`/`agw walkthrough run` invocation is its own
    * process with its own empty PolicyRegistry maps, so a second deployment's commit() has no
    * in-memory record of a first deployment's earlier, separate commit() - without this read,
-   * it would silently overwrite the first's `agentgateway.dev/contributor-deployments` label
-   * instead of adding to it, and cleanupMergedPolicies() could never tell the object was still
-   * shared. Best-effort: a missing object or an unreadable label is just treated as "none yet".
+   * it would silently overwrite the first's `agentgateway.dev/contributor-deployments`
+   * annotation instead of adding to it, and cleanupMergedPolicies() could never tell the
+   * object was still shared. Best-effort: a missing object or an unreadable annotation is
+   * just treated as "none yet".
    */
   static async _getLiveContributorDeployments(kind, name, namespace) {
     try {
@@ -455,7 +456,7 @@ export class PolicyRegistry {
           '-n',
           namespace,
           '-o',
-          "jsonpath={.metadata.labels['agentgateway\\.dev/contributor-deployments']}",
+          "jsonpath={.metadata.annotations['agentgateway\\.dev/contributor-deployments']}",
         ],
         { ignoreError: true }
       );
@@ -504,14 +505,20 @@ export class PolicyRegistry {
         ...(cleanPolicy.metadata.labels || {}),
         'agentgateway.dev/merged-policy': 'true',
         'agentgateway.dev/contributors': contributors.join('_'),
-        // Which usecase(s)/walkthrough(s) contributed - lets cleanupMergedPolicies() delete
-        // this object only when its caller is the sole contributor, never one another
-        // deployment still relies on. Omitted when nothing ever passed a deploymentId, so
-        // callers that don't opt in (e.g. runbook dry-run previews) see unchanged output.
-        ...(deploymentContributors.length > 0
-          ? { 'agentgateway.dev/contributor-deployments': deploymentContributors.join('_') }
-          : {}),
       };
+      // Which usecase(s)/walkthrough(s) contributed - lets cleanupMergedPolicies() delete this
+      // object only when its caller is the sole contributor, never one another deployment
+      // still relies on. An annotation, not a label: usecase/walkthrough names are
+      // user-chosen and unbounded, and a joined multi-deployment list can exceed the 63-byte
+      // label-value limit a label would enforce (annotations have no such limit). Omitted
+      // when nothing ever passed a deploymentId, so callers that don't opt in (e.g. runbook
+      // dry-run previews) see unchanged output.
+      if (deploymentContributors.length > 0) {
+        cleanPolicy.metadata.annotations = {
+          ...(cleanPolicy.metadata.annotations || {}),
+          'agentgateway.dev/contributor-deployments': deploymentContributors.join('_'),
+        };
+      }
 
       const yamlContent = yaml.dump(cleanPolicy, { lineWidth: -1, indent: 2 });
 
@@ -527,12 +534,12 @@ export class PolicyRegistry {
   /**
    * Deletes merged EnterpriseAgentgatewayPolicy resources `deploymentId` is the SOLE
    * contributor to; for one still shared with another deployment, removes just `deploymentId`
-   * from its `agentgateway.dev/contributor-deployments` label (never touching `spec`) and
+   * from its `agentgateway.dev/contributor-deployments` annotation (never touching `spec`) and
    * leaves the object itself in place, so whichever deployment cleans up last still finds
    * itself as the sole remaining contributor and can delete it - rather than leaving a stale
-   * label naming an already-cleaned-up deployment forever. Silently ignores a policy belonging
-   * entirely to a different deployment. A per-feature cleanup() can only delete a policy by
-   * that feature's own expected name, never the renamed `<feature>-<target>`/
+   * reference naming an already-cleaned-up deployment forever. Silently ignores a policy
+   * belonging entirely to a different deployment. A per-feature cleanup() can only delete a
+   * policy by that feature's own expected name, never the renamed `<feature>-<target>`/
    * `merged-<a>-<b>-<target>` object commit() actually applies, so this sweep is the only way
    * those resources get cleaned up at all. Shared by UseCaseManager and the walkthrough
    * runner. Best-effort: never throws, only warns.
@@ -540,6 +547,10 @@ export class PolicyRegistry {
    * @param {string} namespace
    */
   static async cleanupMergedPolicies(deploymentId, namespace) {
+    // Features stamp this.deploymentId (already sanitized by the Feature constructor) onto
+    // what they create - comparing a raw, unsanitized caller id against that would never
+    // match for any name sanitization actually changed (invalid characters, '_', >63 bytes).
+    deploymentId = sanitizeDeploymentId(deploymentId);
     try {
       const result = await KubernetesHelper.kubectl(
         [
@@ -576,10 +587,12 @@ export class PolicyRegistry {
         const policyName = item.metadata?.name;
         if (!policyName) continue;
 
-        const deploymentsLabel =
-          item.metadata?.labels?.['agentgateway.dev/contributor-deployments'];
-        const deployments = deploymentsLabel ? deploymentsLabel.split('_').filter(Boolean) : [];
-        if (!deploymentsLabel) unlabeledCount++;
+        const deploymentsAnnotation =
+          item.metadata?.annotations?.['agentgateway.dev/contributor-deployments'];
+        const deployments = deploymentsAnnotation
+          ? deploymentsAnnotation.split('_').filter(Boolean)
+          : [];
+        if (!deploymentsAnnotation) unlabeledCount++;
 
         if (!deployments.includes(deploymentId)) {
           // Not ours - some other deployment's (or an unlabeled/pre-migration) merged policy.
@@ -590,9 +603,9 @@ export class PolicyRegistry {
           Logger.warn(
             `Merged policy '${policyName}' is still shared with ${others.join(', ')} - removing '${deploymentId}' from its contributor list and skipping deletion`
           );
-          const labelResult = await KubernetesHelper.kubectl(
+          const annotateResult = await KubernetesHelper.kubectl(
             [
-              'label',
+              'annotate',
               'enterpriseagentgatewaypolicy',
               policyName,
               '-n',
@@ -602,9 +615,9 @@ export class PolicyRegistry {
             ],
             { ignoreError: true }
           );
-          if (labelResult.exitCode !== 0) {
+          if (annotateResult.exitCode !== 0) {
             Logger.warn(
-              `Failed to update merged policy '${policyName}''s contributor-deployments label: ${labelResult.stderr?.trim() || `exit code ${labelResult.exitCode}`}`
+              `Failed to update merged policy '${policyName}''s contributor-deployments annotation: ${annotateResult.stderr?.trim() || `exit code ${annotateResult.exitCode}`}`
             );
           }
           continue;
@@ -630,7 +643,7 @@ export class PolicyRegistry {
 
       if (unlabeledCount > 0) {
         Logger.info(
-          `${unlabeledCount} merged EnterpriseAgentgatewayPolicy resource(s) predate this cleanup scoping and have no contributor-deployments label - left in place; redeploy and clean up again, or remove manually if no longer needed.`
+          `${unlabeledCount} merged EnterpriseAgentgatewayPolicy resource(s) predate this cleanup scoping and have no contributor-deployments annotation - left in place; redeploy and clean up again, or remove manually if no longer needed.`
         );
       }
     } catch (error) {

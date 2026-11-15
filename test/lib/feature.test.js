@@ -2,6 +2,7 @@ import { test, expect, describe, beforeEach, afterEach } from 'bun:test';
 import { Feature, FeatureManager, PolicyRegistry } from '../../src/lib/feature.js';
 import { EDITIONS } from '../../src/lib/editions.js';
 import { KubernetesHelper, Logger } from '../../src/lib/common.js';
+import yaml from 'js-yaml';
 
 class DummyBothFeature extends Feature {
   static lastDeployedEdition = null;
@@ -334,6 +335,7 @@ describe('PolicyRegistry deployment-contributor tracking', () => {
       KubernetesHelper.applyYaml = async yamlContent => {
         appliedYamlDocs.push(yamlContent);
       };
+      originalKubectl = KubernetesHelper.kubectl;
     });
 
     afterEach(() => {
@@ -355,7 +357,6 @@ describe('PolicyRegistry deployment-contributor tracking', () => {
       // this process's PolicyRegistry only ever registered 'walkthrough-b', but the object
       // already live on the cluster (from an earlier, separate commit() by 'walkthrough-a')
       // lists 'walkthrough-a'.
-      originalKubectl = KubernetesHelper.kubectl;
       KubernetesHelper.kubectl = async () => ({
         exitCode: 0,
         stdout: 'walkthrough-a',
@@ -371,7 +372,6 @@ describe('PolicyRegistry deployment-contributor tracking', () => {
     });
 
     test('a first-ever deploy with no live object yet records only its own contributor', async () => {
-      originalKubectl = KubernetesHelper.kubectl;
       KubernetesHelper.kubectl = async () => ({ exitCode: 1, stdout: '', stderr: 'not found' });
 
       PolicyRegistry.register(policyWithNamespace(), 'feature-a', 'default', 'walkthrough-a');
@@ -380,6 +380,33 @@ describe('PolicyRegistry deployment-contributor tracking', () => {
       expect(appliedYamlDocs[0]).toContain(
         'agentgateway.dev/contributor-deployments: walkthrough-a'
       );
+    });
+
+    test('contributor-deployments is written as an annotation, not a label - a label value is capped at 63 bytes, and a joined multi-deployment list (prefixed usecase./walkthrough. names) can exceed that', async () => {
+      // A realistically long existing contributor, close to what a single sanitized,
+      // prefixed name can already be (63 bytes) - unioned with this commit's own contributor,
+      // the combined value alone is well past what a label value could legally hold.
+      const longExisting = `usecase.${'a'.repeat(55)}`;
+      KubernetesHelper.kubectl = async () => ({ exitCode: 0, stdout: longExisting, stderr: '' });
+
+      PolicyRegistry.register(
+        policyWithNamespace(),
+        'feature-a',
+        'default',
+        'walkthrough.budget-and-spend-limits'
+      );
+      await PolicyRegistry.commit();
+
+      const combinedValue = `${longExisting}_walkthrough.budget-and-spend-limits`;
+      expect(combinedValue.length).toBeGreaterThan(63);
+
+      const parsed = yaml.load(appliedYamlDocs[0]);
+      // Must appear whole, under annotations (no length limit) - not under labels, which
+      // Kubernetes would reject outright for a value this long.
+      expect(parsed.metadata.annotations?.['agentgateway.dev/contributor-deployments']).toBe(
+        combinedValue
+      );
+      expect(parsed.metadata.labels?.['agentgateway.dev/contributor-deployments']).toBeUndefined();
     });
   });
 });
@@ -417,12 +444,29 @@ describe('PolicyRegistry.cleanupMergedPolicies', () => {
     return calls.filter(args => args[0] === verb);
   }
 
+  test('sanitizes its own deploymentId argument before comparing, so an unsanitized caller id still matches the sanitized value features actually stamp', async () => {
+    // Features stamp this.deploymentId - already sanitized by the Feature constructor - so a
+    // caller passing the raw, unsanitized usecase/walkthrough name here must still match.
+    items = [
+      {
+        metadata: {
+          name: 'merged-a-b-my-route',
+          annotations: { 'agentgateway.dev/contributor-deployments': 'my-usecase' },
+        },
+      },
+    ];
+
+    await PolicyRegistry.cleanupMergedPolicies('my_usecase', 'agentgateway-system');
+
+    expect(callsOf('delete')).toHaveLength(1);
+  });
+
   test('deletes a merged policy whose sole contributing deployment matches', async () => {
     items = [
       {
         metadata: {
           name: 'merged-a-b-my-route',
-          labels: { 'agentgateway.dev/contributor-deployments': 'my-walkthrough' },
+          annotations: { 'agentgateway.dev/contributor-deployments': 'my-walkthrough' },
         },
       },
     ];
@@ -434,12 +478,12 @@ describe('PolicyRegistry.cleanupMergedPolicies', () => {
     expect(deleteCalls[0]).toContain('merged-a-b-my-route');
   });
 
-  test('skips deletion, warns, and trims itself out of the contributor-deployments label when the merged policy is still shared with another deployment', async () => {
+  test('skips deletion, warns, and trims itself out of the contributor-deployments annotation when the merged policy is still shared with another deployment', async () => {
     items = [
       {
         metadata: {
           name: 'merged-a-b-my-route',
-          labels: {
+          annotations: {
             'agentgateway.dev/contributor-deployments': 'my-walkthrough_someone-elses-usecase',
           },
         },
@@ -451,14 +495,14 @@ describe('PolicyRegistry.cleanupMergedPolicies', () => {
     expect(callsOf('delete')).toHaveLength(0);
     expect(warnings.some(w => w.includes('someone-elses-usecase'))).toBe(true);
     // The object itself is left alone (spec untouched) - only its contributor-deployments
-    // label shrinks, so whoever cleans up last still sees itself as the sole contributor.
-    const labelCalls = callsOf('label');
-    expect(labelCalls).toHaveLength(1);
-    expect(labelCalls[0]).toContain('merged-a-b-my-route');
-    expect(labelCalls[0]).toContain(
+    // annotation shrinks, so whoever cleans up last still sees itself as the sole contributor.
+    const annotateCalls = callsOf('annotate');
+    expect(annotateCalls).toHaveLength(1);
+    expect(annotateCalls[0]).toContain('merged-a-b-my-route');
+    expect(annotateCalls[0]).toContain(
       'agentgateway.dev/contributor-deployments=someone-elses-usecase'
     );
-    expect(labelCalls[0]).toContain('--overwrite');
+    expect(annotateCalls[0]).toContain('--overwrite');
   });
 
   test('silently skips a merged policy belonging entirely to another deployment', async () => {
@@ -466,7 +510,7 @@ describe('PolicyRegistry.cleanupMergedPolicies', () => {
       {
         metadata: {
           name: 'merged-x-y-someone-elses-route',
-          labels: { 'agentgateway.dev/contributor-deployments': 'someone-elses-usecase' },
+          annotations: { 'agentgateway.dev/contributor-deployments': 'someone-elses-usecase' },
         },
       },
     ];
@@ -493,7 +537,7 @@ describe('PolicyRegistry.cleanupMergedPolicies', () => {
       {
         metadata: {
           name: 'merged-a-b-my-route',
-          labels: { 'agentgateway.dev/contributor-deployments': 'some-deployment' },
+          annotations: { 'agentgateway.dev/contributor-deployments': 'some-deployment' },
         },
       },
     ];
