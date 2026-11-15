@@ -105,6 +105,34 @@ describe('Feature instance deploymentId resolution', () => {
     expect(feature.deploymentId).toBe('my-walkthrough');
   });
 
+  test('a deploymentId over 63 bytes is truncated (an unsanitized one would fail every kubectl apply)', () => {
+    const feature = new DummyBothFeature('__test-dummy-both', {
+      deploymentId: 'a'.repeat(100),
+    });
+    expect(feature.deploymentId).toHaveLength(63);
+  });
+
+  test("a deploymentId containing '_' has it replaced with '-' (it would otherwise corrupt the '_'-joined multi-deployment label)", () => {
+    const feature = new DummyBothFeature('__test-dummy-both', {
+      deploymentId: 'my_usecase_name',
+    });
+    expect(feature.deploymentId).toBe('my-usecase-name');
+  });
+
+  test('a deploymentId with characters invalid in a label value has them replaced with -', () => {
+    const feature = new DummyBothFeature('__test-dummy-both', {
+      deploymentId: 'security/openfga-rebac',
+    });
+    expect(feature.deploymentId).toBe('security-openfga-rebac');
+  });
+
+  test('a deploymentId trims leading/trailing non-alphanumeric characters left over after sanitizing', () => {
+    const feature = new DummyBothFeature('__test-dummy-both', {
+      deploymentId: '-leading-trailing-',
+    });
+    expect(feature.deploymentId).toBe('leading-trailing');
+  });
+
   test('FeatureManager.deploy threads options.deploymentId into the feature instance', async () => {
     class CapturingFeature extends Feature {
       async deploy() {
@@ -139,7 +167,7 @@ describe('Feature instance deploymentId resolution', () => {
 });
 
 describe('Feature.applyResource deployment labeling', () => {
-  let originalApplyYaml, appliedYamlDocs;
+  let originalApplyYaml, originalKubectl, appliedYamlDocs;
 
   beforeEach(() => {
     appliedYamlDocs = [];
@@ -147,10 +175,16 @@ describe('Feature.applyResource deployment labeling', () => {
     KubernetesHelper.applyYaml = async yamlContent => {
       appliedYamlDocs.push(yamlContent);
     };
+    // commit() (used below, without dryRun) reads back the live object's existing
+    // contributor-deployments label before writing - mock it so this suite never depends on
+    // a real cluster. Default: no existing object (as if nothing's been deployed yet).
+    originalKubectl = KubernetesHelper.kubectl;
+    KubernetesHelper.kubectl = async () => ({ exitCode: 1, stdout: '', stderr: 'not found' });
   });
 
   afterEach(() => {
     KubernetesHelper.applyYaml = originalApplyYaml;
+    KubernetesHelper.kubectl = originalKubectl;
   });
 
   test('stamps agentgateway.dev/deployment on a non-policy resource when deploymentId is set', async () => {
@@ -202,6 +236,20 @@ describe('Feature.applyResource deployment labeling', () => {
       PolicyRegistry.disable();
       PolicyRegistry.clear();
     }
+  });
+
+  test('DOES stamp the scalar deployment label on a policy-shaped resource when PolicyRegistry is disabled (never deferred, so never merged)', async () => {
+    expect(PolicyRegistry.isEnabled()).toBe(false);
+    const feature = new Feature('__test-policy-feature', { deploymentId: 'my-walkthrough' });
+    await feature.applyResource({
+      apiVersion: 'enterpriseagentgateway.solo.io/v1alpha1',
+      kind: 'EnterpriseAgentgatewayPolicy',
+      metadata: { name: 'my-policy' },
+      spec: { targetRefs: [{ kind: 'HTTPRoute', name: 'my-route' }], traffic: {} },
+    });
+
+    expect(appliedYamlDocs).toHaveLength(1);
+    expect(appliedYamlDocs[0]).toContain('agentgateway.dev/deployment: my-walkthrough');
   });
 });
 
@@ -276,56 +324,118 @@ describe('PolicyRegistry deployment-contributor tracking', () => {
     const [doc] = await PolicyRegistry.commit({ dryRun: true });
     expect(doc).not.toContain('agentgateway.dev/contributor-deployments');
   });
+
+  describe('cross-session union with the live object (non-dry-run commit only)', () => {
+    let originalKubectl, originalApplyYaml, appliedYamlDocs;
+
+    beforeEach(() => {
+      appliedYamlDocs = [];
+      originalApplyYaml = KubernetesHelper.applyYaml;
+      KubernetesHelper.applyYaml = async yamlContent => {
+        appliedYamlDocs.push(yamlContent);
+      };
+    });
+
+    afterEach(() => {
+      KubernetesHelper.kubectl = originalKubectl;
+      KubernetesHelper.applyYaml = originalApplyYaml;
+    });
+
+    function policyWithNamespace(targetName = 'my-route') {
+      return {
+        apiVersion: 'enterpriseagentgateway.solo.io/v1alpha1',
+        kind: 'EnterpriseAgentgatewayPolicy',
+        metadata: { name: 'placeholder', namespace: 'agentgateway-system' },
+        spec: { targetRefs: [{ kind: 'HTTPRoute', name: targetName }], traffic: {} },
+      };
+    }
+
+    test("a second, separate deploy's commit() unions its own contributor with whatever the live object already lists, instead of overwriting it", async () => {
+      // Simulates two independent processes (two separate `agw walkthrough run` invocations):
+      // this process's PolicyRegistry only ever registered 'walkthrough-b', but the object
+      // already live on the cluster (from an earlier, separate commit() by 'walkthrough-a')
+      // lists 'walkthrough-a'.
+      originalKubectl = KubernetesHelper.kubectl;
+      KubernetesHelper.kubectl = async () => ({
+        exitCode: 0,
+        stdout: 'walkthrough-a',
+        stderr: '',
+      });
+
+      PolicyRegistry.register(policyWithNamespace(), 'feature-a', 'default', 'walkthrough-b');
+      await PolicyRegistry.commit();
+
+      expect(appliedYamlDocs[0]).toContain(
+        'agentgateway.dev/contributor-deployments: walkthrough-a_walkthrough-b'
+      );
+    });
+
+    test('a first-ever deploy with no live object yet records only its own contributor', async () => {
+      originalKubectl = KubernetesHelper.kubectl;
+      KubernetesHelper.kubectl = async () => ({ exitCode: 1, stdout: '', stderr: 'not found' });
+
+      PolicyRegistry.register(policyWithNamespace(), 'feature-a', 'default', 'walkthrough-a');
+      await PolicyRegistry.commit();
+
+      expect(appliedYamlDocs[0]).toContain(
+        'agentgateway.dev/contributor-deployments: walkthrough-a'
+      );
+    });
+  });
 });
 
 describe('PolicyRegistry.cleanupMergedPolicies', () => {
-  let originalKubectl, originalWarn, warnings;
+  let originalKubectl, originalWarn, originalInfo, warnings, infos, calls, items;
 
   beforeEach(() => {
     warnings = [];
     originalWarn = Logger.warn;
     Logger.warn = msg => warnings.push(msg);
-  });
+    infos = [];
+    originalInfo = Logger.info;
+    Logger.info = msg => infos.push(msg);
 
-  afterEach(() => {
-    KubernetesHelper.kubectl = originalKubectl;
-    Logger.warn = originalWarn;
-  });
-
-  function mockList(items) {
+    calls = [];
+    items = [];
     originalKubectl = KubernetesHelper.kubectl;
     KubernetesHelper.kubectl = async args => {
+      calls.push(args);
       if (args[0] === 'get') {
         return { exitCode: 0, stdout: JSON.stringify({ items }), stderr: '' };
       }
       return { exitCode: 0, stdout: '', stderr: '' };
     };
+  });
+
+  afterEach(() => {
+    KubernetesHelper.kubectl = originalKubectl;
+    Logger.warn = originalWarn;
+    Logger.info = originalInfo;
+  });
+
+  function callsOf(verb) {
+    return calls.filter(args => args[0] === verb);
   }
 
   test('deletes a merged policy whose sole contributing deployment matches', async () => {
-    mockList([
+    items = [
       {
         metadata: {
           name: 'merged-a-b-my-route',
           labels: { 'agentgateway.dev/contributor-deployments': 'my-walkthrough' },
         },
       },
-    ]);
-    const deleteCalls = [];
-    const realKubectl = KubernetesHelper.kubectl;
-    KubernetesHelper.kubectl = async args => {
-      if (args[0] === 'delete') deleteCalls.push(args);
-      return realKubectl(args);
-    };
+    ];
 
     await PolicyRegistry.cleanupMergedPolicies('my-walkthrough', 'agentgateway-system');
 
+    const deleteCalls = callsOf('delete');
     expect(deleteCalls).toHaveLength(1);
     expect(deleteCalls[0]).toContain('merged-a-b-my-route');
   });
 
-  test('skips and warns when the merged policy is still shared with another deployment', async () => {
-    mockList([
+  test('skips deletion, warns, and trims itself out of the contributor-deployments label when the merged policy is still shared with another deployment', async () => {
+    items = [
       {
         metadata: {
           name: 'merged-a-b-my-route',
@@ -334,51 +444,73 @@ describe('PolicyRegistry.cleanupMergedPolicies', () => {
           },
         },
       },
-    ]);
-    const deleteCalls = [];
-    const realKubectl = KubernetesHelper.kubectl;
-    KubernetesHelper.kubectl = async args => {
-      if (args[0] === 'delete') deleteCalls.push(args);
-      return realKubectl(args);
-    };
+    ];
 
     await PolicyRegistry.cleanupMergedPolicies('my-walkthrough', 'agentgateway-system');
 
-    expect(deleteCalls).toHaveLength(0);
+    expect(callsOf('delete')).toHaveLength(0);
     expect(warnings.some(w => w.includes('someone-elses-usecase'))).toBe(true);
+    // The object itself is left alone (spec untouched) - only its contributor-deployments
+    // label shrinks, so whoever cleans up last still sees itself as the sole contributor.
+    const labelCalls = callsOf('label');
+    expect(labelCalls).toHaveLength(1);
+    expect(labelCalls[0]).toContain('merged-a-b-my-route');
+    expect(labelCalls[0]).toContain(
+      'agentgateway.dev/contributor-deployments=someone-elses-usecase'
+    );
+    expect(labelCalls[0]).toContain('--overwrite');
   });
 
   test('silently skips a merged policy belonging entirely to another deployment', async () => {
-    mockList([
+    items = [
       {
         metadata: {
           name: 'merged-x-y-someone-elses-route',
           labels: { 'agentgateway.dev/contributor-deployments': 'someone-elses-usecase' },
         },
       },
-    ]);
-    const deleteCalls = [];
-    const realKubectl = KubernetesHelper.kubectl;
-    KubernetesHelper.kubectl = async args => {
-      if (args[0] === 'delete') deleteCalls.push(args);
-      return realKubectl(args);
-    };
+    ];
 
     await PolicyRegistry.cleanupMergedPolicies('my-walkthrough', 'agentgateway-system');
 
-    expect(deleteCalls).toHaveLength(0);
+    expect(callsOf('delete')).toHaveLength(0);
+    expect(callsOf('label')).toHaveLength(0);
     expect(warnings).toHaveLength(0);
   });
 
+  test('skips (no warning) an unlabeled merged policy predating this fix, rather than assuming it is safe to delete, but surfaces an info note so the gap is not silent', async () => {
+    items = [{ metadata: { name: 'merged-a-b-my-route' } }];
+
+    await PolicyRegistry.cleanupMergedPolicies('my-walkthrough', 'agentgateway-system');
+
+    expect(callsOf('delete')).toHaveLength(0);
+    expect(warnings).toHaveLength(0);
+    expect(infos.some(i => i.includes('1 merged EnterpriseAgentgatewayPolicy'))).toBe(true);
+  });
+
+  test('deletes nothing when deploymentId itself is falsy - no caller has proved ownership of anything', async () => {
+    items = [
+      {
+        metadata: {
+          name: 'merged-a-b-my-route',
+          labels: { 'agentgateway.dev/contributor-deployments': 'some-deployment' },
+        },
+      },
+    ];
+
+    await PolicyRegistry.cleanupMergedPolicies(undefined, 'agentgateway-system');
+
+    expect(callsOf('delete')).toHaveLength(0);
+  });
+
   test('is a no-op when there are no merged policies', async () => {
-    mockList([]);
     await expect(
       PolicyRegistry.cleanupMergedPolicies('my-walkthrough', 'agentgateway-system')
     ).resolves.toBeUndefined();
+    expect(callsOf('delete')).toHaveLength(0);
   });
 
   test('warns but does not throw when the list call fails entirely', async () => {
-    originalKubectl = KubernetesHelper.kubectl;
     KubernetesHelper.kubectl = async () => {
       throw new Error('cluster unreachable');
     };
@@ -386,5 +518,6 @@ describe('PolicyRegistry.cleanupMergedPolicies', () => {
     await expect(
       PolicyRegistry.cleanupMergedPolicies('my-walkthrough', 'agentgateway-system')
     ).resolves.toBeUndefined();
+    expect(warnings.some(w => w.includes('cluster unreachable'))).toBe(true);
   });
 });
