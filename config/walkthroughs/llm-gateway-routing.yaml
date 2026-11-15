@@ -75,6 +75,35 @@ spec:
           body: '{"model": "openai/gpt-4o-mini", "messages": [{"role": "user", "content": "What is 2+2?"}]}'
           expectStatus: 200
 
+    - name: model-aliasing
+      title: Model Aliasing
+      narration: |
+        Friendly alias names stand in for real model identifiers - the client sends "fast" or "smart" and agentgateway resolves it to the actual model before forwarding, so the underlying model can change without any client code change. This same alias set also defines "cheap" and "premium" tiers, used later by the Jev screen.
+      setup:
+        - name: model-aliasing
+          config:
+            provider: openai
+            pathPrefix: /alias
+            aliases:
+              fast: gpt-4o-mini
+              smart: gpt-4o
+              code: o3-mini
+              cheap: gpt-4o-mini
+              premium: gpt-4o
+      steps:
+        - kind: http
+          label: 'POST /alias (fast, resolves to gpt-4o-mini)'
+          method: POST
+          url: 'http://localhost:8080/alias'
+          body: '{"model": "fast", "messages": [{"role": "user", "content": "What is 2+2?"}]}'
+          expectStatus: 200
+        - kind: http
+          label: 'POST /alias (smart, resolves to gpt-4o)'
+          method: POST
+          url: 'http://localhost:8080/alias'
+          body: '{"model": "smart", "messages": [{"role": "user", "content": "What is 2+2?"}]}'
+          expectStatus: 200
+
     - name: body-based-routing
       title: Body-Based Routing
       narration: |
@@ -210,13 +239,6 @@ spec:
                   ai:
                     routes:
                       '*': Passthrough
-        - name: model-aliasing
-          config:
-            provider: openai
-            pathPrefix: /tier
-            aliases:
-              cheap: gpt-4o-mini
-              premium: gpt-4o
       steps:
         - kind: http
           label: 'POST /jev - classify the prompt'
@@ -231,8 +253,8 @@ spec:
             higher quality output"}}}}
           expectStatus: 200
         - kind: http
-          label: 'POST /tier with the tier Jev picked (cheap)'
+          label: 'POST /alias with the tier Jev picked (cheap)'
           method: POST
-          url: 'http://localhost:8080/tier'
+          url: 'http://localhost:8080/alias'
           body: '{"model": "cheap", "messages": [{"role": "user", "content": "Say hello"}]}'
           expectStatus: 200
