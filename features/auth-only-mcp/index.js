@@ -867,9 +867,13 @@ export class AuthOnlyMcpFeature extends Feature {
         this.preIssuanceExtAuthzName,
         this.preIssuanceExtAuthzNamespace
       );
-      // The resource-index policy is already covered by the deleteByLabel call above -
-      // PolicyRegistry renames it to <feature>-<targetRef name> on merge, so its literal
-      // name (this.prefix + '-resource-index') doesn't exist on the cluster to delete by.
+      // The resource-index policy isn't deleted by name here or by the deleteByLabel call
+      // above - PolicyRegistry renames it to <feature>-<targetRef name> on merge, so its
+      // literal name (this.prefix + '-resource-index') doesn't exist on the cluster to delete
+      // by, and a coalesced/merged policy never carries the scalar agentgateway.dev/feature
+      // label deleteByLabel matches on either. PolicyRegistry.cleanupMergedPolicies() (run by
+      // the caller - UseCaseManager.cleanup()/cleanWalkthrough() - after every feature's own
+      // cleanup()) is what actually removes it.
     }
     this.log('auth-only-mcp feature cleaned up', 'success');
   }

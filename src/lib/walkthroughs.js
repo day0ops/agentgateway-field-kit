@@ -59,8 +59,9 @@ export class WalkthroughManager {
   /**
    * Loads a Walkthrough document, resolving its environment's templates if `spec.environment`
    * is set, and validating every referenced feature against the resolved edition.
-   * @returns {Promise<object>} the resolved walkthrough, with `screens`, `credentials`,
-   *   `preProvision` always present, and `edition` always a resolved 'enterprise'|'opensource'.
+   * @returns {Promise<object>} the resolved walkthrough, with `name` (from `metadata.name`),
+   *   `screens`, `credentials`, `preProvision` always present, and `edition` always a resolved
+   *   'enterprise'|'opensource'.
    */
   static async load(walkthroughFile) {
     const content = await readFile(walkthroughFile, 'utf8');
@@ -88,6 +89,7 @@ export class WalkthroughManager {
 
     return {
       ...walkthrough,
+      name: WalkthroughSchema.getName(raw),
       screens,
       credentials: walkthrough.credentials || {},
       preProvision,

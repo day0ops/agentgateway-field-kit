@@ -11,6 +11,24 @@ const PROJECT_ROOT = join(__dirname, '../..');
 const DEFAULT_NAMESPACE = process.env.AGENTGATEWAY_NAMESPACE || 'agentgateway-system';
 
 /**
+ * Kubernetes label values must be <=63 chars, limited to alphanumeric/-/_/., and must start
+ * and end with an alphanumeric character - an unsanitized usecase/walkthrough name violating
+ * any of that would make every single `kubectl apply` for that deployment fail outright.
+ * Also strips '_' specifically (replaced with '-'): PolicyRegistry joins/splits multiple
+ * deployment ids on '_', so an id containing one would corrupt that round-trip.
+ */
+function sanitizeDeploymentId(value) {
+  if (!value) return value;
+  const replaced = String(value)
+    .replace(/_/g, '-')
+    .replace(/[^A-Za-z0-9.-]/g, '-')
+    .slice(0, 63)
+    .replace(/^[^A-Za-z0-9]+/, '')
+    .replace(/[^A-Za-z0-9]+$/, '');
+  return replaced || null;
+}
+
+/**
  * Base class for all features
  * Features are modular components that configure specific agentgateway capabilities
  */
@@ -34,6 +52,11 @@ export class Feature {
     this.namespace = config.namespace || DEFAULT_NAMESPACE;
     // Edition this feature instance is being deployed for (default: enterprise)
     this.edition = resolveEdition(config.edition);
+    // The usecase/walkthrough name this instance is deploying/cleaning up for, when known -
+    // stamped onto every resource this feature creates so cleanup can scope itself to its
+    // own deployment instead of sweeping every resource of a given feature type cluster-wide.
+    // null for callers that don't track this yet (addons, runbook dry-run previews).
+    this.deploymentId = sanitizeDeploymentId(config.deploymentId) || null;
     // Spinner for coordinated logging
     this.spinner = null;
     // Dry run: collect YAML instead of applying (set by FeatureManager when options.dryRun)
@@ -117,13 +140,36 @@ export class Feature {
    * Helper: Apply Kubernetes resource (or collect YAML when dryRun)
    */
   async applyResource(resource) {
-    // Check if this should be deferred to PolicyRegistry
+    // Policies PolicyRegistry actually defers get their own deployment-contributor tracking
+    // and label at commit() time - a scalar label here would just get clobbered by the next
+    // contributor's own value when multiple deployments share one merged object. register()
+    // itself decides whether a given policy is deferred (e.g. it still applies one with no
+    // targetRefs immediately) - checking its real return value, not just guessing from kind +
+    // isEnabled() beforehand, so a policy that ends up NOT deferred still gets labeled.
     if (resource.kind === 'EnterpriseAgentgatewayPolicy' && PolicyRegistry.isEnabled()) {
-      const registered = PolicyRegistry.register(resource, this.name, this.namespace);
+      const registered = PolicyRegistry.register(
+        resource,
+        this.name,
+        this.namespace,
+        this.deploymentId
+      );
       if (registered) {
         // Policy registered for deferred merge+apply; don't add to dryRunYaml
         return;
       }
+    }
+
+    if (this.deploymentId) {
+      resource = {
+        ...resource,
+        metadata: {
+          ...resource.metadata,
+          labels: {
+            ...resource.metadata?.labels,
+            'agentgateway.dev/deployment': this.deploymentId,
+          },
+        },
+      };
     }
 
     const yamlContent = yaml.dump(resource, { lineWidth: -1, indent: 2 });
@@ -161,7 +207,10 @@ export class Feature {
    */
   async deleteByLabel(kind, labels, namespace = this.namespace) {
     if (this.dryRun) return;
-    const selector = Object.entries(labels)
+    const allLabels = this.deploymentId
+      ? { ...labels, 'agentgateway.dev/deployment': this.deploymentId }
+      : labels;
+    const selector = Object.entries(allLabels)
       .map(([k, v]) => `${k}=${v}`)
       .join(',');
     try {
@@ -244,6 +293,7 @@ export class Feature {
 export class PolicyRegistry {
   static policies = new Map(); // Map<targetRefKey, policyEntry>
   static contributors = new Map(); // Map<targetRefKey, Set<featureName>>
+  static deploymentContributors = new Map(); // Map<targetRefKey, Set<deploymentId>>
   static enabled = false;
 
   /**
@@ -276,9 +326,10 @@ export class PolicyRegistry {
   static clear() {
     this.policies.clear();
     this.contributors.clear();
+    this.deploymentContributors.clear();
   }
 
-  static register(policy, featureName, defaultNamespace) {
+  static register(policy, featureName, defaultNamespace, deploymentId) {
     // Returns true if registered (deferred), false if should apply immediately
     if (!this.enabled) return false;
     if (policy.kind !== 'EnterpriseAgentgatewayPolicy') return false;
@@ -295,13 +346,17 @@ export class PolicyRegistry {
         this.policies.set(key, merged);
       } else {
         const entry = JSON.parse(JSON.stringify(policy));
-        entry._contributors = [featureName];
         entry._targetRefKey = key;
         this.policies.set(key, entry);
       }
 
       if (!this.contributors.has(key)) this.contributors.set(key, new Set());
       this.contributors.get(key).add(featureName);
+
+      if (deploymentId) {
+        if (!this.deploymentContributors.has(key)) this.deploymentContributors.set(key, new Set());
+        this.deploymentContributors.get(key).add(deploymentId);
+      }
     }
     return true;
   }
@@ -334,7 +389,6 @@ export class PolicyRegistry {
       );
     }
 
-    merged._contributors = [...(merged._contributors || []), featureName];
     return merged;
   }
 
@@ -382,15 +436,46 @@ export class PolicyRegistry {
     return result;
   }
 
+  /**
+   * Reads back whichever deployments the live object (if it exists yet) already lists as
+   * contributors. Each `agw usecase deploy`/`agw walkthrough run` invocation is its own
+   * process with its own empty PolicyRegistry maps, so a second deployment's commit() has no
+   * in-memory record of a first deployment's earlier, separate commit() - without this read,
+   * it would silently overwrite the first's `agentgateway.dev/contributor-deployments`
+   * annotation instead of adding to it, and cleanupMergedPolicies() could never tell the
+   * object was still shared. Best-effort: a missing object or an unreadable annotation is
+   * just treated as "none yet".
+   */
+  static async _getLiveContributorDeployments(kind, name, namespace) {
+    try {
+      const result = await KubernetesHelper.kubectl(
+        [
+          'get',
+          kind,
+          name,
+          '-n',
+          namespace,
+          '-o',
+          "jsonpath={.metadata.annotations['agentgateway\\.dev/contributor-deployments']}",
+        ],
+        { ignoreError: true }
+      );
+      if (result.exitCode !== 0 || !result.stdout.trim()) return [];
+      return result.stdout.trim().split('_').filter(Boolean);
+    } catch {
+      return [];
+    }
+  }
+
   static async commit(options = {}) {
     const { dryRun = false, spinner = null } = options;
     const yamlDocs = [];
 
-    for (const [, policy] of this.policies) {
-      const contributors = policy._contributors || [];
+    for (const [key, policy] of this.policies) {
+      const contributors = Array.from(this.contributors.get(key) || []);
+      const ownDeploymentContributors = Array.from(this.deploymentContributors.get(key) || []);
       const targetRefKey = policy._targetRefKey || '';
       const cleanPolicy = JSON.parse(JSON.stringify(policy));
-      delete cleanPolicy._contributors;
       delete cleanPolicy._targetRefKey;
 
       // Single contributor: use <feature>-<targetRef name> for clarity
@@ -404,11 +489,36 @@ export class PolicyRegistry {
         policyName = targetSuffix ? `${baseName}-${targetSuffix}` : baseName;
       }
       cleanPolicy.metadata.name = policyName;
+
+      const existingDeploymentContributors = dryRun
+        ? []
+        : await this._getLiveContributorDeployments(
+            cleanPolicy.kind,
+            policyName,
+            cleanPolicy.metadata.namespace
+          );
+      const deploymentContributors = Array.from(
+        new Set([...existingDeploymentContributors, ...ownDeploymentContributors])
+      );
+
       cleanPolicy.metadata.labels = {
         ...(cleanPolicy.metadata.labels || {}),
         'agentgateway.dev/merged-policy': 'true',
         'agentgateway.dev/contributors': contributors.join('_'),
       };
+      // Which usecase(s)/walkthrough(s) contributed - lets cleanupMergedPolicies() delete this
+      // object only when its caller is the sole contributor, never one another deployment
+      // still relies on. An annotation, not a label: usecase/walkthrough names are
+      // user-chosen and unbounded, and a joined multi-deployment list can exceed the 63-byte
+      // label-value limit a label would enforce (annotations have no such limit). Omitted
+      // when nothing ever passed a deploymentId, so callers that don't opt in (e.g. runbook
+      // dry-run previews) see unchanged output.
+      if (deploymentContributors.length > 0) {
+        cleanPolicy.metadata.annotations = {
+          ...(cleanPolicy.metadata.annotations || {}),
+          'agentgateway.dev/contributor-deployments': deploymentContributors.join('_'),
+        };
+      }
 
       const yamlContent = yaml.dump(cleanPolicy, { lineWidth: -1, indent: 2 });
 
@@ -419,6 +529,126 @@ export class PolicyRegistry {
       }
     }
     return yamlDocs;
+  }
+
+  /**
+   * Deletes merged EnterpriseAgentgatewayPolicy resources `deploymentId` is the SOLE
+   * contributor to; for one still shared with another deployment, removes just `deploymentId`
+   * from its `agentgateway.dev/contributor-deployments` annotation (never touching `spec`) and
+   * leaves the object itself in place, so whichever deployment cleans up last still finds
+   * itself as the sole remaining contributor and can delete it - rather than leaving a stale
+   * reference naming an already-cleaned-up deployment forever. Silently ignores a policy
+   * belonging entirely to a different deployment. A per-feature cleanup() can only delete a
+   * policy by that feature's own expected name, never the renamed `<feature>-<target>`/
+   * `merged-<a>-<b>-<target>` object commit() actually applies, so this sweep is the only way
+   * those resources get cleaned up at all. Shared by UseCaseManager and the walkthrough
+   * runner. Best-effort: never throws, only warns.
+   * @param {string} deploymentId - the usecase/walkthrough name doing the cleanup
+   * @param {string} namespace
+   */
+  static async cleanupMergedPolicies(deploymentId, namespace) {
+    // Features stamp this.deploymentId (already sanitized by the Feature constructor) onto
+    // what they create - comparing a raw, unsanitized caller id against that would never
+    // match for any name sanitization actually changed (invalid characters, '_', >63 bytes).
+    deploymentId = sanitizeDeploymentId(deploymentId);
+    try {
+      const result = await KubernetesHelper.kubectl(
+        [
+          'get',
+          'enterpriseagentgatewaypolicy',
+          '-n',
+          namespace,
+          '-l',
+          'agentgateway.dev/merged-policy=true',
+          '-o',
+          'json',
+        ],
+        { ignoreError: true }
+      );
+
+      if (result.exitCode !== 0) {
+        Logger.warn(
+          `Failed to list merged EnterpriseAgentgatewayPolicy resources for cleanup: ${result.stderr?.trim() || `exit code ${result.exitCode}`}`
+        );
+        return;
+      }
+
+      let items;
+      try {
+        items = JSON.parse(result.stdout).items || [];
+      } catch (error) {
+        Logger.warn(`Failed to parse merged policy list for cleanup: ${error.message}`);
+        return;
+      }
+
+      let unannotatedCount = 0;
+
+      for (const item of items) {
+        const policyName = item.metadata?.name;
+        if (!policyName) continue;
+
+        const deploymentsAnnotation =
+          item.metadata?.annotations?.['agentgateway.dev/contributor-deployments'];
+        const deployments = deploymentsAnnotation
+          ? deploymentsAnnotation.split('_').filter(Boolean)
+          : [];
+        if (!deploymentsAnnotation) unannotatedCount++;
+
+        if (!deployments.includes(deploymentId)) {
+          // Not ours - some other deployment's (or an unlabeled/pre-migration) merged policy.
+          continue;
+        }
+        if (deployments.length > 1) {
+          const others = deployments.filter(d => d !== deploymentId);
+          Logger.warn(
+            `Merged policy '${policyName}' is still shared with ${others.join(', ')} - removing '${deploymentId}' from its contributor list and skipping deletion`
+          );
+          const annotateResult = await KubernetesHelper.kubectl(
+            [
+              'annotate',
+              'enterpriseagentgatewaypolicy',
+              policyName,
+              '-n',
+              namespace,
+              `agentgateway.dev/contributor-deployments=${others.join('_')}`,
+              '--overwrite',
+            ],
+            { ignoreError: true }
+          );
+          if (annotateResult.exitCode !== 0) {
+            Logger.warn(
+              `Failed to update merged policy '${policyName}''s contributor-deployments annotation: ${annotateResult.stderr?.trim() || `exit code ${annotateResult.exitCode}`}`
+            );
+          }
+          continue;
+        }
+
+        const deleteResult = await KubernetesHelper.kubectl(
+          [
+            'delete',
+            'enterpriseagentgatewaypolicy',
+            policyName,
+            '-n',
+            namespace,
+            '--ignore-not-found=true',
+          ],
+          { ignoreError: true }
+        );
+        if (deleteResult.exitCode !== 0) {
+          Logger.warn(
+            `Failed to delete merged policy '${policyName}': ${deleteResult.stderr?.trim() || `exit code ${deleteResult.exitCode}`}`
+          );
+        }
+      }
+
+      if (unannotatedCount > 0) {
+        Logger.info(
+          `${unannotatedCount} merged EnterpriseAgentgatewayPolicy resource(s) predate this cleanup scoping and have no contributor-deployments annotation - left in place; redeploy and clean up again, or remove manually if no longer needed.`
+        );
+      }
+    } catch (error) {
+      Logger.warn(`Merged-policy cleanup failed: ${error.message}`);
+    }
   }
 
   static getMergedPolicyCount() {
@@ -522,7 +752,7 @@ export class FeatureManager {
    *   otherwise the feature's accessHint (if it set one) or null
    */
   static async deploy(name, config = {}, options = {}) {
-    const { dryRun = false, spinner: externalSpinner = null, edition } = options;
+    const { dryRun = false, spinner: externalSpinner = null, edition, deploymentId } = options;
     const FeatureClass = this.features.get(name);
 
     if (!FeatureClass) {
@@ -545,6 +775,7 @@ export class FeatureManager {
       namespace: this.defaultNamespace,
       ...config,
       ...(edition ? { edition } : {}),
+      ...(deploymentId ? { deploymentId } : {}),
     };
 
     if (dryRun) {
@@ -615,7 +846,7 @@ export class FeatureManager {
       return;
     }
 
-    const { edition } = options;
+    const { edition, deploymentId } = options;
 
     // Merge default namespace if not specified in config
     // Extract spinner from config if provided (used by AddonInstaller)
@@ -624,6 +855,7 @@ export class FeatureManager {
       namespace: this.defaultNamespace,
       ...restConfig,
       ...(edition ? { edition } : {}),
+      ...(deploymentId ? { deploymentId } : {}),
     };
 
     const feature = new FeatureClass(name, finalConfig);

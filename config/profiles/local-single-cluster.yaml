@@ -37,6 +37,28 @@ spec:
         enabled: true
 
   helmValues:
+    budgetDimensions:
+      config:
+        hierarchy:
+          - id: org_id
+            expression: jwt.org_id
+            displayName: Organization
+          - id: team_id
+            expression: jwt.team_id
+            displayName: Team
+          - id: group
+            expression: coalesce(jwt.group, apiKey.group)
+            displayName: Group
+          - id: user
+            expression: 'coalesce(apiKey.user, apiKey.name, apiKey.owner, jwt.sub, jwt.email, basicAuth.username, source.identity.namespace + "/" + source.identity.serviceAccount, source.subjectCn)'
+            displayName: User
+        attributes:
+          - id: username
+            expression: jwt.preferred_username
+            displayName: Username
+          - id: virtualKey
+            expression: apiKey.id
+            displayName: Virtual Key
     tokenExchange:
       enabled: true
       issuer: enterprise-agentgateway.agentgateway-system.svc.cluster.local:7777
@@ -199,6 +221,12 @@ spec:
                   team_id: team-beta
                   group: users
                   is_org: 'false'
+              - username: alice
+                firstName: Alice
+                lastName: ReBAC
+                email: alice@acme-corp.demo
+                attributes:
+                  org_id: acme
         soloUiClients:
           enabled: true
           realm: agw-dev

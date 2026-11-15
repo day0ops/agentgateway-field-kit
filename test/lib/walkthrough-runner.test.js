@@ -44,7 +44,10 @@ beforeEach(() => {
   // cleanWalkthrough's merged-policy sweep calls KubernetesHelper.kubectl - default to a no-op
   // success (nothing to sweep) so tests that don't care about it never reach a real cluster.
   originalKubectl = KubernetesHelper.kubectl;
-  KubernetesHelper.kubectl = async () => ({ exitCode: 0, stdout: '', stderr: '' });
+  KubernetesHelper.kubectl = async args =>
+    args[0] === 'get'
+      ? { exitCode: 0, stdout: JSON.stringify({ items: [] }), stderr: '' }
+      : { exitCode: 0, stdout: '', stderr: '' };
 });
 
 afterEach(() => {
@@ -114,7 +117,7 @@ describe('cleanWalkthrough merged-policy sweep', () => {
     );
   }
 
-  test('deletes every merged EnterpriseAgentgatewayPolicy left over, after the per-feature cleanup loop', async () => {
+  test('deletes every merged EnterpriseAgentgatewayPolicy this walkthrough is the sole contributor to, after the per-feature cleanup loop', async () => {
     writeMinimalWalkthrough();
     const calls = [];
     KubernetesHelper.kubectl = async args => {
@@ -122,7 +125,22 @@ describe('cleanWalkthrough merged-policy sweep', () => {
       if (args[0] === 'get') {
         return {
           exitCode: 0,
-          stdout: 'merged-feature-a-feature-b-routing-basic policy-feature-c-routing-basic',
+          stdout: JSON.stringify({
+            items: [
+              {
+                metadata: {
+                  name: 'merged-feature-a-feature-b-routing-basic',
+                  annotations: { 'agentgateway.dev/contributor-deployments': 'walkthrough.demo' },
+                },
+              },
+              {
+                metadata: {
+                  name: 'policy-feature-c-routing-basic',
+                  annotations: { 'agentgateway.dev/contributor-deployments': 'walkthrough.demo' },
+                },
+              },
+            ],
+          }),
           stderr: '',
         };
       }
@@ -142,11 +160,45 @@ describe('cleanWalkthrough merged-policy sweep', () => {
     expect(deleteCalls.every(args => args.includes('--ignore-not-found=true'))).toBe(true);
   });
 
+  test('skips a merged policy another deployment is still a contributor to', async () => {
+    writeMinimalWalkthrough();
+    const deleteCalls = [];
+    KubernetesHelper.kubectl = async args => {
+      if (args[0] === 'delete') deleteCalls.push(args);
+      if (args[0] === 'get') {
+        return {
+          exitCode: 0,
+          stdout: JSON.stringify({
+            items: [
+              {
+                metadata: {
+                  name: 'merged-feature-a-feature-b-routing-basic',
+                  annotations: {
+                    'agentgateway.dev/contributor-deployments': 'walkthrough.demo_someone-else',
+                  },
+                },
+              },
+            ],
+          }),
+          stderr: '',
+        };
+      }
+      return { exitCode: 0, stdout: '', stderr: '' };
+    };
+
+    await cleanWalkthrough('demo');
+
+    expect(deleteCalls).toEqual([]);
+  });
+
   test('is a no-op when there are no merged policies to sweep', async () => {
     writeMinimalWalkthrough();
     const deleteCalls = [];
     KubernetesHelper.kubectl = async args => {
       if (args[0] === 'delete') deleteCalls.push(args);
+      if (args[0] === 'get') {
+        return { exitCode: 0, stdout: JSON.stringify({ items: [] }), stderr: '' };
+      }
       return { exitCode: 0, stdout: '', stderr: '' };
     };
 

@@ -613,7 +613,12 @@ export class UseCaseManager {
 
         for (const feature of step.features) {
           const { name: featureName, config = {} } = feature;
-          await FeatureManager.deploy(featureName, config, { edition });
+          await FeatureManager.deploy(featureName, config, {
+            edition,
+            // Prefixed so a usecase and a walkthrough sharing a bare name are never treated
+            // as the same deployment for cleanup scoping purposes.
+            deploymentId: `usecase.${metadata.name}`,
+          });
         }
       }
 
@@ -735,6 +740,9 @@ export class UseCaseManager {
           const yamlDocs = await FeatureManager.deploy(featureName, config, {
             dryRun: true,
             edition,
+            // Prefixed so a usecase and a walkthrough sharing a bare name are never treated
+            // as the same deployment for cleanup scoping purposes.
+            deploymentId: `usecase.${metadata.name}`,
           });
           if (yamlDocs && yamlDocs.length > 0) {
             collected.push({ featureName, yamlDocs });
@@ -934,6 +942,10 @@ export class UseCaseManager {
       usecase = EnvironmentManager.resolveAllTemplates(usecase, env);
 
       const { metadata, spec } = usecase;
+      // Computed once and reused at every call site below - two independent call sites each
+      // inlining this template string is exactly how the sweep call previously fell out of
+      // sync with the per-feature cleanup calls and silently stopped matching anything.
+      const deploymentId = `usecase.${metadata.name}`;
 
       const { namespace } = spec;
       const steps = this.getSteps(spec);
@@ -971,56 +983,17 @@ export class UseCaseManager {
         const { name: featureName, config = {} } = feature;
 
         try {
-          await FeatureManager.cleanup(featureName, config, { edition });
+          await FeatureManager.cleanup(featureName, config, { edition, deploymentId });
         } catch (error) {
           Logger.warn(`Failed to clean up feature '${featureName}': ${error.message}`);
         }
       }
 
-      // Clean up any merged policies created by this use case
-      try {
-        const result = await KubernetesHelper.kubectl(
-          [
-            'get',
-            'enterpriseagentgatewaypolicy',
-            '-n',
-            FeatureManager.getDefaultNamespace(),
-            '-l',
-            'agentgateway.dev/merged-policy=true',
-            '-o',
-            'jsonpath={.items[*].metadata.name}',
-          ],
-          { ignoreError: true }
-        );
-
-        if (result.exitCode !== 0) {
-          Logger.warn(
-            `Failed to list merged EnterpriseAgentgatewayPolicy resources for cleanup: ${result.stderr?.trim() || `exit code ${result.exitCode}`}`
-          );
-        } else {
-          const policyNames = result.stdout.trim().split(/\s+/).filter(Boolean);
-          for (const policyName of policyNames) {
-            const deleteResult = await KubernetesHelper.kubectl(
-              [
-                'delete',
-                'enterpriseagentgatewaypolicy',
-                policyName,
-                '-n',
-                FeatureManager.getDefaultNamespace(),
-                '--ignore-not-found=true',
-              ],
-              { ignoreError: true }
-            );
-            if (deleteResult.exitCode !== 0) {
-              Logger.warn(
-                `Failed to delete merged policy '${policyName}': ${deleteResult.stderr?.trim() || `exit code ${deleteResult.exitCode}`}`
-              );
-            }
-          }
-        }
-      } catch (error) {
-        Logger.warn(`Merged-policy cleanup failed: ${error.message}`);
-      }
+      // Clean up any merged policies created by this use case (not shared with another one)
+      await PolicyRegistry.cleanupMergedPolicies(
+        deploymentId,
+        FeatureManager.getDefaultNamespace()
+      );
 
       const currentUseCase = await this.getCurrentUseCase();
       if (currentUseCase === filePath) {

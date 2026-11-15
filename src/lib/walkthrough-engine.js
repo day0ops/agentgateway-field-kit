@@ -28,10 +28,14 @@ const SILENT_SPINNER = {
  * and calls handleRight/handleLeft/jumpToScreen/submitPromptValue in response to input.
  */
 export class WalkthroughEngine extends EventEmitter {
-  /** @param {{screens: object[], credentials: object, preProvision: object[], edition: string, namespace?: string}} walkthrough */
+  /** @param {{name?: string, screens: object[], credentials: object, preProvision: object[], edition: string, namespace?: string}} walkthrough */
   constructor(walkthrough) {
     super();
     this.walkthrough = walkthrough;
+    // Prefixed so a walkthrough and a usecase that happen to share a bare name (e.g. both
+    // called "budget-and-spend-limits") are never treated as the same deployment for cleanup
+    // scoping purposes.
+    this.name = walkthrough.name ? `walkthrough.${walkthrough.name}` : walkthrough.name;
     this.edition = walkthrough.edition;
     this.screenIndex = 0;
     this.stepIndex = 0;
@@ -93,11 +97,18 @@ export class WalkthroughEngine extends EventEmitter {
         if (this.appliedScreens.has(i)) continue;
         const screen = this.walkthrough.screens[i];
 
+        // Known limitation: a torn-down feature's own EnterpriseAgentgatewayPolicy, if it was
+        // coalesced by PolicyRegistry at deploy time (no current walkthrough's teardown exercises
+        // this yet), is NOT removed here - deleteByLabel() can't match a merged object (it never
+        // carries the scalar agentgateway.dev/deployment label; see PolicyRegistry.commit()), and
+        // this per-screen teardown doesn't run the full-sweep cleanupMergedPolicies() that
+        // cleanWalkthrough()/UseCaseManager.cleanup() do at the very end. The stale policy keeps
+        // being enforced until the walkthrough's full cleanup runs.
         for (const featureRef of screen.teardown || []) {
           await FeatureManager.cleanup(
             featureRef.name,
             { ...(featureRef.config || {}), spinner: SILENT_SPINNER },
-            { edition: this.edition }
+            { edition: this.edition, deploymentId: this.name }
           );
         }
 
@@ -123,6 +134,7 @@ export class WalkthroughEngine extends EventEmitter {
             const rendered = await FeatureManager.deploy(featureRef.name, config, {
               dryRun: true,
               edition: this.edition,
+              deploymentId: this.name,
             });
             docs.push(...(rendered || []));
           } catch {
@@ -132,6 +144,7 @@ export class WalkthroughEngine extends EventEmitter {
           }
           await FeatureManager.deploy(featureRef.name, config, {
             edition: this.edition,
+            deploymentId: this.name,
             spinner: SILENT_SPINNER,
           });
         }
