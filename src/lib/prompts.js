@@ -50,6 +50,33 @@ export function computeScrollTop(scrollTop, pointerIndex, totalLines, viewportSi
 }
 
 /**
+ * Word-wraps text to a column width, so each returned line maps to exactly
+ * one screen row - needed wherever a caller recomputes a cursor-up count from
+ * array length, since that count only matches reality if lines don't wrap.
+ * A single word longer than `width` is kept whole rather than broken.
+ * @param {string} text
+ * @param {number} width
+ * @returns {string[]}
+ */
+export function wrapText(text, width) {
+  if (!text) return [''];
+  const words = text.split(' ');
+  const lines = [];
+  let current = '';
+  for (const word of words) {
+    const candidate = current ? `${current} ${word}` : word;
+    if (candidate.length > width && current) {
+      lines.push(current);
+      current = word;
+    } else {
+      current = candidate;
+    }
+  }
+  if (current || lines.length === 0) lines.push(current);
+  return lines;
+}
+
+/**
  * Indices into `selectable` whose name matches `query` (case-insensitive substring).
  * @param {Array<{name: string}>} selectable
  * @param {string} query
@@ -74,7 +101,10 @@ export class Prompts {
    * Raw-mode list selector.
    * ↑/↓ to navigate, Enter to select, Esc/Backspace to go back (when allowBack is true).
    * @param {string} message - The prompt message
-   * @param {Array} choices - List of choices (may include inquirer.Separator instances)
+   * @param {Array<{name: string, value: *, detail?: string}>} choices - List of choices (may
+   *   include inquirer.Separator instances). `detail`, if present, renders only under the
+   *   currently focused choice, one indented line per `\n`-separated line - a long or
+   *   multi-line description doesn't dwarf other entries while it isn't focused.
    * @param {object} opts
    * @param {boolean} opts.allowBack - Enable Esc/Backspace to trigger a "back" action
    * @param {number} opts.defaultIndex - Initial pointer position (index into selectable items)
@@ -168,6 +198,14 @@ export class Prompts {
             for (const line of restLines) {
               lines.push(active ? chalk.cyan(line) : line);
             }
+            if (active && choice.detail) {
+              const width = Math.max(20, (stdout.columns || 80) - 4);
+              for (const paragraph of String(choice.detail).split('\n')) {
+                for (const line of wrapText(paragraph, width)) {
+                  lines.push(chalk.dim(`    ${line}`));
+                }
+              }
+            }
             itemIdx++;
           }
         }
@@ -236,7 +274,8 @@ export class Prompts {
   /**
    * Prompt user to select from a list of options
    * @param {string} message - The prompt message
-   * @param {Array<{name: string, value: string, description?: string}>} choices - List of choices
+   * @param {Array<{name: string, value: string, detail?: string}>} choices - List of choices;
+   *   `detail` renders only under the focused choice (see `_rawSelect`)
    * @param {string} defaultValue - Default selection
    * @returns {Promise<string>} Selected value
    */
