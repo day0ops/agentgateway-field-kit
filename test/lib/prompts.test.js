@@ -73,6 +73,127 @@ async function runMultiSelect(choices, drive) {
   }
 }
 
+/**
+ * Runs `_rawSelect` with stdin/stdout faked as a TTY, capturing every
+ * `stdout.write` chunk. Mirrors `runMultiSelect` above.
+ * @param {Array} choices
+ * @param {Function} drive - called once the prompt has rendered; emits keypresses
+ * @returns {Promise<{result: *, chunks: string[]}>}
+ */
+async function runSelect(choices, drive) {
+  const stdin = process.stdin;
+  const stdout = process.stdout;
+
+  const original = {
+    isTTY: stdin.isTTY,
+    setRawMode: stdin.setRawMode,
+    resume: stdin.resume,
+    pause: stdin.pause,
+    rows: stdout.rows,
+    write: stdout.write,
+  };
+
+  stdin.isTTY = true;
+  stdin.setRawMode = () => {};
+  stdin.resume = () => {};
+  stdin.pause = () => {};
+  stdout.rows = 40;
+
+  const chunks = [];
+  stdout.write = chunk => {
+    chunks.push(chunk.toString());
+    return true;
+  };
+
+  try {
+    const promise = Prompts._rawSelect('Pick one', choices);
+    setImmediate(() => drive());
+    const result = await promise;
+    return { result, chunks };
+  } finally {
+    stdin.isTTY = original.isTTY;
+    stdin.setRawMode = original.setRawMode;
+    stdin.resume = original.resume;
+    stdin.pause = original.pause;
+    stdout.rows = original.rows;
+    stdout.write = original.write;
+    stdin.removeAllListeners('keypress');
+  }
+}
+
+/**
+ * The last rendered frame before `finish()` wrote its "✔ ..." confirmation
+ * line - i.e. the picker's on-screen state right before the keypress that
+ * ended it, regardless of how many re-renders navigation triggered.
+ * @param {string[]} chunks
+ * @returns {string}
+ */
+function lastRenderedFrame(chunks) {
+  const plain = chunks.map(stripAnsi);
+  const finishIdx = plain.findIndex(c => c.includes('✔'));
+  const cutoff = finishIdx === -1 ? plain.length : finishIdx;
+  for (let i = cutoff - 1; i >= 0; i--) {
+    if (plain[i].trim()) return plain[i];
+  }
+  return '';
+}
+
+describe('_rawSelect focused-only detail rendering', () => {
+  test('only the focused choice renders its detail lines', async () => {
+    const choices = [
+      { name: 'short', value: 'v0', detail: 'one\ntwo\nthree' },
+      { name: 'other', value: 'v1' },
+    ];
+
+    const { result, chunks } = await runSelect(choices, () => {
+      process.stdin.emit('keypress', undefined, { name: 'return' });
+    });
+
+    expect(result.value).toBe('v0');
+    const lastFrame = lastRenderedFrame(chunks);
+    // The first choice is focused by default (defaultIndex: 0) - its detail shows.
+    expect(lastFrame).toContain('one');
+    expect(lastFrame).toContain('two');
+    expect(lastFrame).toContain('three');
+  });
+
+  test("moving focus hides the previous choice's detail and shows the new one's", async () => {
+    const choices = [
+      { name: 'first', value: 'v0', detail: 'detail-of-first' },
+      { name: 'second', value: 'v1', detail: 'detail-of-second' },
+    ];
+
+    const { result, chunks } = await runSelect(choices, () => {
+      process.stdin.emit('keypress', undefined, { name: 'down' });
+      process.stdin.emit('keypress', undefined, { name: 'return' });
+    });
+
+    expect(result.value).toBe('v1');
+    const lastFrame = lastRenderedFrame(chunks);
+    expect(lastFrame).toContain('detail-of-second');
+    expect(lastFrame).not.toContain('detail-of-first');
+  });
+
+  test('a choice with no detail renders no extra lines when focused', async () => {
+    const choices = [{ name: 'plain', value: 'v0' }];
+
+    const { result, chunks } = await runSelect(choices, () => {
+      process.stdin.emit('keypress', undefined, { name: 'return' });
+    });
+
+    expect(result.value).toBe('v0');
+    const renderFrames = chunks.filter(c => /plain/.test(stripAnsi(c)));
+    expect(renderFrames.length).toBeGreaterThan(0);
+    for (const chunk of renderFrames) {
+      // Exactly one rendered line should contain the choice itself - no stray
+      // indented detail line underneath it.
+      const plain = stripAnsi(chunk);
+      const lineCount = plain.split('\n').filter(Boolean).length;
+      expect(lineCount).toBeLessThanOrEqual(2); // header + the one choice line
+    }
+  });
+});
+
 describe('_rawMultiSelect keypress filter-leak fix', () => {
   test('space does not leak into the filter when the current filter matches nothing', async () => {
     const choices = buildChoices(35);
