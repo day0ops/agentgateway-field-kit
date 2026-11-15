@@ -490,13 +490,21 @@ export class ProvidersFeature extends Feature {
     const envVarName = this.getEnvVarName(providerName);
     const apiKey = process.env[envVarName];
 
+    // createSecretFromLiteral applies directly via kubectl, bypassing applyResource() (and the
+    // deployment label it would otherwise stamp) - deleteByLabel()'s cleanup sweep now requires
+    // that label when deploymentId is set, so it must be added here explicitly or this secret
+    // (holding a real provider API key) never matches and leaks past cleanup.
     await KubernetesHelper.createSecretFromLiteral(
       this.namespace,
       secretName,
       secretKey,
       apiKey,
       this.spinner,
-      { 'app.kubernetes.io/managed-by': 'agentgateway-demo', 'agentgateway.dev/feature': this.name }
+      {
+        'app.kubernetes.io/managed-by': 'agentgateway-demo',
+        'agentgateway.dev/feature': this.name,
+        ...(this.deploymentId ? { 'agentgateway.dev/deployment': this.deploymentId } : {}),
+      }
     );
     this.log(`Created ${secretName}`, 'info');
   }
