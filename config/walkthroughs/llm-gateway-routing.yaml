@@ -2,7 +2,7 @@ apiVersion: agentgateway.demo/v1
 kind: Walkthrough
 metadata:
   name: llm-gateway-routing
-  description: A tour of agentgateway's LLM-routing intelligence across real providers - direct multi-model selection, load balancing, body-based routing, automatic failover, and AI-driven tier routing via a hosted decision model. Before starting, port-forward the gateway with `kubectl port-forward -n agentgateway-system svc/models-gateway 8080:8080`.
+  description: A tour of agentgateway's LLM-routing intelligence across real providers - direct multi-model selection, wildcard model serving, model aliasing, body-based routing, load balancing with resilient retries, weighted virtual models, conditional virtual models, automatic failover, and AI-driven tier routing via a hosted decision model. Before starting, port-forward the gateway with `kubectl port-forward -n agentgateway-system svc/models-gateway 8080:8080`.
 
 spec:
   environment: local
