@@ -395,7 +395,10 @@ function StepResultView({ result, responseRevealed }) {
                 result.headers?.[result.expectResponseHeader.name.toLowerCase()] ?? '(missing)'
               }`
             ),
-          result.body && React.createElement(Text, { dimColor: true }, truncateBody(result.body))
+          // Full body, not truncateBody's preview - the response is the point of the demo, so
+          // cutting it off mid-JSON (or mid-sentence) looks broken rather than abbreviated. The
+          // app's own scroll support (↑/↓) handles anything taller than the viewport.
+          result.body && React.createElement(Text, { dimColor: true }, formatBody(result.body))
         )
     );
   }
