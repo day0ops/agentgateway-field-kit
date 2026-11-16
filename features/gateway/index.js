@@ -1,6 +1,6 @@
 import { Feature, FeatureManager } from '../../src/lib/feature.js';
 import { EDITION_GATEWAY_NAME, EDITION_BASE_NAME } from '../../src/lib/editions.js';
-import { KubernetesHelper, waitForPublicUrl } from '../../src/lib/common.js';
+import { KubernetesHelper, waitForPublicUrl, CertificateHelper } from '../../src/lib/common.js';
 
 const IPV4_RE = /^\d{1,3}(\.\d{1,3}){3}$/;
 
@@ -39,7 +39,12 @@ const IPV4_RE = /^\d{1,3}(\.\d{1,3}){3}$/;
  *                             // validation: { frontend: { default: { validation: {...} } } })
  *     frontend?: object,
  *     backend?: object,
- *   }
+ *   },
+ *   registerDns: boolean,     // Annotate the auto-provisioned Service for external-dns and
+ *                             // wait for the first listener's hostname to resolve with valid
+ *                             // TLS before deploy() returns (default: false - most dedicated
+ *                             // Gateways use a self-signed/cluster-internal hostname that was
+ *                             // never meant to be externally resolvable)
  * }
  */
 export class GatewayFeature extends Feature {
@@ -58,6 +63,7 @@ export class GatewayFeature extends Feature {
       gatewayClassName,
       listeners,
       tls,
+      registerDns,
     } = this.config;
 
     const overrides = {
@@ -97,6 +103,54 @@ export class GatewayFeature extends Feature {
         overrides.metadata.namespace,
         port,
         protocol
+      );
+
+      const hostname = firstListener?.hostname;
+      if (registerDns && hostname && CertificateHelper.isExternalHostname(hostname)) {
+        await this.registerExternalDns(
+          overrides.metadata.name,
+          overrides.metadata.namespace,
+          hostname,
+          port,
+          protocol
+        );
+      }
+    }
+  }
+
+  // Mirrors AgentGatewayManager's own install path for the shared Gateway: annotate the
+  // auto-provisioned Service for external-dns, then wait for the hostname to resolve with
+  // valid TLS. Opt-in (registerDns) since most dedicated Gateways use a self-signed/
+  // cluster-internal hostname that was never meant to be externally resolvable.
+  async registerExternalDns(name, namespace, hostname, port, protocol) {
+    try {
+      await KubernetesHelper.kubectl([
+        'annotate',
+        'service',
+        name,
+        '-n',
+        namespace,
+        `external-dns.kubernetes.io/hostname=${hostname}`,
+        '--overwrite',
+      ]);
+      this.log(`Annotated Service for DNS: ${hostname}`, 'info');
+    } catch {
+      this.log(
+        'Could not annotate Service for external-dns - DNS record may not be created automatically',
+        'warn'
+      );
+      return;
+    }
+
+    const timedOut = Symbol('timeout');
+    const result = await Promise.race([
+      waitForPublicUrl(hostname, { protocol, port, log: (msg, level) => this.log(msg, level) }),
+      new Promise(resolve => setTimeout(() => resolve(timedOut), 5 * 60 * 1000)),
+    ]);
+    if (result === timedOut) {
+      this.log(
+        `Timed out waiting for DNS/TLS on '${hostname}' - it may still be propagating`,
+        'warn'
       );
     }
   }

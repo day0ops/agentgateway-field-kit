@@ -1,7 +1,8 @@
-import { test, expect, describe } from 'bun:test';
+import { test, expect, describe, beforeEach, afterEach } from 'bun:test';
 import yaml from 'js-yaml';
 import '../../features/index.js';
 import { FeatureManager } from '../../src/lib/feature.js';
+import { KubernetesHelper } from '../../src/lib/common.js';
 
 describe('GatewayFeature edition-aware defaults', () => {
   test('enterprise (default) uses agentgateway-gw and the enterprise GatewayClass', async () => {
@@ -55,5 +56,64 @@ describe('GatewayFeature tls passthrough', () => {
     const docs = await FeatureManager.deploy('gateway', { tls }, { dryRun: true });
     const gateway = yaml.load(docs[0]);
     expect(gateway.spec.tls).toEqual(tls);
+  });
+});
+
+describe('GatewayFeature registerDns opt-in', () => {
+  let originalKubectl, calls;
+
+  beforeEach(() => {
+    calls = [];
+    originalKubectl = KubernetesHelper.kubectl;
+    // A bare IPv4 load-balancer address short-circuits waitForGatewayReachable's own wait
+    // (IPV4_RE fast path) - keeps these tests fast.
+    KubernetesHelper.kubectl = async args => {
+      calls.push(args);
+      if (args[0] === 'get' && args[1] === 'svc') {
+        return { stdout: '10.0.0.5', stderr: '', exitCode: 0 };
+      }
+      return { stdout: '', stderr: '', exitCode: 0 };
+    };
+  });
+
+  afterEach(() => {
+    KubernetesHelper.kubectl = originalKubectl;
+  });
+
+  // registerExternalDns itself (the annotate-then-wait-for-real-DNS/TLS path) is deliberately
+  // not exercised here - same as waitForGatewayReachable's own hostname branch, it calls the
+  // unmockable waitForPublicUrl, which polls live DNS/HTTP and would make this test slow and
+  // network-dependent. Coverage stops at the opt-in gate: existing consumers that don't set
+  // registerDns (even with an externally-shaped hostname) must see zero behavior change.
+  test('registerDns omitted never annotates the Service, even with an external-looking hostname', async () => {
+    await FeatureManager.deploy(
+      'gateway',
+      {
+        listeners: [{ name: 'https', port: 443, protocol: 'HTTPS', hostname: 'real.example.com' }],
+      },
+      { dryRun: false }
+    );
+    const annotateCalls = calls.filter(args => args.includes('annotate'));
+    expect(annotateCalls).toEqual([]);
+  });
+
+  test('registerDns: true does not annotate for a cluster-internal hostname', async () => {
+    await FeatureManager.deploy(
+      'gateway',
+      {
+        registerDns: true,
+        listeners: [
+          {
+            name: 'https',
+            port: 443,
+            protocol: 'HTTPS',
+            hostname: 'models-gateway.svc.cluster.local',
+          },
+        ],
+      },
+      { dryRun: false }
+    );
+    const annotateCalls = calls.filter(args => args.includes('annotate'));
+    expect(annotateCalls).toEqual([]);
   });
 });
