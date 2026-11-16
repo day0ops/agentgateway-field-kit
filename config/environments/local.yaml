@@ -106,6 +106,7 @@ spec:
     app:
       quotaManagement: quota-management.agw.lab.day0ops.com
       wizard: wizard.agw.lab.day0ops.com
+      walkthrough: walkthrough.agw.lab.day0ops.com
 
   # CIDR allowlist applied to public-facing NLBs (aws-load-balancer-source-ranges).
   # Empty here - local/BYO clusters aren't VPN-locked; features treat an empty list as

@@ -14,7 +14,8 @@ metadata:
     - automatic failover
     - AI-driven tier routing via a hosted decision model
 
-    Requires a profile with the cert-manager addon installed (e.g. `local-single-cluster`).
+    Requires a profile with cert-manager's Let's Encrypt DNS-01 issuer enabled (e.g.
+    `local-single-cluster`).
 
 spec:
   environment: local
@@ -23,16 +24,17 @@ spec:
       config:
         name: models-gateway-tls
         secretName: models-gateway-tls
-        issuer: '{{env.tls.issuer}}'
-        dnsNames: [models-gateway.test]
+        issuer: letsencrypt-dns
+        dnsNames: ['{{env.domains.app.walkthrough}}']
     - name: gateway
       config:
         name: models-gateway
+        registerDns: true
         listeners:
           - name: https
             port: 443
             protocol: HTTPS
-            hostname: models-gateway.test
+            hostname: '{{env.domains.app.walkthrough}}'
             tls: { mode: Terminate, certificateRefs: [{ name: models-gateway-tls }] }
             allowedRoutes:
               namespaces:
@@ -60,17 +62,15 @@ spec:
         - kind: http
           label: 'POST /v1/chat/completions (gpt-4o-mini)'
           method: POST
-          url: 'https://models-gateway.test/v1/chat/completions'
+          url: 'https://{{env.domains.app.walkthrough}}/v1/chat/completions'
           resolveGateway: { name: models-gateway }
-          insecure: true
           body: '{"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "What is 2+2?"}]}'
           expectStatus: 200
         - kind: http
           label: 'POST /v1/chat/completions (claude-sonnet-5)'
           method: POST
-          url: 'https://models-gateway.test/v1/chat/completions'
+          url: 'https://{{env.domains.app.walkthrough}}/v1/chat/completions'
           resolveGateway: { name: models-gateway }
-          insecure: true
           body: '{"model": "claude-sonnet-5", "messages": [{"role": "user", "content": "What is 2+2?"}]}'
           expectStatus: 200
 
@@ -94,9 +94,8 @@ spec:
         - kind: http
           label: 'POST /v1/chat/completions (openai/gpt-4o-mini, wildcard-matched)'
           method: POST
-          url: 'https://models-gateway.test/v1/chat/completions'
+          url: 'https://{{env.domains.app.walkthrough}}/v1/chat/completions'
           resolveGateway: { name: models-gateway }
-          insecure: true
           body: '{"model": "openai/gpt-4o-mini", "messages": [{"role": "user", "content": "What is 2+2?"}]}'
           expectStatus: 200
 
@@ -119,17 +118,15 @@ spec:
         - kind: http
           label: 'POST /alias (fast, resolves to gpt-4o-mini)'
           method: POST
-          url: 'https://models-gateway.test/alias'
+          url: 'https://{{env.domains.app.walkthrough}}/alias'
           resolveGateway: { name: models-gateway }
-          insecure: true
           body: '{"model": "fast", "messages": [{"role": "user", "content": "What is 2+2?"}]}'
           expectStatus: 200
         - kind: http
           label: 'POST /alias (smart, resolves to gpt-4o)'
           method: POST
-          url: 'https://models-gateway.test/alias'
+          url: 'https://{{env.domains.app.walkthrough}}/alias'
           resolveGateway: { name: models-gateway }
-          insecure: true
           body: '{"model": "smart", "messages": [{"role": "user", "content": "What is 2+2?"}]}'
           expectStatus: 200
 
@@ -155,17 +152,15 @@ spec:
         - kind: http
           label: 'POST /chat (gpt-4o-mini, body-matched to OpenAI)'
           method: POST
-          url: 'https://models-gateway.test/chat'
+          url: 'https://{{env.domains.app.walkthrough}}/chat'
           resolveGateway: { name: models-gateway }
-          insecure: true
           body: '{"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "What is 2+2?"}]}'
           expectStatus: 200
         - kind: http
           label: 'POST /chat (gemini-2.5-flash, body-matched to Vertex AI)'
           method: POST
-          url: 'https://models-gateway.test/chat'
+          url: 'https://{{env.domains.app.walkthrough}}/chat'
           resolveGateway: { name: models-gateway }
-          insecure: true
           body: '{"model": "google/gemini-2.5-flash", "messages": [{"role": "user", "content": "What is 2+2?"}]}'
           expectStatus: 200
 
@@ -198,18 +193,16 @@ spec:
         - kind: traffic-split
           label: '20 requests - only the two working providers ever show up in the tally'
           method: POST
-          url: 'https://models-gateway.test/model'
+          url: 'https://{{env.domains.app.walkthrough}}/model'
           resolveGateway: { name: models-gateway }
-          insecure: true
           body: '{"messages": [{"role": "user", "content": "What is 2+2?"}]}'
           requestCount: 20
           tallyBy: model
         - kind: traffic-split
           label: 'Same 20 requests, tallied by status - the retry policy keeps every one at 200'
           method: POST
-          url: 'https://models-gateway.test/model'
+          url: 'https://{{env.domains.app.walkthrough}}/model'
           resolveGateway: { name: models-gateway }
-          insecure: true
           body: '{"messages": [{"role": "user", "content": "What is 2+2?"}]}'
           requestCount: 20
           tallyBy: '$status'
@@ -247,9 +240,8 @@ spec:
         - kind: traffic-split
           label: '20 requests to balanced, tallied by which target served each one'
           method: POST
-          url: 'https://models-gateway.test/v1/chat/completions'
+          url: 'https://{{env.domains.app.walkthrough}}/v1/chat/completions'
           resolveGateway: { name: models-gateway }
-          insecure: true
           body: '{"model": "balanced", "messages": [{"role": "user", "content": "What is 2+2?"}]}'
           requestCount: 20
           tallyBy: model
@@ -286,9 +278,8 @@ spec:
         - kind: http
           label: 'POST /v1/chat/completions (tiered, x-model-tier: premium)'
           method: POST
-          url: 'https://models-gateway.test/v1/chat/completions'
+          url: 'https://{{env.domains.app.walkthrough}}/v1/chat/completions'
           resolveGateway: { name: models-gateway }
-          insecure: true
           headers:
             x-model-tier: premium
           body: '{"model": "tiered", "messages": [{"role": "user", "content": "What is 2+2?"}]}'
@@ -296,9 +287,8 @@ spec:
         - kind: http
           label: 'POST /v1/chat/completions (tiered, no header, falls back)'
           method: POST
-          url: 'https://models-gateway.test/v1/chat/completions'
+          url: 'https://{{env.domains.app.walkthrough}}/v1/chat/completions'
           resolveGateway: { name: models-gateway }
-          insecure: true
           body: '{"model": "tiered", "messages": [{"role": "user", "content": "What is 2+2?"}]}'
           expectStatus: 200
 
@@ -339,17 +329,15 @@ spec:
         - kind: http
           label: 'First request - served by the OpenAI primary'
           method: POST
-          url: 'https://models-gateway.test/v1/chat/completions'
+          url: 'https://{{env.domains.app.walkthrough}}/v1/chat/completions'
           resolveGateway: { name: models-gateway }
-          insecure: true
           body: '{"model": "resilient-chat", "messages": [{"role": "user", "content": "What is 2+2?"}]}'
           expectStatus: 200
         - kind: http
           label: 'Second request - primary now evicted, fails over to Anthropic'
           method: POST
-          url: 'https://models-gateway.test/v1/chat/completions'
+          url: 'https://{{env.domains.app.walkthrough}}/v1/chat/completions'
           resolveGateway: { name: models-gateway }
-          insecure: true
           body: '{"model": "resilient-chat", "messages": [{"role": "user", "content": "What is 2+2?"}]}'
           expectStatus: 200
 
@@ -372,9 +360,8 @@ spec:
         - kind: http
           label: 'POST /jev - classify the prompt'
           method: POST
-          url: 'https://models-gateway.test/jev'
+          url: 'https://{{env.domains.app.walkthrough}}/jev'
           resolveGateway: { name: models-gateway }
-          insecure: true
           body: >-
             {"model": "jev-latest", "state": "Say hello", "questions": {"tier":
             {"type": "choice", "instructions": "Does this request need a premium
@@ -386,8 +373,7 @@ spec:
         - kind: http
           label: 'POST /alias with the tier Jev picked (cheap)'
           method: POST
-          url: 'https://models-gateway.test/alias'
+          url: 'https://{{env.domains.app.walkthrough}}/alias'
           resolveGateway: { name: models-gateway }
-          insecure: true
           body: '{"model": "cheap", "messages": [{"role": "user", "content": "Say hello"}]}'
           expectStatus: 200

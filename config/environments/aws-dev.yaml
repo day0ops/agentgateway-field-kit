@@ -129,3 +129,4 @@ spec:
     app:
       quotaManagement: quota-management.demo.kasunt.apac.fe.solo.io
       wizard: wizard.demo.kasunt.apac.fe.solo.io
+      walkthrough: walkthrough.demo.kasunt.apac.fe.solo.io

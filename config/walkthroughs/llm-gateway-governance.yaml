@@ -21,16 +21,17 @@ spec:
       config:
         name: governance-gateway-tls
         secretName: governance-gateway-tls
-        issuer: '{{env.tls.issuer}}'
-        dnsNames: [governance-gateway.test]
+        issuer: letsencrypt-dns
+        dnsNames: ['{{env.domains.app.walkthrough}}']
     - name: gateway
       config:
         name: governance-gateway
+        registerDns: true
         listeners:
           - name: https
             port: 443
             protocol: HTTPS
-            hostname: governance-gateway.test
+            hostname: '{{env.domains.app.walkthrough}}'
             tls: { mode: Terminate, certificateRefs: [{ name: governance-gateway-tls }] }
             allowedRoutes:
               namespaces:
@@ -111,27 +112,24 @@ spec:
         - kind: http
           label: 'POST /gov-chat (gpt-4o, no credentials)'
           method: POST
-          url: 'https://governance-gateway.test/gov-chat'
+          url: 'https://{{env.domains.app.walkthrough}}/gov-chat'
           resolveGateway: { name: governance-gateway }
-          insecure: true
           body: '{"model": "gpt-4o", "messages": [{"role": "user", "content": "What is 2+2?"}]}'
           expectStatus: 401
         - kind: http
           label: 'POST /gov-chat (gpt-4o, alice via JWT)'
           credential: alice
           method: POST
-          url: 'https://governance-gateway.test/gov-chat'
+          url: 'https://{{env.domains.app.walkthrough}}/gov-chat'
           resolveGateway: { name: governance-gateway }
-          insecure: true
           body: '{"model": "gpt-4o", "messages": [{"role": "user", "content": "What is 2+2?"}]}'
           expectStatus: 200
         - kind: http
           label: 'POST /gov-chat (claude-sonnet-5, alice via JWT)'
           credential: alice
           method: POST
-          url: 'https://governance-gateway.test/gov-chat'
+          url: 'https://{{env.domains.app.walkthrough}}/gov-chat'
           resolveGateway: { name: governance-gateway }
-          insecure: true
           body: '{"model": "claude-sonnet-5", "messages": [{"role": "user", "content": "What is 2+2?"}]}'
           expectStatus: 403
     - name: budget-and-spend-limits
@@ -207,9 +205,8 @@ spec:
         - kind: http
           label: 'POST /gov-cost (bob, 1-token daily budget exceeded, Block)'
           method: POST
-          url: 'https://governance-gateway.test/gov-cost'
+          url: 'https://{{env.domains.app.walkthrough}}/gov-cost'
           resolveGateway: { name: governance-gateway }
-          insecure: true
           headers:
             X-Api-Key: sk-bob-demo-xyz789uvw012
           body: '{"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "Hello"}]}'
@@ -217,9 +214,8 @@ spec:
         - kind: http
           label: 'POST /gov-cost (alice, 1-token daily budget exceeded, Audit only)'
           method: POST
-          url: 'https://governance-gateway.test/gov-cost'
+          url: 'https://{{env.domains.app.walkthrough}}/gov-cost'
           resolveGateway: { name: governance-gateway }
-          insecure: true
           headers:
             X-Api-Key: sk-alice-demo-abc123def456
           body: '{"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "Hello"}]}'
@@ -263,17 +259,15 @@ spec:
         - kind: http
           label: 'POST /gov-guardrails (SSN in prompt, blocked)'
           method: POST
-          url: 'https://governance-gateway.test/gov-guardrails'
+          url: 'https://{{env.domains.app.walkthrough}}/gov-guardrails'
           resolveGateway: { name: governance-gateway }
-          insecure: true
           body: '{"model": "gpt-4o", "messages": [{"role": "user", "content": "My SSN is 123-45-6789, can you help me?"}]}'
           expectStatus: 403
         - kind: http
           label: 'POST /gov-guardrails (clean prompt, allowed)'
           method: POST
-          url: 'https://governance-gateway.test/gov-guardrails'
+          url: 'https://{{env.domains.app.walkthrough}}/gov-guardrails'
           resolveGateway: { name: governance-gateway }
-          insecure: true
           body: '{"model": "gpt-4o", "messages": [{"role": "user", "content": "What is the capital of France?"}]}'
           expectStatus: 200
     - name: token-rate-limiting
@@ -302,17 +296,15 @@ spec:
         - kind: http
           label: 'POST /gov-ratelimit (first request, within 5-token/minute budget)'
           method: POST
-          url: 'https://governance-gateway.test/gov-ratelimit'
+          url: 'https://{{env.domains.app.walkthrough}}/gov-ratelimit'
           resolveGateway: { name: governance-gateway }
-          insecure: true
           body: '{"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "What is your favorite poem?"}]}'
           expectStatus: 200
         - kind: http
           label: 'POST /gov-ratelimit (second request, same minute, budget exceeded)'
           method: POST
-          url: 'https://governance-gateway.test/gov-ratelimit'
+          url: 'https://{{env.domains.app.walkthrough}}/gov-ratelimit'
           resolveGateway: { name: governance-gateway }
-          insecure: true
           body: '{"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "What is your favorite poem?"}]}'
           expectStatus: 429
     - name: defense-in-depth
@@ -442,26 +434,23 @@ spec:
           label: 'POST /gov-chat-tiered (gpt-4o-mini, alice via JWT, allowed)'
           credential: alice2
           method: POST
-          url: 'https://governance-gateway.test/gov-chat-tiered'
+          url: 'https://{{env.domains.app.walkthrough}}/gov-chat-tiered'
           resolveGateway: { name: governance-gateway }
-          insecure: true
           body: '{"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "What is 2+2?"}]}'
           expectStatus: 200
         - kind: http
           label: 'POST /gov-chat-tiered (claude-sonnet-5, alice via JWT, denied by OpenFGA)'
           credential: alice2
           method: POST
-          url: 'https://governance-gateway.test/gov-chat-tiered'
+          url: 'https://{{env.domains.app.walkthrough}}/gov-chat-tiered'
           resolveGateway: { name: governance-gateway }
-          insecure: true
           body: '{"model": "claude-sonnet-5", "messages": [{"role": "user", "content": "What is 2+2?"}]}'
           expectStatus: 403
         - kind: http
           label: 'POST /gov-chat-tiered (gpt-4o-mini, team-ci via API key, denied by budget)'
           method: POST
-          url: 'https://governance-gateway.test/gov-chat-tiered'
+          url: 'https://{{env.domains.app.walkthrough}}/gov-chat-tiered'
           resolveGateway: { name: governance-gateway }
-          insecure: true
           headers:
             X-Api-Key: sk-team-ci-demo-9f3c7a1e
           body: '{"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "Hello"}]}'
