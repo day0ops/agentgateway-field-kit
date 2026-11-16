@@ -193,10 +193,13 @@ export class Prompts {
             const prefix = active ? chalk.cyan('❯') : ' ';
             const labelLines = String(choice.name).split('\n');
             const [firstLine, ...restLines] = labelLines;
-            const firstLabel = active ? chalk.cyan(firstLine) : firstLine;
+            // blue (distinct from the active choice's cyan, and from the dim
+            // detail block it renders below itself) so an unselected choice
+            // still reads as selectable text rather than blending into either.
+            const firstLabel = active ? chalk.cyan(firstLine) : chalk.blue(firstLine);
             lines.push(`${prefix} ${firstLabel}`);
             for (const line of restLines) {
-              lines.push(active ? chalk.cyan(line) : line);
+              lines.push(active ? chalk.cyan(line) : chalk.blue(line));
             }
             if (active && choice.detail) {
               const width = Math.max(20, (stdout.columns || 80) - 4);
