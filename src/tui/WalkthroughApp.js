@@ -12,6 +12,10 @@ function renderAgentgatewayBanner() {
 // padding: 1 on the root Box - 1 row top + 1 row bottom.
 const ROOT_VERTICAL_PADDING = 2;
 
+// The Response panel's own scroll viewport (independent of the page) - bounds a long
+// response to a fixed number of visible lines instead of growing the whole row to match it.
+const RESPONSE_PANEL_MAX_HEIGHT = 15;
+
 /**
  * Renders a vertical scrollbar as one character per viewport row - a thumb sized to the visible
  * fraction of the content, positioned to match the current scroll offset.
@@ -36,6 +40,7 @@ export function WalkthroughApp({ engine, installedVersion }) {
   const [running, setRunning] = useState(false);
   const [error, setError] = useState(null);
   const [scrollOffset, setScrollOffset] = useState(0);
+  const [responseScrollOffset, setResponseScrollOffset] = useState(0);
   // Raw, uncommitted keystrokes for a prompt step - only the submitted value crosses into the engine.
   const [promptBuffer, setPromptBuffer] = useState('');
   // Guards against a keypress starting a second step mid-flight (e.g. a double-pressed
@@ -46,9 +51,11 @@ export function WalkthroughApp({ engine, installedVersion }) {
   const contentRef = useRef(null);
   const headerRef = useRef(null);
   const footerRef = useRef(null);
+  const responseBodyRef = useRef(null);
   const { height: contentHeight } = useBoxMetrics(contentRef);
   const { height: headerHeight } = useBoxMetrics(headerRef);
   const { height: footerHeight } = useBoxMetrics(footerRef);
+  const { height: responseBodyHeight } = useBoxMetrics(responseBodyRef);
 
   useEffect(() => {
     const onChange = () => forceRender(n => n + 1);
@@ -72,6 +79,7 @@ export function WalkthroughApp({ engine, installedVersion }) {
   // A new screen or step has entirely different content - start scrolled to the top of it.
   useEffect(() => {
     setScrollOffset(0);
+    setResponseScrollOffset(0);
   }, [engine.screenIndex, engine.stepIndex]);
 
   useEffect(() => {
@@ -83,6 +91,9 @@ export function WalkthroughApp({ engine, installedVersion }) {
     : undefined;
   const maxScroll = viewportHeight === undefined ? 0 : Math.max(0, contentHeight - viewportHeight);
   const clampedScrollOffset = Math.min(scrollOffset, maxScroll);
+
+  const responseMaxScroll = Math.max(0, responseBodyHeight - RESPONSE_PANEL_MAX_HEIGHT);
+  const clampedResponseScrollOffset = Math.min(responseScrollOffset, responseMaxScroll);
 
   useInput((input, key) => {
     const currentStep = engine.currentStep;
@@ -111,12 +122,24 @@ export function WalkthroughApp({ engine, installedVersion }) {
       }
       return;
     }
+    // While a response is on screen, ↑/↓ scroll it rather than the whole page - it has its
+    // own bounded viewport (RESPONSE_PANEL_MAX_HEIGHT) and scrollbar.
+    const currentResult = engine.getStepResult();
+    const responseShowing = currentResult?.kind === 'http' && engine.isResponseRevealed();
     if (key.downArrow) {
-      setScrollOffset(offset => Math.min(offset + 1, maxScroll));
+      if (responseShowing) {
+        setResponseScrollOffset(offset => Math.min(offset + 1, responseMaxScroll));
+      } else {
+        setScrollOffset(offset => Math.min(offset + 1, maxScroll));
+      }
       return;
     }
     if (key.upArrow) {
-      setScrollOffset(offset => Math.max(offset - 1, 0));
+      if (responseShowing) {
+        setResponseScrollOffset(offset => Math.max(offset - 1, 0));
+      } else {
+        setScrollOffset(offset => Math.max(offset - 1, 0));
+      }
       return;
     }
     // q must quit even mid-operation (a stalled browser login or slow deploy shouldn't trap the
@@ -242,7 +265,17 @@ export function WalkthroughApp({ engine, installedVersion }) {
                 (step.mask ? '•'.repeat(promptBuffer.length) : promptBuffer) + '█'
               )
             ),
-          result && React.createElement(StepResultView, { result, responseRevealed }),
+          result &&
+            React.createElement(StepResultView, {
+              result,
+              responseRevealed,
+              responseScroll: {
+                bodyRef: responseBodyRef,
+                offset: clampedResponseScrollOffset,
+                maxScroll: responseMaxScroll,
+                bodyHeight: responseBodyHeight,
+              },
+            }),
           // Shown last, and only once the response has been revealed (or there's no step to
           // reveal at all, e.g. a narration-only screen) - the audience sees the live
           // request/response before the config that produced it, not alongside the request.
@@ -277,7 +310,7 @@ export function WalkthroughApp({ engine, installedVersion }) {
         borderColor: 'gray',
         paddingTop: 1,
       },
-      maxScroll > 0 &&
+      (maxScroll > 0 || responseMaxScroll > 0) &&
         React.createElement(Text, { dimColor: true }, '↕ more content - scroll with ↑/↓'),
       React.createElement(
         Text,
@@ -368,15 +401,67 @@ export function isHttpSuccess(status) {
   return status >= 200 && status < 300;
 }
 
-function StepResultView({ result, responseRevealed }) {
+/**
+ * The Response panel's body. Always renders the full formatted body (never truncated) inside a
+ * ref'd box so its true height can be measured; once that height exceeds
+ * RESPONSE_PANEL_MAX_HEIGHT, wraps it in its own fixed-height scroll viewport and draws a
+ * scrollbar alongside it - independent of the Request panel beside it and of the page's own
+ * scroll.
+ */
+function ResponseBody({ body, scroll }) {
+  const formatted = formatBody(body);
+  const content = React.createElement(
+    Box,
+    { ref: scroll?.bodyRef, flexDirection: 'column', flexShrink: 0 },
+    React.createElement(Text, { dimColor: true }, formatted)
+  );
+
+  if (!scroll || scroll.maxScroll <= 0) {
+    return content;
+  }
+
+  const scrollbar = renderScrollbar(
+    RESPONSE_PANEL_MAX_HEIGHT,
+    scroll.bodyHeight,
+    scroll.maxScroll,
+    scroll.offset
+  );
+  return React.createElement(
+    Box,
+    { flexDirection: 'row', columnGap: 1 },
+    React.createElement(
+      Box,
+      {
+        flexDirection: 'column',
+        height: RESPONSE_PANEL_MAX_HEIGHT,
+        overflowY: 'hidden',
+        contentOffsetY: scroll.offset,
+        flexGrow: 1,
+      },
+      content
+    ),
+    scrollbar &&
+      React.createElement(
+        Box,
+        { flexDirection: 'column' },
+        ...scrollbar.map((char, i) =>
+          React.createElement(Text, { key: i, dimColor: char === '│' }, char)
+        )
+      )
+  );
+}
+
+function StepResultView({ result, responseRevealed, responseScroll }) {
   if (result.kind === 'http') {
     // A null status means the request never connected at all (e.g. a Gateway listener was
     // removed) - isHttpSuccess(null) is false, so this still colors red like any other failure.
     const statusColor = isHttpSuccess(result.status) ? 'green' : 'red';
     const statusLabel = result.status === null ? 'Connection failed' : `Status: ${result.status}`;
     return React.createElement(
+      // flex-start, not the row's default stretch - otherwise the (usually short) Request
+      // panel's border would stretch to match a tall Response instead of hugging its own content.
       Box,
-      { flexDirection: 'row', columnGap: 1 },
+      { flexDirection: 'row', columnGap: 1, alignItems: 'flex-start' },
       React.createElement(
         Panel,
         { label: 'Request', grow: true },
@@ -395,10 +480,8 @@ function StepResultView({ result, responseRevealed }) {
                 result.headers?.[result.expectResponseHeader.name.toLowerCase()] ?? '(missing)'
               }`
             ),
-          // Full body, not truncateBody's preview - the response is the point of the demo, so
-          // cutting it off mid-JSON (or mid-sentence) looks broken rather than abbreviated. The
-          // app's own scroll support (↑/↓) handles anything taller than the viewport.
-          result.body && React.createElement(Text, { dimColor: true }, formatBody(result.body))
+          result.body &&
+            React.createElement(ResponseBody, { body: result.body, scroll: responseScroll })
         )
     );
   }
