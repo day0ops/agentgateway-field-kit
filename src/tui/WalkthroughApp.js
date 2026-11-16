@@ -220,9 +220,14 @@ export function WalkthroughApp({ engine, installedVersion }) {
           ),
           step &&
             React.createElement(
-              Text,
-              { dimColor: true },
-              `Step ${engine.stepIndex + 1}/${(screen.steps || []).length}: ${step.label}`
+              Box,
+              { flexDirection: 'column' },
+              React.createElement(
+                Text,
+                null,
+                `Step ${engine.stepIndex + 1}/${(screen.steps || []).length}: ${step.description || step.label}`
+              ),
+              React.createElement(Text, { bold: true }, `Executing Request: ${step.label}`)
             ),
           running && React.createElement(Text, { color: 'yellow' }, 'Running...'),
           error && React.createElement(Text, { color: 'red' }, `Error: ${error}`),
@@ -238,12 +243,14 @@ export function WalkthroughApp({ engine, installedVersion }) {
               )
             ),
           result && React.createElement(StepResultView, { result, responseRevealed }),
-          // Shown last - after the narration and the live request/response - so the
-          // audience sees the demo's result before the config that produced it.
+          // Shown last, and only once the response has been revealed (or there's no step to
+          // reveal at all, e.g. a narration-only screen) - the audience sees the live
+          // request/response before the config that produced it, not alongside the request.
           appliedYaml &&
+            (!step || responseRevealed) &&
             React.createElement(
               Panel,
-              { label: 'Applied Configuration', borderColor: 'blue' },
+              { label: 'What did we just apply?', borderColor: 'blue' },
               React.createElement(Text, { dimColor: true }, appliedYaml)
             )
         )
@@ -283,16 +290,6 @@ export function WalkthroughApp({ engine, installedVersion }) {
   );
 }
 
-/** Reconstructs the step's request as a copyable curl command, including its body if any. */
-function buildCurlLine(request) {
-  const headerFlags = Object.entries(request.headers)
-    .map(([key, value]) => `-H '${key}: ${value}'`)
-    .join(' ');
-  const methodFlag = request.method !== 'GET' ? `-X ${request.method} ` : '';
-  const dataFlag = request.body !== undefined ? `-d '${request.body}' ` : '';
-  return `curl ${methodFlag}${dataFlag}${headerFlags ? headerFlags + ' ' : ''}'${request.url}'`;
-}
-
 const BODY_PREVIEW_LENGTH = 500;
 
 /** Pretty-prints a response body as JSON when it parses as such, otherwise returns it unchanged. */
@@ -310,6 +307,32 @@ function truncateBody(body) {
   return formatted.length > BODY_PREVIEW_LENGTH
     ? `${formatted.slice(0, BODY_PREVIEW_LENGTH)}...`
     : formatted;
+}
+
+/** The method/URL, headers, and (formatted) body of a request, as separate labeled sections. */
+function RequestDetails({ request }) {
+  const headerEntries = Object.entries(request.headers || {});
+  return React.createElement(
+    Box,
+    { flexDirection: 'column' },
+    React.createElement(Text, { bold: true }, `${request.method} ${request.url}`),
+    headerEntries.length > 0 &&
+      React.createElement(
+        Box,
+        { flexDirection: 'column', marginTop: 1 },
+        React.createElement(Text, { dimColor: true, underline: true }, 'Headers'),
+        ...headerEntries.map(([key, value]) =>
+          React.createElement(Text, { key, dimColor: true }, `  ${key}: ${value}`)
+        )
+      ),
+    request.body !== undefined &&
+      React.createElement(
+        Box,
+        { flexDirection: 'column', marginTop: 1 },
+        React.createElement(Text, { dimColor: true, underline: true }, 'Body'),
+        React.createElement(Text, null, truncateBody(request.body))
+      )
+  );
 }
 
 /** A bordered panel with a small dim label - the shared "square" frame for request/response/result content. */
@@ -357,7 +380,7 @@ function StepResultView({ result, responseRevealed }) {
       React.createElement(
         Panel,
         { label: 'Request', grow: true },
-        React.createElement(Text, null, buildCurlLine(result.request))
+        React.createElement(RequestDetails, { request: result.request })
       ),
       responseRevealed &&
         React.createElement(

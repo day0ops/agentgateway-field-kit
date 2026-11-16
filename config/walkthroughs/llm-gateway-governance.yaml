@@ -111,6 +111,7 @@ spec:
       steps:
         - kind: http
           label: 'POST /gov-chat (gpt-4o, no credentials)'
+          description: No credentials at all - the JWT auth gate rejects this request outright.
           method: POST
           url: 'https://{{env.domains.app.walkthrough}}/gov-chat'
           resolveGateway: { name: governance-gateway }
@@ -118,6 +119,7 @@ spec:
           expectStatus: 401
         - kind: http
           label: 'POST /gov-chat (gpt-4o, alice via JWT)'
+          description: alice signs in via Keycloak JWT and OpenFGA grants her access to gpt-4o.
           credential: alice
           method: POST
           url: 'https://{{env.domains.app.walkthrough}}/gov-chat'
@@ -126,6 +128,7 @@ spec:
           expectStatus: 200
         - kind: http
           label: 'POST /gov-chat (claude-sonnet-5, alice via JWT)'
+          description: Same JWT, different model - OpenFGA denies alice access to claude-sonnet-5.
           credential: alice
           method: POST
           url: 'https://{{env.domains.app.walkthrough}}/gov-chat'
@@ -204,6 +207,7 @@ spec:
       steps:
         - kind: http
           label: 'POST /gov-cost (bob, 1-token daily budget exceeded, Block)'
+          description: bob's 1-token daily budget is already exhausted - this request is blocked with 429.
           method: POST
           url: 'https://{{env.domains.app.walkthrough}}/gov-cost'
           resolveGateway: { name: governance-gateway }
@@ -213,6 +217,7 @@ spec:
           expectStatus: 429
         - kind: http
           label: 'POST /gov-cost (alice, 1-token daily budget exceeded, Audit only)'
+          description: alice's budget is exhausted too, but her policy only audits the overage - the request still goes through.
           method: POST
           url: 'https://{{env.domains.app.walkthrough}}/gov-cost'
           resolveGateway: { name: governance-gateway }
@@ -258,6 +263,7 @@ spec:
       steps:
         - kind: http
           label: 'POST /gov-guardrails (SSN in prompt, blocked)'
+          description: The prompt contains an SSN - the guardrail's PII detector blocks it before it reaches the LLM.
           method: POST
           url: 'https://{{env.domains.app.walkthrough}}/gov-guardrails'
           resolveGateway: { name: governance-gateway }
@@ -265,6 +271,7 @@ spec:
           expectStatus: 403
         - kind: http
           label: 'POST /gov-guardrails (clean prompt, allowed)'
+          description: A clean prompt with no sensitive content passes the guardrail unchanged.
           method: POST
           url: 'https://{{env.domains.app.walkthrough}}/gov-guardrails'
           resolveGateway: { name: governance-gateway }
@@ -295,6 +302,7 @@ spec:
       steps:
         - kind: http
           label: 'POST /gov-ratelimit (first request, within 5-token/minute budget)'
+          description: This request's ~5 tokens fit within the 5-token/minute budget.
           method: POST
           url: 'https://{{env.domains.app.walkthrough}}/gov-ratelimit'
           resolveGateway: { name: governance-gateway }
@@ -302,6 +310,7 @@ spec:
           expectStatus: 200
         - kind: http
           label: 'POST /gov-ratelimit (second request, same minute, budget exceeded)'
+          description: Fired immediately after, in the same minute - this one exceeds the budget and gets 429.
           method: POST
           url: 'https://{{env.domains.app.walkthrough}}/gov-ratelimit'
           resolveGateway: { name: governance-gateway }
@@ -432,6 +441,7 @@ spec:
       steps:
         - kind: http
           label: 'POST /gov-chat-tiered (gpt-4o-mini, alice via JWT, allowed)'
+          description: alice's org:acme entitlement allows gpt-4o-mini, and every budget/rate-limit layer still has headroom.
           credential: alice2
           method: POST
           url: 'https://{{env.domains.app.walkthrough}}/gov-chat-tiered'
@@ -440,6 +450,7 @@ spec:
           expectStatus: 200
         - kind: http
           label: 'POST /gov-chat-tiered (claude-sonnet-5, alice via JWT, denied by OpenFGA)'
+          description: alice isn't on team:acme-ml - OpenFGA denies claude-sonnet-5 before the budget layer is ever reached.
           credential: alice2
           method: POST
           url: 'https://{{env.domains.app.walkthrough}}/gov-chat-tiered'
@@ -448,6 +459,7 @@ spec:
           expectStatus: 403
         - kind: http
           label: 'POST /gov-chat-tiered (gpt-4o-mini, team-ci via API key, denied by budget)'
+          description: team-ci is entitled to gpt-4o-mini, but its 1-token daily budget is already exhausted.
           method: POST
           url: 'https://{{env.domains.app.walkthrough}}/gov-chat-tiered'
           resolveGateway: { name: governance-gateway }
