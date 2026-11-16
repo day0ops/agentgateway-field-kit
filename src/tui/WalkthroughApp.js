@@ -122,10 +122,14 @@ export function WalkthroughApp({ engine, installedVersion }) {
       }
       return;
     }
-    // While a response is on screen, ↑/↓ scroll it rather than the whole page - it has its
-    // own bounded viewport (RESPONSE_PANEL_MAX_HEIGHT) and scrollbar.
+    // The whole page's own scroll always wins when it has anywhere to go - otherwise ↑/↓ on a
+    // page that's also too tall for the terminal would get stuck scrolling just the Response
+    // panel, with no way to reach content below it (e.g. "What did we just apply?"). Only once
+    // the page already fits the viewport does ↑/↓ fall through to the Response's own bounded
+    // viewport (RESPONSE_PANEL_MAX_HEIGHT) and scrollbar.
     const currentResult = engine.getStepResult();
-    const responseShowing = currentResult?.kind === 'http' && engine.isResponseRevealed();
+    const responseShowing =
+      maxScroll === 0 && currentResult?.kind === 'http' && engine.isResponseRevealed();
     if (key.downArrow) {
       if (responseShowing) {
         setResponseScrollOffset(offset => Math.min(offset + 1, responseMaxScroll));
@@ -463,10 +467,11 @@ function StepResultView({ result, responseRevealed, responseScroll }) {
     const statusColor = isHttpSuccess(result.status) ? 'green' : 'red';
     const statusLabel = result.status === null ? 'Connection failed' : `Status: ${result.status}`;
     return React.createElement(
-      // flex-start, not the row's default stretch - otherwise the (usually short) Request
-      // panel's border would stretch to match a tall Response instead of hugging its own content.
+      // Default (stretch) cross-axis alignment - Response is now height-capped at
+      // RESPONSE_PANEL_MAX_HEIGHT, so stretching Request to match is a small, bounded pad
+      // rather than the unbounded one a long, uncapped response used to cause.
       Box,
-      { flexDirection: 'row', columnGap: 1, alignItems: 'flex-start' },
+      { flexDirection: 'row', columnGap: 1 },
       React.createElement(
         Panel,
         { label: 'Request', grow: true },
