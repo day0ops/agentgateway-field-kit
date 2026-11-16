@@ -221,13 +221,13 @@ export function WalkthroughApp({ engine, installedVersion }) {
           step &&
             React.createElement(
               Box,
-              { flexDirection: 'column' },
+              { flexDirection: 'column', rowGap: 1 },
               React.createElement(
                 Text,
                 null,
-                `Step ${engine.stepIndex + 1}/${(screen.steps || []).length}: ${step.description || step.label}`
+                `📍 Step ${engine.stepIndex + 1}/${(screen.steps || []).length}: ${step.description || step.label}`
               ),
-              React.createElement(Text, { bold: true }, `Executing Request: ${step.label}`)
+              React.createElement(Text, { bold: true }, `🚀 Executing Request: ${step.label}`)
             ),
           running && React.createElement(Text, { color: 'yellow' }, 'Running...'),
           error && React.createElement(Text, { color: 'red' }, `Error: ${error}`),

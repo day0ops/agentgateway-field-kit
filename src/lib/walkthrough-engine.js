@@ -275,15 +275,22 @@ export class WalkthroughEngine extends EventEmitter {
   }
 
   /**
-   * Right-arrow: for an 'http' step, applying a screen's setup, previewing the request (built
-   * but not sent), firing it (which reveals the response), and advancing are four separate
-   * presses. A 'prompt' step has nothing to fire here - submitPromptValue (via Enter) drives it.
-   * Other step kinds fire directly on their first press.
+   * Right-arrow: for an 'http' step, applying a screen's setup also previews the request (built
+   * but not sent) in the same press; firing it (which reveals the response) and advancing are
+   * two further presses. A 'prompt' step has nothing to fire here - submitPromptValue (via
+   * Enter) drives it. Other step kinds fire directly on their first press.
    */
   async handleRight() {
     if (!this.appliedScreens.has(this.screenIndex)) {
       this.emit('running');
       await this.ensureAppliedThrough(this.screenIndex);
+      // An 'http' step's request preview is built in the same press as applying the
+      // screen's setup, so the audience sees the Request panel right away instead of a
+      // press that visibly does nothing followed by one that reveals it.
+      if (this.currentStep?.kind === 'http') {
+        await this.previewCurrentStep();
+        return;
+      }
       this.emit('change');
       return;
     }
