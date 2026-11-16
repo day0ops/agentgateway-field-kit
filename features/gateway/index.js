@@ -41,10 +41,11 @@ const IPV4_RE = /^\d{1,3}(\.\d{1,3}){3}$/;
  *     backend?: object,
  *   },
  *   registerDns: boolean,     // Annotate the auto-provisioned Service for external-dns and
- *                             // wait for the first listener's hostname to resolve with valid
- *                             // TLS before deploy() returns (default: false - most dedicated
- *                             // Gateways use a self-signed/cluster-internal hostname that was
- *                             // never meant to be externally resolvable)
+ *                             // wait indefinitely for the first listener's hostname to
+ *                             // resolve with valid TLS before deploy() returns (default:
+ *                             // false - most dedicated Gateways use a self-signed/
+ *                             // cluster-internal hostname that was never meant to be
+ *                             // externally resolvable)
  * }
  */
 export class GatewayFeature extends Feature {
@@ -122,6 +123,11 @@ export class GatewayFeature extends Feature {
   // auto-provisioned Service for external-dns, then wait for the hostname to resolve with
   // valid TLS. Opt-in (registerDns) since most dedicated Gateways use a self-signed/
   // cluster-internal hostname that was never meant to be externally resolvable.
+  //
+  // Waits indefinitely, unlike waitForGatewayReachable's own bounded wait below - DNS-01
+  // issuance plus propagation for a brand new record has no reliable upper bound, and the
+  // only consumers of this opt-in (the llm-gateway-* walkthroughs) would otherwise start a
+  // demo against a Gateway that isn't actually reachable yet.
   async registerExternalDns(name, namespace, hostname, port, protocol) {
     try {
       await KubernetesHelper.kubectl([
@@ -142,17 +148,11 @@ export class GatewayFeature extends Feature {
       return;
     }
 
-    const timedOut = Symbol('timeout');
-    const result = await Promise.race([
-      waitForPublicUrl(hostname, { protocol, port, log: (msg, level) => this.log(msg, level) }),
-      new Promise(resolve => setTimeout(() => resolve(timedOut), 5 * 60 * 1000)),
-    ]);
-    if (result === timedOut) {
-      this.log(
-        `Timed out waiting for DNS/TLS on '${hostname}' - it may still be propagating`,
-        'warn'
-      );
-    }
+    await waitForPublicUrl(hostname, {
+      protocol,
+      port,
+      log: (msg, level) => this.log(msg, level),
+    });
   }
 
   // The Gateway API controller auto-provisions a LoadBalancer Service named after the
