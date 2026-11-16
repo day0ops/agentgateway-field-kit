@@ -252,7 +252,12 @@ export function WalkthroughApp({ engine, installedVersion }) {
               ),
               React.createElement(Text, { bold: true }, `🚀 Executing Request: ${step.label}`)
             ),
-          running && React.createElement(Text, { color: 'yellow' }, 'Running...'),
+          running &&
+            React.createElement(
+              Box,
+              { marginY: 1 },
+              React.createElement(Text, { color: 'yellow' }, 'Running...')
+            ),
           error && React.createElement(Text, { color: 'red' }, `Error: ${error}`),
           step?.kind === 'prompt' &&
             !result &&
