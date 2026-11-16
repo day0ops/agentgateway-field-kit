@@ -122,9 +122,10 @@ export function WalkthroughApp({ engine, installedVersion }) {
       }
       return;
     }
-    // ↑/↓ always scroll the whole page. PageUp/PageDown are a separate key, dedicated to the
-    // Response panel's own bounded viewport (RESPONSE_PANEL_MAX_HEIGHT) and scrollbar, so the
-    // two scrolls never fight over the same keys.
+    // ↑/↓ always scroll the whole page. w/s are dedicated to the Response panel's own bounded
+    // viewport (RESPONSE_PANEL_MAX_HEIGHT) and scrollbar, so the two scrolls never fight over
+    // the same keys - PageUp/PageDown are also wired to the same thing, but most Mac keyboards
+    // have no such key at all.
     if (key.downArrow) {
       setScrollOffset(offset => Math.min(offset + 1, maxScroll));
       return;
@@ -133,11 +134,11 @@ export function WalkthroughApp({ engine, installedVersion }) {
       setScrollOffset(offset => Math.max(offset - 1, 0));
       return;
     }
-    if (key.pageDown) {
+    if (key.pageDown || input.toLowerCase() === 's') {
       setResponseScrollOffset(offset => Math.min(offset + 1, responseMaxScroll));
       return;
     }
-    if (key.pageUp) {
+    if (key.pageUp || input.toLowerCase() === 'w') {
       setResponseScrollOffset(offset => Math.max(offset - 1, 0));
       return;
     }
@@ -317,11 +318,7 @@ export function WalkthroughApp({ engine, installedVersion }) {
       maxScroll > 0 &&
         React.createElement(Text, { dimColor: true }, '↕ more content - scroll with ↑/↓'),
       responseMaxScroll > 0 &&
-        React.createElement(
-          Text,
-          { dimColor: true },
-          '⇞⇟ response has more - scroll with page up/down'
-        ),
+        React.createElement(Text, { dimColor: true }, '⇞⇟ response has more - scroll with w/s'),
       React.createElement(
         Text,
         { dimColor: true },
