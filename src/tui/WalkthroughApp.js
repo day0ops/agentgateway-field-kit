@@ -122,28 +122,23 @@ export function WalkthroughApp({ engine, installedVersion }) {
       }
       return;
     }
-    // The whole page's own scroll always wins when it has anywhere to go - otherwise ↑/↓ on a
-    // page that's also too tall for the terminal would get stuck scrolling just the Response
-    // panel, with no way to reach content below it (e.g. "What did we just apply?"). Only once
-    // the page already fits the viewport does ↑/↓ fall through to the Response's own bounded
-    // viewport (RESPONSE_PANEL_MAX_HEIGHT) and scrollbar.
-    const currentResult = engine.getStepResult();
-    const responseShowing =
-      maxScroll === 0 && currentResult?.kind === 'http' && engine.isResponseRevealed();
+    // ↑/↓ always scroll the whole page. PageUp/PageDown are a separate key, dedicated to the
+    // Response panel's own bounded viewport (RESPONSE_PANEL_MAX_HEIGHT) and scrollbar, so the
+    // two scrolls never fight over the same keys.
     if (key.downArrow) {
-      if (responseShowing) {
-        setResponseScrollOffset(offset => Math.min(offset + 1, responseMaxScroll));
-      } else {
-        setScrollOffset(offset => Math.min(offset + 1, maxScroll));
-      }
+      setScrollOffset(offset => Math.min(offset + 1, maxScroll));
       return;
     }
     if (key.upArrow) {
-      if (responseShowing) {
-        setResponseScrollOffset(offset => Math.max(offset - 1, 0));
-      } else {
-        setScrollOffset(offset => Math.max(offset - 1, 0));
-      }
+      setScrollOffset(offset => Math.max(offset - 1, 0));
+      return;
+    }
+    if (key.pageDown) {
+      setResponseScrollOffset(offset => Math.min(offset + 1, responseMaxScroll));
+      return;
+    }
+    if (key.pageUp) {
+      setResponseScrollOffset(offset => Math.max(offset - 1, 0));
       return;
     }
     // q must quit even mid-operation (a stalled browser login or slow deploy shouldn't trap the
@@ -319,8 +314,14 @@ export function WalkthroughApp({ engine, installedVersion }) {
         borderColor: 'gray',
         paddingTop: 1,
       },
-      (maxScroll > 0 || responseMaxScroll > 0) &&
+      maxScroll > 0 &&
         React.createElement(Text, { dimColor: true }, '↕ more content - scroll with ↑/↓'),
+      responseMaxScroll > 0 &&
+        React.createElement(
+          Text,
+          { dimColor: true },
+          '⇞⇟ response has more - scroll with page up/down'
+        ),
       React.createElement(
         Text,
         { dimColor: true },
