@@ -1,4 +1,5 @@
 import { Feature } from '../../src/lib/feature.js';
+import { CertificateHelper } from '../../src/lib/common.js';
 
 /**
  * Certificate Feature
@@ -71,6 +72,19 @@ export class CertificateFeature extends Feature {
     };
 
     await this.applyYamlFile('certificate.yaml', overrides);
+
+    // A real ACME issuer (e.g. letsencrypt-dns) takes a DNS-01 challenge to complete -
+    // a self-signed one is Ready almost immediately, so this costs little either way.
+    if (!this.dryRun) {
+      const ready = await CertificateHelper.waitForCertificate(this.namespace, this.certName);
+      if (!ready) {
+        this.log(
+          `Certificate ${this.certName} not Ready within timeout - continuing anyway`,
+          'warn'
+        );
+      }
+    }
+
     this.log(`Certificate ${this.certName} created (secret: ${this.secretName})`, 'success');
   }
 
