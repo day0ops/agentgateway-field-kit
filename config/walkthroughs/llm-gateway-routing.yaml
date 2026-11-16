@@ -53,6 +53,7 @@ spec:
         - name: agentgateway-model
           config:
             sectionName: https
+            httpRoute: { name: multi-model-routing, pathPrefix: /multi-model }
             models:
               - name: gpt-4o-mini
                 provider: openai
@@ -60,18 +61,18 @@ spec:
                 provider: anthropic
       steps:
         - kind: http
-          label: 'POST /v1/chat/completions (gpt-4o-mini)'
+          label: 'POST /multi-model/v1/chat/completions (gpt-4o-mini)'
           description: This request asks for gpt-4o-mini by name - agentgateway routes it straight to OpenAI.
           method: POST
-          url: 'https://{{env.domains.app.walkthrough}}/v1/chat/completions'
+          url: 'https://{{env.domains.app.walkthrough}}/multi-model/v1/chat/completions'
           resolveGateway: { name: models-gateway }
           body: '{"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "What is 2+2?"}]}'
           expectStatus: 200
         - kind: http
-          label: 'POST /v1/chat/completions (claude-sonnet-5)'
+          label: 'POST /multi-model/v1/chat/completions (claude-sonnet-5)'
           description: Same endpoint, different model name - agentgateway routes this one to Anthropic instead.
           method: POST
-          url: 'https://{{env.domains.app.walkthrough}}/v1/chat/completions'
+          url: 'https://{{env.domains.app.walkthrough}}/multi-model/v1/chat/completions'
           resolveGateway: { name: models-gateway }
           body: '{"model": "claude-sonnet-5", "messages": [{"role": "user", "content": "What is 2+2?"}]}'
           expectStatus: 200
@@ -84,6 +85,7 @@ spec:
         - name: agentgateway-model
           config:
             sectionName: https
+            httpRoute: { name: wildcard-model-serving, pathPrefix: /wildcard }
             models:
               - name: openai-models
                 match: 'openai/*'
@@ -94,10 +96,10 @@ spec:
                     expression: 'llmRequest.model.stripPrefix("openai/")'
       steps:
         - kind: http
-          label: 'POST /v1/chat/completions (openai/gpt-4o-mini, wildcard-matched)'
+          label: 'POST /wildcard/v1/chat/completions (openai/gpt-4o-mini, wildcard-matched)'
           description: The client asks for openai/gpt-4o-mini - the wildcard match accepts it and strips the prefix before forwarding to OpenAI.
           method: POST
-          url: 'https://{{env.domains.app.walkthrough}}/v1/chat/completions'
+          url: 'https://{{env.domains.app.walkthrough}}/wildcard/v1/chat/completions'
           resolveGateway: { name: models-gateway }
           body: '{"model": "openai/gpt-4o-mini", "messages": [{"role": "user", "content": "What is 2+2?"}]}'
           expectStatus: 200
