@@ -218,12 +218,6 @@ export function WalkthroughApp({ engine, installedVersion }) {
             { marginY: 1 },
             React.createElement(Text, null, screen.narration)
           ),
-          appliedYaml &&
-            React.createElement(
-              Panel,
-              { label: 'Applied Configuration', borderColor: 'blue' },
-              React.createElement(Text, { dimColor: true }, appliedYaml)
-            ),
           step &&
             React.createElement(
               Text,
@@ -243,7 +237,15 @@ export function WalkthroughApp({ engine, installedVersion }) {
                 (step.mask ? '•'.repeat(promptBuffer.length) : promptBuffer) + '█'
               )
             ),
-          result && React.createElement(StepResultView, { result, responseRevealed })
+          result && React.createElement(StepResultView, { result, responseRevealed }),
+          // Shown last - after the narration and the live request/response - so the
+          // audience sees the demo's result before the config that produced it.
+          appliedYaml &&
+            React.createElement(
+              Panel,
+              { label: 'Applied Configuration', borderColor: 'blue' },
+              React.createElement(Text, { dimColor: true }, appliedYaml)
+            )
         )
       ),
       scrollbar &&
