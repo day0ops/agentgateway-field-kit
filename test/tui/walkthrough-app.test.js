@@ -121,3 +121,30 @@ test('a traffic-split result shows the request that was fired alongside the tall
   expect(frame).toContain('gpt-4o-mini: 17/20');
   unmount();
 });
+
+test('a previewed traffic-split step shows only the request, not yet the tally', () => {
+  const engine = buildFakeEngine();
+  engine.currentScreen.steps[0] = {
+    kind: 'traffic-split',
+    label: '20 requests',
+    method: 'POST',
+    url: 'http://example.com/model',
+  };
+  engine.currentStep = engine.currentScreen.steps[0];
+  engine.getStepResult = () => ({
+    kind: 'traffic-split',
+    request: { method: 'POST', url: 'http://example.com/model', headers: {} },
+    requestCount: 20,
+  });
+  engine.isResponseRevealed = () => false;
+
+  const { lastFrame, unmount } = render(
+    React.createElement(WalkthroughApp, { engine, installedVersion: null })
+  );
+
+  const frame = lastFrame();
+  expect(frame).toContain('Request (× 20)');
+  expect(frame).toContain('POST http://example.com/model');
+  expect(frame).not.toContain('Traffic Split');
+  unmount();
+});

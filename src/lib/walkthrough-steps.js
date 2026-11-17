@@ -291,26 +291,30 @@ export async function runHttpStep(step, context) {
 }
 
 /**
- * Fires `step.requestCount` requests and tallies responses - by `step.tallyBy`'s JSON
- * body field, or by HTTP status code when `tallyBy` is the sentinel '$status' (used for a
- * rate-limit burst, where a 429 may have no parseable JSON body). Defaults to a bodyless
- * GET; `step.method`/`step.body` let a traffic split exercise an AI route, which rejects a
- * bodyless request outright (it has no prompt to complete) rather than returning one.
+ * Builds a traffic-split step's request (method, url, headers, body), resolving any
+ * credential - but does not fire it. Split out from executeTrafficSplitRequest so the TUI can
+ * show the request before any of the `step.requestCount` copies are actually sent, mirroring
+ * buildHttpRequest/executeHttpRequest.
  */
-export async function runTrafficSplitStep(step, context) {
-  const tally = {};
-  const headers = await buildHeaders(step, context);
+export async function buildTrafficSplitRequest(step, context) {
   const method = step.method || 'GET';
-  const body = step.body;
-  // Shown to the audience as-is (the logical request, same convention as an http step's
-  // preview) - distinct from `target`, which is only used to actually fire it below.
-  const request = { method, url: step.url, headers, ...(body !== undefined && { body }) };
-  const target = await connectionTarget(step, step.url, headers);
+  const headers = await buildHeaders(step, context);
+  return { method, url: step.url, headers, ...(step.body !== undefined && { body: step.body }) };
+}
+
+/**
+ * Fires an already-built traffic-split request `step.requestCount` times and tallies responses
+ * - by `step.tallyBy`'s JSON body field, or by HTTP status code when `tallyBy` is the sentinel
+ * '$status' (used for a rate-limit burst, where a 429 may have no parseable JSON body).
+ */
+export async function executeTrafficSplitRequest(step, request) {
+  const tally = {};
+  const target = await connectionTarget(step, request.url, request.headers);
   for (let i = 0; i < step.requestCount; i++) {
     const response = await fetch(target.url, {
-      method,
+      method: request.method,
       headers: target.headers,
-      ...(body !== undefined && { body }),
+      ...(request.body !== undefined && { body: request.body }),
       ...(target.tls && { tls: target.tls }),
     });
     const bucket =
@@ -320,4 +324,15 @@ export async function runTrafficSplitStep(step, context) {
     tally[bucket] = (tally[bucket] || 0) + 1;
   }
   return { kind: 'traffic-split', request, tally, requestCount: step.requestCount };
+}
+
+/**
+ * Builds and immediately fires a traffic-split step in one call - for callers (e.g. `runStep`)
+ * with no separate preview stage. Defaults to a bodyless GET; `step.method`/`step.body` let a
+ * traffic split exercise an AI route, which rejects a bodyless request outright (it has no
+ * prompt to complete) rather than returning one.
+ */
+export async function runTrafficSplitStep(step, context) {
+  const request = await buildTrafficSplitRequest(step, context);
+  return executeTrafficSplitRequest(step, request);
 }

@@ -1,8 +1,22 @@
 import { EventEmitter } from 'node:events';
 import { FeatureManager, PolicyRegistry } from './feature.js';
 import { EDITION_GATEWAY_NAME } from './editions.js';
-import { runStep, buildHttpRequest, executeHttpRequest } from './walkthrough-steps.js';
+import {
+  runStep,
+  buildHttpRequest,
+  executeHttpRequest,
+  buildTrafficSplitRequest,
+  executeTrafficSplitRequest,
+} from './walkthrough-steps.js';
 import { CredentialManager } from './oidc-credential.js';
+
+/** Step kinds previewed (request built, not fired) before a further press runs them. */
+const PREVIEWABLE_KINDS = new Set(['http', 'traffic-split']);
+
+/** Whether a previewed step's result is still awaiting the press that actually fires it. */
+function isPreviewOnly(result) {
+  return result.status === undefined && result.tally === undefined;
+}
 
 // FeatureManager.deploy's own spinner renders directly to the terminal via ora - fine before
 // the TUI mounts (preProvision), but every screen past the first applies its setup from
@@ -191,34 +205,49 @@ export class WalkthroughEngine extends EventEmitter {
   }
 
   /**
-   * Builds and stores an 'http' step's request (resolving any credential) without firing it -
-   * so the TUI can show the request before the step actually runs.
+   * Builds and stores the current step's request (resolving any credential) without firing it
+   * - so the TUI can show the request before the step actually runs. Covers both 'http' and
+   * 'traffic-split' (which fires the same built request `step.requestCount` times).
    */
   async previewCurrentStep() {
     this.emit('running');
-    const request = await buildHttpRequest(this.currentStep, {
-      credentials: this.credentials,
-      variables: this.variables,
-    });
-    this.stepResults.set(this.resultKey(), { kind: 'http', request });
+    const context = { credentials: this.credentials, variables: this.variables };
+    if (this.currentStep.kind === 'traffic-split') {
+      const request = await buildTrafficSplitRequest(this.currentStep, context);
+      this.stepResults.set(this.resultKey(), {
+        kind: 'traffic-split',
+        request,
+        requestCount: this.currentStep.requestCount,
+      });
+    } else {
+      const request = await buildHttpRequest(this.currentStep, context);
+      this.stepResults.set(this.resultKey(), { kind: 'http', request });
+    }
     this.emit('change');
   }
 
   /**
    * Fires the current step and stores its result, revealing the response immediately. An
-   * 'http' step reuses its already-built preview's request rather than re-resolving the
-   * credential a second time.
+   * 'http' or 'traffic-split' step reuses its already-built preview's request rather than
+   * re-resolving the credential a second time.
    */
   async runCurrentStep() {
     const key = this.resultKey();
     this.emit('running');
-    const result =
-      this.currentStep.kind === 'http'
-        ? await executeHttpRequest(this.currentStep, this.stepResults.get(key).request)
-        : await runStep(this.currentStep, {
-            credentials: this.credentials,
-            variables: this.variables,
-          });
+    let result;
+    if (this.currentStep.kind === 'http') {
+      result = await executeHttpRequest(this.currentStep, this.stepResults.get(key).request);
+    } else if (this.currentStep.kind === 'traffic-split') {
+      result = await executeTrafficSplitRequest(
+        this.currentStep,
+        this.stepResults.get(key).request
+      );
+    } else {
+      result = await runStep(this.currentStep, {
+        credentials: this.credentials,
+        variables: this.variables,
+      });
+    }
     this.stepResults.set(key, result);
     this.responseRevealed.add(key);
     this.emit('change');
@@ -275,19 +304,20 @@ export class WalkthroughEngine extends EventEmitter {
   }
 
   /**
-   * Right-arrow: for an 'http' step, applying a screen's setup also previews the request (built
-   * but not sent) in the same press; firing it (which reveals the response) and advancing are
-   * two further presses. A 'prompt' step has nothing to fire here - submitPromptValue (via
-   * Enter) drives it. Other step kinds fire directly on their first press.
+   * Right-arrow: for a previewable step ('http' or 'traffic-split'), applying a screen's setup
+   * also previews the request (built but not sent) in the same press; firing it (which reveals
+   * the response/tally) and advancing are two further presses. A 'prompt' step has nothing to
+   * fire here - submitPromptValue (via Enter) drives it. Other step kinds fire directly on
+   * their first press.
    */
   async handleRight() {
     if (!this.appliedScreens.has(this.screenIndex)) {
       this.emit('running');
       await this.ensureAppliedThrough(this.screenIndex);
-      // An 'http' step's request preview is built in the same press as applying the
-      // screen's setup, so the audience sees the Request panel right away instead of a
-      // press that visibly does nothing followed by one that reveals it.
-      if (this.currentStep?.kind === 'http') {
+      // A previewable step's request is built in the same press as applying the screen's
+      // setup, so the audience sees the Request panel right away instead of a press that
+      // visibly does nothing followed by one that reveals it.
+      if (PREVIEWABLE_KINDS.has(this.currentStep?.kind)) {
         await this.previewCurrentStep();
         return;
       }
@@ -303,11 +333,11 @@ export class WalkthroughEngine extends EventEmitter {
     }
 
     const current = this.stepResults.get(this.resultKey());
-    const isHttp = this.currentStep.kind === 'http';
+    const isPreviewable = PREVIEWABLE_KINDS.has(this.currentStep.kind);
     const isPrompt = this.currentStep.kind === 'prompt';
 
     if (!current) {
-      if (isHttp) {
+      if (isPreviewable) {
         await this.previewCurrentStep();
       } else if (isPrompt) {
         return;
@@ -317,7 +347,7 @@ export class WalkthroughEngine extends EventEmitter {
       return;
     }
 
-    if (isHttp && current.status === undefined) {
+    if (isPreviewable && isPreviewOnly(current)) {
       await this.runCurrentStep();
       return;
     }

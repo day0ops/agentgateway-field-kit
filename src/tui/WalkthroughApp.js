@@ -529,6 +529,8 @@ function StepResultView({ result, responseRevealed, responseScroll }) {
     );
   }
   if (result.kind === 'traffic-split') {
+    // tally is absent until the preview's request has actually been fired, same as an http
+    // step's Response panel waiting on responseRevealed.
     return React.createElement(
       Box,
       { flexDirection: 'row', columnGap: 1 },
@@ -537,13 +539,15 @@ function StepResultView({ result, responseRevealed, responseScroll }) {
         { label: `Request (× ${result.requestCount})`, grow: true },
         React.createElement(RequestDetails, { request: result.request })
       ),
-      React.createElement(
-        Panel,
-        { label: 'Traffic Split', grow: true },
-        ...Object.entries(result.tally).map(([bucket, count]) =>
-          React.createElement(Text, { key: bucket }, `${bucket}: ${count}/${result.requestCount}`)
+      responseRevealed &&
+        result.tally &&
+        React.createElement(
+          Panel,
+          { label: 'Traffic Split', grow: true },
+          ...Object.entries(result.tally).map(([bucket, count]) =>
+            React.createElement(Text, { key: bucket }, `${bucket}: ${count}/${result.requestCount}`)
+          )
         )
-      )
     );
   }
   return null;

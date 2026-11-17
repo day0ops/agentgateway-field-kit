@@ -166,6 +166,39 @@ describe('WalkthroughEngine navigation', () => {
     expect(engine.getStepResult()).toBeNull();
   });
 
+  test('handleRight on a traffic-split step previews the request before firing it', async () => {
+    const engine = new WalkthroughEngine(
+      buildWalkthrough({
+        screens: [
+          {
+            name: 'one',
+            setup: [{ name: 'recording-feature', config: { step: 'one' } }],
+            steps: [
+              {
+                kind: 'traffic-split',
+                method: 'GET',
+                url: 'http://example.com/a',
+                requestCount: 3,
+                tallyBy: '$status',
+              },
+            ],
+          },
+        ],
+      })
+    );
+
+    await engine.handleRight(); // applies screen 0 setup and previews the request in the same press
+    expect(engine.getStepResult()).toMatchObject({
+      kind: 'traffic-split',
+      request: { url: 'http://example.com/a' },
+      requestCount: 3,
+    });
+    expect(engine.getStepResult().tally).toBeUndefined();
+
+    await engine.handleRight(); // fires it
+    expect(engine.getStepResult()).toMatchObject({ tally: { 200: 3 }, requestCount: 3 });
+  });
+
   test("crossing a screen boundary runs the next screen's teardown then setup exactly once", async () => {
     const engine = new WalkthroughEngine(buildWalkthrough());
     await engine.handleRight(); // screen 0 setup + step 0 preview
