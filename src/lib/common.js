@@ -324,14 +324,20 @@ export class KubernetesHelper {
     this._defaultContext = context || null;
   }
 
+  /**
+   * Context flag for a raw kubectl invocation (e.g. spawn()) that bypasses kubectl()/helm() -
+   * callers must apply this themselves to stay consistent with the resolved --context/--infra.
+   */
+  static contextArgs(flag = '--context') {
+    return this._defaultContext ? [`${flag}=${this._defaultContext}`] : [];
+  }
+
   static async kubectl(args, options = {}) {
-    const ctxArgs = this._defaultContext ? [`--context=${this._defaultContext}`] : [];
-    return CommandRunner.run('kubectl', [...ctxArgs, ...args], options);
+    return CommandRunner.run('kubectl', [...this.contextArgs(), ...args], options);
   }
 
   static async helm(args, options = {}) {
-    const ctxArgs = this._defaultContext ? [`--kube-context=${this._defaultContext}`] : [];
-    return CommandRunner.run('helm', [...ctxArgs, ...args], options);
+    return CommandRunner.run('helm', [...this.contextArgs('--kube-context'), ...args], options);
   }
 
   static async waitForDeployment(namespace, deploymentName, timeout = 300, externalSpinner = null) {
