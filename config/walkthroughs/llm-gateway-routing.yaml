@@ -326,6 +326,9 @@ spec:
                   unhealthyCondition: 'true'
                   eviction:
                     consecutiveFailures: 1
+                    # Without an explicit duration, eviction falls back to a 3s default -
+                    # too short for a live presenter's pace between step 1 and step 2.
+                    duration: 120s
               - name: internal-anthropic-fallback
                 provider: anthropic
                 visibility: Internal
