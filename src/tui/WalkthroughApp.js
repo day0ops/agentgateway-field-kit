@@ -41,6 +41,7 @@ export function WalkthroughApp({ engine, installedVersion }) {
   const [error, setError] = useState(null);
   const [scrollOffset, setScrollOffset] = useState(0);
   const [responseScrollOffset, setResponseScrollOffset] = useState(0);
+  const [confirmingQuit, setConfirmingQuit] = useState(false);
   // Raw, uncommitted keystrokes for a prompt step - only the submitted value crosses into the engine.
   const [promptBuffer, setPromptBuffer] = useState('');
   // Guards against a keypress starting a second step mid-flight (e.g. a double-pressed
@@ -96,6 +97,16 @@ export function WalkthroughApp({ engine, installedVersion }) {
   const clampedResponseScrollOffset = Math.min(responseScrollOffset, responseMaxScroll);
 
   useInput((input, key) => {
+    // The quit confirmation takes over every key until answered, even mid-prompt-entry,
+    // so a presenter can't accidentally lose a walkthrough with a stray keystroke.
+    if (confirmingQuit) {
+      if (input.toLowerCase() === 'y' || key.return) {
+        exit();
+      } else {
+        setConfirmingQuit(false);
+      }
+      return;
+    }
     const currentStep = engine.currentStep;
     if (currentStep?.kind === 'prompt' && !engine.getStepResult()) {
       if (key.return) {
@@ -142,10 +153,11 @@ export function WalkthroughApp({ engine, installedVersion }) {
       setResponseScrollOffset(offset => Math.max(offset - 1, 0));
       return;
     }
-    // q must quit even mid-operation (a stalled browser login or slow deploy shouldn't trap the
-    // presenter behind ctrl+c) - every other key still waits for the current one to finish.
+    // q must be reachable even mid-operation (a stalled browser login or slow deploy shouldn't
+    // trap the presenter behind ctrl+c) - every other key still waits for the current one to
+    // finish. It only asks for confirmation rather than quitting outright.
     if (input === 'q') {
-      exit();
+      setConfirmingQuit(true);
       return;
     }
     if (busyRef.current) return;
@@ -315,17 +327,31 @@ export function WalkthroughApp({ engine, installedVersion }) {
         borderColor: 'gray',
         paddingTop: 1,
       },
-      maxScroll > 0 &&
-        React.createElement(Text, { dimColor: true }, '↕ more content - scroll with ↑/↓'),
-      responseMaxScroll > 0 &&
-        React.createElement(Text, { dimColor: true }, '⇞⇟ response has more - scroll with w/s'),
-      React.createElement(
-        Text,
-        { dimColor: true },
-        step?.kind === 'prompt' && !result
-          ? 'type your answer · enter submit · ctrl+c quit'
-          : `← back · → ${result ? 'next' : 'run'} · 1-9 jump to screen · q quit`
-      )
+      confirmingQuit
+        ? React.createElement(
+            Text,
+            { bold: true, color: 'yellow' },
+            '⚠ Quit the walkthrough? y to confirm · any other key to cancel'
+          )
+        : React.createElement(
+            React.Fragment,
+            null,
+            maxScroll > 0 &&
+              React.createElement(Text, { dimColor: true }, '↕ more content - scroll with ↑/↓'),
+            responseMaxScroll > 0 &&
+              React.createElement(
+                Text,
+                { dimColor: true },
+                '⇞⇟ response has more - scroll with w/s'
+              ),
+            React.createElement(
+              Text,
+              { dimColor: true },
+              step?.kind === 'prompt' && !result
+                ? 'type your answer · enter submit · ctrl+c quit'
+                : `← back · → ${result ? 'next' : 'run'} · 1-9 jump to screen · q quit`
+            )
+          )
     )
   );
 }

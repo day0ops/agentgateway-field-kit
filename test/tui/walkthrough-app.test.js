@@ -40,3 +40,55 @@ test("renders the first screen's title without throwing", () => {
   expect(lastFrame()).toContain('Plain Setup');
   unmount();
 });
+
+// Ink parses a keypress and re-renders on the next tick, not synchronously within stdin.write().
+function press(stdin, input) {
+  stdin.write(input);
+  return new Promise(resolve => setTimeout(resolve, 0));
+}
+
+test('pressing q asks for confirmation instead of quitting immediately', async () => {
+  const engine = buildFakeEngine();
+  const { lastFrame, stdin, unmount } = render(
+    React.createElement(WalkthroughApp, { engine, installedVersion: null })
+  );
+
+  await press(stdin, 'q');
+
+  expect(lastFrame()).toContain('Quit the walkthrough?');
+  unmount();
+});
+
+test('any key other than y cancels the quit confirmation', async () => {
+  const engine = buildFakeEngine();
+  const { lastFrame, stdin, unmount } = render(
+    React.createElement(WalkthroughApp, { engine, installedVersion: null })
+  );
+
+  await press(stdin, 'q');
+  expect(lastFrame()).toContain('Quit the walkthrough?');
+
+  await press(stdin, 'n');
+  expect(lastFrame()).not.toContain('Quit the walkthrough?');
+  expect(lastFrame()).toContain('q quit');
+
+  unmount();
+});
+
+test('confirming with y stops the app from reacting to further keys', async () => {
+  const engine = buildFakeEngine();
+  let rightPresses = 0;
+  engine.handleRight = async () => {
+    rightPresses += 1;
+  };
+  const { stdin, unmount } = render(
+    React.createElement(WalkthroughApp, { engine, installedVersion: null })
+  );
+
+  await press(stdin, 'q');
+  await press(stdin, 'y');
+  await press(stdin, '\u001B[C'); // right arrow
+
+  expect(rightPresses).toBe(0);
+  unmount();
+});
