@@ -302,6 +302,9 @@ export async function runTrafficSplitStep(step, context) {
   const headers = await buildHeaders(step, context);
   const method = step.method || 'GET';
   const body = step.body;
+  // Shown to the audience as-is (the logical request, same convention as an http step's
+  // preview) - distinct from `target`, which is only used to actually fire it below.
+  const request = { method, url: step.url, headers, ...(body !== undefined && { body }) };
   const target = await connectionTarget(step, step.url, headers);
   for (let i = 0; i < step.requestCount; i++) {
     const response = await fetch(target.url, {
@@ -316,5 +319,5 @@ export async function runTrafficSplitStep(step, context) {
         : ((await response.json())[step.tallyBy] ?? 'unknown');
     tally[bucket] = (tally[bucket] || 0) + 1;
   }
-  return { kind: 'traffic-split', tally, requestCount: step.requestCount };
+  return { kind: 'traffic-split', request, tally, requestCount: step.requestCount };
 }

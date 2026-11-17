@@ -530,10 +530,19 @@ function StepResultView({ result, responseRevealed, responseScroll }) {
   }
   if (result.kind === 'traffic-split') {
     return React.createElement(
-      Panel,
-      { label: 'Traffic Split' },
-      ...Object.entries(result.tally).map(([bucket, count]) =>
-        React.createElement(Text, { key: bucket }, `${bucket}: ${count}/${result.requestCount}`)
+      Box,
+      { flexDirection: 'row', columnGap: 1 },
+      React.createElement(
+        Panel,
+        { label: `Request (× ${result.requestCount})`, grow: true },
+        React.createElement(RequestDetails, { request: result.request })
+      ),
+      React.createElement(
+        Panel,
+        { label: 'Traffic Split', grow: true },
+        ...Object.entries(result.tally).map(([bucket, count]) =>
+          React.createElement(Text, { key: bucket }, `${bucket}: ${count}/${result.requestCount}`)
+        )
       )
     );
   }

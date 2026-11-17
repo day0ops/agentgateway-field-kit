@@ -92,3 +92,32 @@ test('confirming with y stops the app from reacting to further keys', async () =
   expect(rightPresses).toBe(0);
   unmount();
 });
+
+test('a traffic-split result shows the request that was fired alongside the tally', () => {
+  const engine = buildFakeEngine();
+  engine.currentScreen.steps[0] = {
+    kind: 'traffic-split',
+    label: '20 requests',
+    method: 'POST',
+    url: 'http://example.com/model',
+  };
+  engine.currentStep = engine.currentScreen.steps[0];
+  engine.getStepResult = () => ({
+    kind: 'traffic-split',
+    request: { method: 'POST', url: 'http://example.com/model', headers: {} },
+    tally: { 'gpt-4o-mini': 17, 'gemini-2.5-flash': 3 },
+    requestCount: 20,
+  });
+  engine.isResponseRevealed = () => true;
+
+  const { lastFrame, unmount } = render(
+    React.createElement(WalkthroughApp, { engine, installedVersion: null })
+  );
+
+  const frame = lastFrame();
+  expect(frame).toContain('Request (× 20)');
+  expect(frame).toContain('POST http://example.com/model');
+  expect(frame).toContain('Traffic Split');
+  expect(frame).toContain('gpt-4o-mini: 17/20');
+  unmount();
+});

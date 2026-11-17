@@ -275,6 +275,7 @@ describe('runTrafficSplitStep', () => {
     );
     expect(result).toEqual({
       kind: 'traffic-split',
+      request: { method: 'GET', url: 'http://example.com/v1/meta', headers: {} },
       tally: { blue: 3, green: 1 },
       requestCount: 4,
     });
@@ -289,7 +290,12 @@ describe('runTrafficSplitStep', () => {
       { url: 'http://example.com/v1/airports', requestCount: 3, tallyBy: '$status' },
       { credentials: {}, variables: new Map() }
     );
-    expect(result).toEqual({ kind: 'traffic-split', tally: { 200: 1, 429: 2 }, requestCount: 3 });
+    expect(result).toEqual({
+      kind: 'traffic-split',
+      request: { method: 'GET', url: 'http://example.com/v1/airports', headers: {} },
+      tally: { 200: 1, 429: 2 },
+      requestCount: 3,
+    });
   });
 
   test('resolves a credential and {{vars.*}} headers on every request', async () => {
