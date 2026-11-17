@@ -302,14 +302,65 @@ export async function buildTrafficSplitRequest(step, context) {
   return { method, url: step.url, headers, ...(step.body !== undefined && { body: step.body }) };
 }
 
+const GATEWAY_METRICS_PORT = 15020;
+
+/**
+ * Reads a named Prometheus counter's current value straight off the gateway pod's own
+ * /metrics endpoint (no PromQL, no addon dependency) - null if the pod, curl, or the metric
+ * itself can't be found, so a transient failure here never fails the step it's diagnosing.
+ */
+async function readGatewayMetric(gatewayRef, metricName) {
+  try {
+    const pods = await KubernetesHelper.kubectl([
+      'get',
+      'pods',
+      '-n',
+      gatewayRef.namespace,
+      '-l',
+      `app.kubernetes.io/name=${gatewayRef.name}`,
+      '-o',
+      'jsonpath={.items[0].metadata.name}',
+    ]);
+    const pod = pods.stdout.trim();
+    if (!pod) return null;
+    const metrics = await KubernetesHelper.kubectl([
+      'exec',
+      pod,
+      '-n',
+      gatewayRef.namespace,
+      '--',
+      'curl',
+      '-s',
+      `localhost:${GATEWAY_METRICS_PORT}/metrics`,
+    ]);
+    const match = new RegExp(`^${metricName}\\s+([0-9.eE+-]+)`, 'm').exec(metrics.stdout);
+    return match ? Number(match[1]) : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Fires an already-built traffic-split request `step.requestCount` times and tallies responses
  * - by `step.tallyBy`'s JSON body field, or by HTTP status code when `tallyBy` is the sentinel
  * '$status' (used for a rate-limit burst, where a 429 may have no parseable JSON body).
+ *
+ * `step.gatewayMetric`, if set (alongside `step.resolveGateway`, which names the gateway to
+ * read it from), snapshots that Prometheus counter on the gateway pod before and after the
+ * burst - e.g. 'agentgateway_retries_total' as real, server-reported evidence that a retry
+ * policy actually fired, since retries themselves are otherwise invisible to the client.
  */
 export async function executeTrafficSplitRequest(step, request) {
   const tally = {};
   const target = await connectionTarget(step, request.url, request.headers);
+  const gatewayRef =
+    step.gatewayMetric && step.resolveGateway
+      ? {
+          name: step.resolveGateway.name,
+          namespace: step.resolveGateway.namespace || FeatureManager.getDefaultNamespace(),
+        }
+      : null;
+  const before = gatewayRef ? await readGatewayMetric(gatewayRef, step.gatewayMetric) : null;
   for (let i = 0; i < step.requestCount; i++) {
     const response = await fetch(target.url, {
       method: request.method,
@@ -323,7 +374,16 @@ export async function executeTrafficSplitRequest(step, request) {
         : ((await response.json())[step.tallyBy] ?? 'unknown');
     tally[bucket] = (tally[bucket] || 0) + 1;
   }
-  return { kind: 'traffic-split', request, tally, requestCount: step.requestCount };
+  const after = gatewayRef ? await readGatewayMetric(gatewayRef, step.gatewayMetric) : null;
+  const gatewayMetricDelta =
+    before !== null && after !== null ? { name: step.gatewayMetric, delta: after - before } : null;
+  return {
+    kind: 'traffic-split',
+    request,
+    tally,
+    requestCount: step.requestCount,
+    ...(gatewayMetricDelta && { gatewayMetricDelta }),
+  };
 }
 
 /**

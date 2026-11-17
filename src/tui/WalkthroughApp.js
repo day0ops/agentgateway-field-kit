@@ -546,7 +546,13 @@ function StepResultView({ result, responseRevealed, responseScroll }) {
           { label: 'Traffic Split', grow: true },
           ...Object.entries(result.tally).map(([bucket, count]) =>
             React.createElement(Text, { key: bucket }, `${bucket}: ${count}/${result.requestCount}`)
-          )
+          ),
+          result.gatewayMetricDelta &&
+            React.createElement(
+              Text,
+              { dimColor: true },
+              `${result.gatewayMetricDelta.name}: +${result.gatewayMetricDelta.delta} during this burst`
+            )
         )
     );
   }

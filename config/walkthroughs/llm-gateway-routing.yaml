@@ -210,13 +210,14 @@ spec:
           tallyBy: model
         - kind: traffic-split
           label: 'Same 10 requests, tallied by status - the retry policy keeps every one at 200'
-          description: Same 10 requests, tallied by HTTP status this time - the retry policy means every one still lands on 200.
+          description: Same 10 requests, tallied by HTTP status this time - the retry policy means every one still lands on 200. agentgateway's own retries-total counter, read straight off the gateway before and after, confirms retries actually fired rather than every request just happening to land on a working provider.
           method: POST
           url: 'https://{{env.domains.app.walkthrough}}/model'
           resolveGateway: { name: models-gateway }
           body: '{"messages": [{"role": "user", "content": "What is 2+2?"}]}'
           requestCount: 10
           tallyBy: '$status'
+          gatewayMetric: agentgateway_retries_total
 
     - name: weighted-virtual-model
       title: Weighted Virtual Model

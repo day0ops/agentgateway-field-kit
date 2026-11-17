@@ -11,6 +11,8 @@ import {
   executeHttpRequest,
   runHttpStep,
   runTrafficSplitStep,
+  buildTrafficSplitRequest,
+  executeTrafficSplitRequest,
   applyResolve,
   overrideAddress,
   buildTlsOptions,
@@ -348,6 +350,107 @@ describe('runTrafficSplitStep', () => {
     );
     expect(seenOptions.method).toBe('GET');
     expect('body' in seenOptions).toBe(false);
+  });
+
+  describe('gatewayMetric', () => {
+    let originalKubectl, originalGetLoadBalancerAddress;
+    beforeEach(() => {
+      originalKubectl = KubernetesHelper.kubectl;
+      originalGetLoadBalancerAddress = KubernetesHelper.getLoadBalancerAddress;
+      // Stubbed separately from the kubectl mock below - getLoadBalancerAddress is a
+      // polling loop that calls kubectl internally, which would otherwise collide with
+      // (and poll-loop against) the gatewayMetric calls these tests are asserting on.
+      KubernetesHelper.getLoadBalancerAddress = async () => '127.0.0.1';
+      globalThis.fetch = async () => new Response('plain text', { status: 200 });
+    });
+    afterEach(() => {
+      KubernetesHelper.kubectl = originalKubectl;
+      KubernetesHelper.getLoadBalancerAddress = originalGetLoadBalancerAddress;
+    });
+
+    test('snapshots the named counter before and after the burst and returns the delta', async () => {
+      const kubectlCalls = [];
+      let metricValue = 10;
+      KubernetesHelper.kubectl = async args => {
+        kubectlCalls.push(args);
+        if (args[0] === 'get') return { stdout: 'gw-pod-abc123' };
+        // The 2nd exec (after the burst) sees 3 more retries than the 1st.
+        const value = metricValue;
+        metricValue = 13;
+        return {
+          stdout: `# HELP agentgateway_retries_total docs\nagentgateway_retries_total ${value}\n`,
+        };
+      };
+
+      const step = {
+        url: 'http://example.com',
+        requestCount: 3,
+        tallyBy: '$status',
+        resolveGateway: { name: 'models-gateway', namespace: 'agentgateway-system' },
+        gatewayMetric: 'agentgateway_retries_total',
+      };
+      const request = await buildTrafficSplitRequest(step, {
+        credentials: {},
+        variables: new Map(),
+      });
+      const result = await executeTrafficSplitRequest(step, request);
+
+      expect(result.gatewayMetricDelta).toEqual({ name: 'agentgateway_retries_total', delta: 3 });
+      // get pod, exec curl (before) - get pod, exec curl (after)
+      expect(kubectlCalls).toHaveLength(4);
+      expect(kubectlCalls[0]).toEqual([
+        'get',
+        'pods',
+        '-n',
+        'agentgateway-system',
+        '-l',
+        'app.kubernetes.io/name=models-gateway',
+        '-o',
+        'jsonpath={.items[0].metadata.name}',
+      ]);
+      expect(kubectlCalls[1]).toEqual([
+        'exec',
+        'gw-pod-abc123',
+        '-n',
+        'agentgateway-system',
+        '--',
+        'curl',
+        '-s',
+        'localhost:15020/metrics',
+      ]);
+    });
+
+    test('omits gatewayMetricDelta (rather than failing the step) when the pod cannot be found', async () => {
+      KubernetesHelper.kubectl = async () => ({ stdout: '' });
+      const step = {
+        url: 'http://example.com',
+        requestCount: 1,
+        tallyBy: '$status',
+        resolveGateway: { name: 'models-gateway' },
+        gatewayMetric: 'agentgateway_retries_total',
+      };
+      const request = await buildTrafficSplitRequest(step, {
+        credentials: {},
+        variables: new Map(),
+      });
+      const result = await executeTrafficSplitRequest(step, request);
+      expect(result.gatewayMetricDelta).toBeUndefined();
+    });
+
+    test('omits gatewayMetricDelta when step.resolveGateway is not set', async () => {
+      const step = {
+        url: 'http://example.com',
+        requestCount: 1,
+        tallyBy: '$status',
+        gatewayMetric: 'agentgateway_retries_total',
+      };
+      const request = await buildTrafficSplitRequest(step, {
+        credentials: {},
+        variables: new Map(),
+      });
+      const result = await executeTrafficSplitRequest(step, request);
+      expect(result.gatewayMetricDelta).toBeUndefined();
+    });
   });
 });
 
