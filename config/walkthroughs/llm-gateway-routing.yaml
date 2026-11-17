@@ -5,9 +5,9 @@ metadata:
   description: |
     A tour of agentgateway's LLM-routing intelligence across real providers.
     - direct multi-model selection
+    - body-based routing
     - wildcard model serving
     - model aliasing
-    - body-based routing
     - load balancing with resilient retries
     - weighted virtual models
     - conditional virtual models
@@ -77,6 +77,42 @@ spec:
           body: '{"model": "claude-sonnet-5", "messages": [{"role": "user", "content": "What is 2+2?"}]}'
           expectStatus: 200
 
+    - name: body-based-routing
+      title: Body-Based Routing
+      narration: |
+        Every model-routing screen in this tour works by inspecting the model field in the request body - a single /chat endpoint here routes to different providers based on that field alone, with no path or header involved. The next two screens build on this same mechanism: wildcard matching and friendly aliases.
+      setup:
+        - name: providers
+          config:
+            pathPrefix: /chat
+            bodyRouting: true
+            providers:
+              - name: openai
+                providerName: openai
+                model: 'gpt-.*'
+                modelMatch: RegularExpression
+              - name: vertex-ai
+                providerName: vertex-ai
+                model: 'google/gemini-.*'
+                modelMatch: RegularExpression
+      steps:
+        - kind: http
+          label: 'POST /chat (gpt-4o-mini, body-matched to OpenAI)'
+          description: The model name in the body (gpt-4o-mini) matches the OpenAI route - no separate endpoint needed.
+          method: POST
+          url: 'https://{{env.domains.app.walkthrough}}/chat'
+          resolveGateway: { name: models-gateway }
+          body: '{"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "What is 2+2?"}]}'
+          expectStatus: 200
+        - kind: http
+          label: 'POST /chat (gemini-2.5-flash, body-matched to Vertex AI)'
+          description: Same /chat endpoint, but this body's model name matches the Vertex AI route instead.
+          method: POST
+          url: 'https://{{env.domains.app.walkthrough}}/chat'
+          resolveGateway: { name: models-gateway }
+          body: '{"model": "google/gemini-2.5-flash", "messages": [{"role": "user", "content": "What is 2+2?"}]}'
+          expectStatus: 200
+
     - name: wildcard-model-serving
       title: Wildcard Model Serving
       narration: |
@@ -135,42 +171,6 @@ spec:
           url: 'https://{{env.domains.app.walkthrough}}/alias'
           resolveGateway: { name: models-gateway }
           body: '{"model": "smart", "messages": [{"role": "user", "content": "What is 2+2?"}]}'
-          expectStatus: 200
-
-    - name: body-based-routing
-      title: Body-Based Routing
-      narration: |
-        A single /chat endpoint routes to different providers based on the model field in the request body - the client never needs to know which provider is behind which model.
-      setup:
-        - name: providers
-          config:
-            pathPrefix: /chat
-            bodyRouting: true
-            providers:
-              - name: openai
-                providerName: openai
-                model: 'gpt-.*'
-                modelMatch: RegularExpression
-              - name: vertex-ai
-                providerName: vertex-ai
-                model: 'google/gemini-.*'
-                modelMatch: RegularExpression
-      steps:
-        - kind: http
-          label: 'POST /chat (gpt-4o-mini, body-matched to OpenAI)'
-          description: The model name in the body (gpt-4o-mini) matches the OpenAI route - no separate endpoint needed.
-          method: POST
-          url: 'https://{{env.domains.app.walkthrough}}/chat'
-          resolveGateway: { name: models-gateway }
-          body: '{"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "What is 2+2?"}]}'
-          expectStatus: 200
-        - kind: http
-          label: 'POST /chat (gemini-2.5-flash, body-matched to Vertex AI)'
-          description: Same /chat endpoint, but this body's model name matches the Vertex AI route instead.
-          method: POST
-          url: 'https://{{env.domains.app.walkthrough}}/chat'
-          resolveGateway: { name: models-gateway }
-          body: '{"model": "google/gemini-2.5-flash", "messages": [{"role": "user", "content": "What is 2+2?"}]}'
           expectStatus: 200
 
     - name: load-balancing
