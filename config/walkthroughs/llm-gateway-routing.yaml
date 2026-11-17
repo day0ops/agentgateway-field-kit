@@ -376,6 +376,19 @@ spec:
                   ai:
                     routes:
                       '*': Passthrough
+        # Byte-identical to the Model Aliasing screen's setup - it's already applied by the
+        # time we get here (nothing tears down between screens), but re-declaring it here too
+        # means "What did we just apply?" shows the alias config that step 2 actually exercises.
+        - name: model-aliasing
+          config:
+            provider: openai
+            pathPrefix: /alias
+            aliases:
+              fast: gpt-4o-mini
+              smart: gpt-4o
+              code: o3-mini
+              cheap: gpt-4o-mini
+              premium: gpt-4o
       steps:
         - kind: http
           label: 'POST /jev - classify the prompt'
