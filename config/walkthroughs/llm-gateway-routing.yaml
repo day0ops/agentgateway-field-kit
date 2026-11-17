@@ -12,7 +12,7 @@ metadata:
     - weighted virtual models
     - conditional virtual models
     - automatic failover
-    - AI-driven tier routing via a hosted decision model
+    - confidence-gated routing via a hosted decision model
 
     Requires a profile with cert-manager's Let's Encrypt DNS-01 issuer enabled (e.g.
     `local-single-cluster`).
@@ -362,9 +362,9 @@ spec:
           expectStatus: 200
 
     - name: jev-decision-routing
-      title: 'Jev: AI Decides the Tier'
+      title: 'Jev: Confidence-Gated Routing'
       narration: |
-        Jev, TypeSafe's hosted decision model, classifies the prompt as cheap or premium - the next request is routed to whichever tier it actually picked, not a hardcoded guess. Both calls go through the gateway, so the same auth, cost-tracking, and rate-limit policies apply to the classification call too, not just the completion.
+        Jev, TypeSafe's hosted decision model, scores its own confidence alongside its decision - the same pattern production AI gateways use (AWS Bedrock's Intelligent Prompt Routing, Azure's Model Router): above a threshold, route to a fast/cheap model automatically; otherwise fall back to a heavier one. Jev itself isn't wired into agentgateway as a native pre-routing processor (that would need a custom ExtProc service, the way the semantic-router screen's vLLM processor is), so a presenter forwards its confidence score as a header - but the actual branching decision below is agentgateway's own conditional virtual model, not client code picking a model name.
       setup:
         - name: providers
           config:
@@ -376,19 +376,29 @@ spec:
                   ai:
                     routes:
                       '*': Passthrough
-        # Byte-identical to the Model Aliasing screen's setup - it's already applied by the
-        # time we get here (nothing tears down between screens), but re-declaring it here too
-        # means "What did we just apply?" shows the alias config that step 2 actually exercises.
-        - name: model-aliasing
+        - name: agentgateway-model
           config:
-            provider: openai
-            pathPrefix: /alias
-            aliases:
-              fast: gpt-4o-mini
-              smart: gpt-4o
-              code: o3-mini
-              cheap: gpt-4o-mini
-              premium: gpt-4o
+            sectionName: https
+            models:
+              - name: internal-jev-fast
+                provider: openai
+                visibility: Internal
+                transformations:
+                  - field: model
+                    expression: '"gpt-4o-mini"'
+              - name: internal-jev-reasoning
+                provider: anthropic
+                visibility: Internal
+                transformations:
+                  - field: model
+                    expression: '"claude-sonnet-5"'
+              - name: confidence-routed
+                virtualModel:
+                  conditional:
+                    targets:
+                      - when: 'request.headers["x-jev-confidence"].double() > 0.9'
+                        name: internal-jev-fast
+                      - name: internal-jev-reasoning
       steps:
         - kind: http
           label: 'POST /jev - classify the prompt'
@@ -405,30 +415,28 @@ spec:
             higher quality output"}}}}
           expectStatus: 200
           # Jev's exact response shape is unconfirmed against a real account - try every
-          # plausible field path and fall back to "cheap" rather than leave step 2 unresolved.
+          # plausible field path and fall back to 0.5 (treated as "not confident", routing to
+          # the heavier model below) rather than leave the next step's header unresolved.
           # A live run showed top-level "tier" is itself an object, not a flat string - hence
           # the tier.* nested guesses ahead of the flatter ones.
           captureVariable:
-            name: tier
+            name: confidence
             jsonPaths:
               [
-                tier.answer,
-                tier.value,
-                tier.option,
-                tier.choice,
-                tier,
-                answers.tier,
-                answers.tier.answer,
-                answers.0.option,
-                option,
-                choice,
+                tier.confidence,
+                confidence,
+                answers.confidence,
+                answers.0.confidence,
+                answers.tier.confidence,
               ]
-            default: cheap
+            default: '0.5'
         - kind: http
-          label: 'POST /alias with the tier Jev picked'
-          description: The tier Jev just picked (see the Request panel below) is used as the alias for the real completion request - not a hardcoded value.
+          label: 'POST /v1/chat/completions (confidence-routed, header set from Jev)'
+          description: Jev's confidence score is forwarded as a header - agentgateway's own conditional virtual model does the actual routing, not client code picking a model name.
           method: POST
-          url: 'https://{{env.domains.app.walkthrough}}/alias'
+          url: 'https://{{env.domains.app.walkthrough}}/v1/chat/completions'
           resolveGateway: { name: models-gateway }
-          body: '{"model": "{{vars.tier}}", "messages": [{"role": "user", "content": "Say hello"}]}'
+          headers:
+            x-jev-confidence: '{{vars.confidence}}'
+          body: '{"model": "confidence-routed", "messages": [{"role": "user", "content": "Say hello"}]}'
           expectStatus: 200
