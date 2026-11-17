@@ -507,6 +507,7 @@ base
   .description('Install agentgateway enterprise with optional addons')
   .option('-p, --profile <name>', 'Installation profile name')
   .option('--infra <name>', 'Infra profile name (sets KUBECONFIG from provisioned state)')
+  .option('--context <name>', 'kubectl context to use (overrides auto-detected infra context)')
   .option('--no-prompt', 'Skip interactive prompts and use defaults')
   .option('--skip-addons', 'Skip addon installation')
   .action(async options => {
@@ -552,37 +553,43 @@ base
       // Gateway object name, whether or not that addon runs before installProxy() creates it.
       FeatureManager.setGatewayRef({ name: EDITION_GATEWAY_NAME[resolvedProfileEdition] });
 
-      // Resolve infra: explicit flag > profile binding > kubectl context > sole provisioned
-      let resolvedInfra = options.infra || (profileData && profileData.infra) || null;
-
-      if (resolvedInfra) {
-        Logger.info(`Using infra '${resolvedInfra}' from ${options.infra ? 'flag' : 'profile'}`);
+      // Resolve infra: explicit --context flag > explicit --infra flag > profile binding >
+      // kubectl context > sole provisioned
+      if (options.context) {
+        KubernetesHelper.setDefaultContext(options.context);
+        Logger.info(`Using kubectl context: ${options.context}`);
       } else {
-        resolvedInfra = await InfraStateManager.resolveInfraName(null);
-        if (!resolvedInfra) {
-          const provisioned = (await InfraStateManager.listInfraProfiles()).filter(
-            p => p.provisioned
-          );
-          if (provisioned.length > 1) {
-            const kubeContext = await InfraStateManager.getCurrentKubeContext();
-            const prompt = kubeContext
-              ? `Multiple provisioned infra profiles (kubectl context: ${kubeContext}). Select one:`
-              : 'Multiple provisioned infra profiles found. Select one:';
-            const choices = provisioned.map(p => ({ name: p.name, value: p.name }));
-            resolvedInfra = await Prompts.select(prompt, choices);
+        let resolvedInfra = options.infra || (profileData && profileData.infra) || null;
+
+        if (resolvedInfra) {
+          Logger.info(`Using infra '${resolvedInfra}' from ${options.infra ? 'flag' : 'profile'}`);
+        } else {
+          resolvedInfra = await InfraStateManager.resolveInfraName(null);
+          if (!resolvedInfra) {
+            const provisioned = (await InfraStateManager.listInfraProfiles()).filter(
+              p => p.provisioned
+            );
+            if (provisioned.length > 1) {
+              const kubeContext = await InfraStateManager.getCurrentKubeContext();
+              const prompt = kubeContext
+                ? `Multiple provisioned infra profiles (kubectl context: ${kubeContext}). Select one:`
+                : 'Multiple provisioned infra profiles found. Select one:';
+              const choices = provisioned.map(p => ({ name: p.name, value: p.name }));
+              resolvedInfra = await Prompts.select(prompt, choices);
+            }
           }
         }
-      }
 
-      if (resolvedInfra) {
-        const infraState = await InfraStateManager.load(resolvedInfra);
-        if (!infraState?.status?.provisioned) {
-          Logger.error(
-            `Infra '${resolvedInfra}' is not provisioned. Run 'agw base cloud provision -p ${resolvedInfra}' first.`
-          );
-          process.exit(1);
+        if (resolvedInfra) {
+          const infraState = await InfraStateManager.load(resolvedInfra);
+          if (!infraState?.status?.provisioned) {
+            Logger.error(
+              `Infra '${resolvedInfra}' is not provisioned. Run 'agw base cloud provision -p ${resolvedInfra}' first.`
+            );
+            process.exit(1);
+          }
+          await InfraStateManager.applyKubeContext(resolvedInfra, infraState);
         }
-        await InfraStateManager.applyKubeContext(resolvedInfra, infraState);
       }
 
       await AgentGatewayManager.installCRDs(profileFile);

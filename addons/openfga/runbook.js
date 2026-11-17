@@ -1,15 +1,7 @@
 // addons/openfga/runbook.js
-import { readFile } from 'fs/promises';
-import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-
-const OPENFGA_VERSION = 'v1.10.3';
-
-function _renderTemplate(template, vars) {
-  return Object.entries(vars).reduce((t, [k, v]) => t.replaceAll(`{{${k}}}`, v), template);
-}
+const OPENFGA_VERSION = 'v1.22.1';
+const OPENFGA_CHART_VERSION = '0.4.1';
 
 export function envVarsFor(_cfg) {
   return [];
@@ -19,6 +11,11 @@ export function envExportsFor(cfg) {
   const c = cfg || {};
   return [
     { key: 'OPENFGA_VERSION', value: c.version || OPENFGA_VERSION, group: 'versions' },
+    {
+      key: 'OPENFGA_CHART_VERSION',
+      value: c.chartVersion || OPENFGA_CHART_VERSION,
+      group: 'versions',
+    },
     { key: 'OPENFGA_NAMESPACE', value: c.namespace || 'openfga', group: 'settings' },
     { key: 'OPENFGA_STORE_NAME', value: c.storeName || 'agentgateway-demo', group: 'settings' },
   ];
@@ -26,35 +23,32 @@ export function envExportsFor(cfg) {
 
 export async function generate(_subIndex, profileAddonConfig) {
   const cfg = profileAddonConfig || {};
-  const image = cfg.image || 'openfga/openfga:$OPENFGA_VERSION';
-
-  const template = await readFile(join(__dirname, 'config', 'openfga.yaml'), 'utf8');
-  const rendered = _renderTemplate(template, {
-    NAMESPACE: '$OPENFGA_NAMESPACE',
-    OPENFGA_IMAGE: image,
-  });
+  const image = cfg.image || 'openfga/openfga:${OPENFGA_VERSION}';
+  const lastColon = image.lastIndexOf(':');
+  const imageRepository = lastColon === -1 ? image : image.slice(0, lastColon);
+  const imageTag = lastColon === -1 ? '' : image.slice(lastColon + 1);
 
   const lines = [];
   lines.push('### Install OpenFGA');
   lines.push('');
   lines.push(
-    'Deploys OpenFGA (in-memory datastore) and bootstraps a store, authorization model, and seed relationship tuples via its HTTP API.'
+    'Deploys OpenFGA (in-memory datastore) via its official Helm chart, then bootstraps a store, authorization model, and seed relationship tuples via its HTTP API.'
   );
   lines.push('');
-  lines.push('#### Create namespace');
+  lines.push('#### Install OpenFGA via Helm');
   lines.push('');
   lines.push('```bash');
-  lines.push(
-    'kubectl create namespace ${OPENFGA_NAMESPACE} --dry-run=client -o yaml | kubectl apply -f -'
-  );
-  lines.push('```');
+  lines.push('helm repo add openfga https://openfga.github.io/helm-charts');
+  lines.push('helm repo update');
   lines.push('');
-  lines.push('#### Deploy OpenFGA');
-  lines.push('');
-  lines.push('```bash');
-  lines.push('kubectl apply -f - <<EOF');
-  lines.push(rendered.trimEnd());
-  lines.push('EOF');
+  lines.push('helm upgrade -i openfga openfga/openfga \\');
+  lines.push('  -n ${OPENFGA_NAMESPACE} \\');
+  lines.push('  --version ${OPENFGA_CHART_VERSION} \\');
+  lines.push('  -f addons/openfga/config/values.yaml \\');
+  lines.push(`  --set image.repository=${imageRepository} \\`);
+  lines.push(`  --set image.tag=${imageTag} \\`);
+  lines.push('  --create-namespace \\');
+  lines.push('  --wait --timeout 3m');
   lines.push('```');
   lines.push('');
   lines.push('#### Wait for OpenFGA to be ready');
@@ -109,7 +103,7 @@ export async function generate(_subIndex, profileAddonConfig) {
 export function cleanup(_cfg) {
   return [
     '```bash',
-    'kubectl delete all --all -n ${OPENFGA_NAMESPACE}',
+    'helm uninstall openfga -n ${OPENFGA_NAMESPACE}',
     'kubectl delete namespace ${OPENFGA_NAMESPACE} --ignore-not-found',
     '```',
   ].join('\n');

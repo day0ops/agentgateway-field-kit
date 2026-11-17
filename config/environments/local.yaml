@@ -58,7 +58,7 @@ spec:
       opik-guardrail-webhook: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/opik-guardrail-webhook:0.1.2
       ext-mcp-guardrail: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/ext-mcp-guardrail:latest
     openfga:
-      openfga-engine: openfga/openfga:v1.10.3
+      openfga-engine: openfga/openfga:v1.22.1
       openfga-ext-authz: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/openfga-ext-authz:latest
     opaAuthz:
       opa-ext-authz: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/opa-ext-authz:latest
@@ -106,6 +106,7 @@ spec:
     app:
       quotaManagement: quota-management.agw.lab.day0ops.com
       wizard: wizard.agw.lab.day0ops.com
+      walkthrough: walkthrough.agw.lab.day0ops.com
 
   # CIDR allowlist applied to public-facing NLBs (aws-load-balancer-source-ranges).
   # Empty here - local/BYO clusters aren't VPN-locked; features treat an empty list as

@@ -146,14 +146,12 @@ describe('WalkthroughEngine construction', () => {
 describe('WalkthroughEngine navigation', () => {
   test('handleRight on an unfired step runs it; handleRight again advances', async () => {
     const engine = new WalkthroughEngine(buildWalkthrough());
-    await engine.handleRight(); // applies screen 0 setup
+    await engine.handleRight(); // applies screen 0 setup and previews step 0 (http) in the same press
     // toMatchObject, not toEqual: FeatureManager.deploy() always injects namespace/edition
     // into the feature's config alongside what the walkthrough screen declared.
     expect(RecordingFeature.deployed).toMatchObject([
       { name: 'recording-feature', config: { step: 'one' } },
     ]);
-
-    await engine.handleRight(); // previews step 0 (http)
     expect(engine.getStepResult()).toMatchObject({
       kind: 'http',
       request: { url: 'http://example.com/a' },
@@ -168,16 +166,88 @@ describe('WalkthroughEngine navigation', () => {
     expect(engine.getStepResult()).toBeNull();
   });
 
+  test("a step's captureVariable feeds a later step's {{vars.*}} body placeholder", async () => {
+    globalThis.fetch = async () =>
+      new Response(JSON.stringify({ tier: 'premium' }), { status: 200 });
+    const engine = new WalkthroughEngine(
+      buildWalkthrough({
+        screens: [
+          {
+            name: 'one',
+            setup: [],
+            steps: [
+              {
+                kind: 'http',
+                method: 'POST',
+                url: 'http://example.com/jev',
+                captureVariable: { name: 'tier', jsonPaths: ['tier'], default: 'cheap' },
+              },
+              {
+                kind: 'http',
+                method: 'POST',
+                url: 'http://example.com/alias',
+                body: '{"model": "{{vars.tier}}"}',
+              },
+            ],
+          },
+        ],
+      })
+    );
+
+    await engine.handleRight(); // applies screen 0 setup + previews step 0
+    await engine.handleRight(); // fires step 0 - captures tier: "premium" from its response
+    expect(engine.getStepResult()).toMatchObject({ status: 200 });
+
+    await engine.handleRight(); // advances to step 1
+    await engine.handleRight(); // previews step 1 - its body should already carry the captured tier
+    expect(engine.getStepResult()).toMatchObject({
+      kind: 'http',
+      request: { body: '{"model": "premium"}' },
+    });
+  });
+
+  test('handleRight on a traffic-split step previews the request before firing it', async () => {
+    const engine = new WalkthroughEngine(
+      buildWalkthrough({
+        screens: [
+          {
+            name: 'one',
+            setup: [{ name: 'recording-feature', config: { step: 'one' } }],
+            steps: [
+              {
+                kind: 'traffic-split',
+                method: 'GET',
+                url: 'http://example.com/a',
+                requestCount: 3,
+                tallyBy: '$status',
+              },
+            ],
+          },
+        ],
+      })
+    );
+
+    await engine.handleRight(); // applies screen 0 setup and previews the request in the same press
+    expect(engine.getStepResult()).toMatchObject({
+      kind: 'traffic-split',
+      request: { url: 'http://example.com/a' },
+      requestCount: 3,
+    });
+    expect(engine.getStepResult().tally).toBeUndefined();
+
+    await engine.handleRight(); // fires it
+    expect(engine.getStepResult()).toMatchObject({ tally: { 200: 3 }, requestCount: 3 });
+  });
+
   test("crossing a screen boundary runs the next screen's teardown then setup exactly once", async () => {
     const engine = new WalkthroughEngine(buildWalkthrough());
-    await engine.handleRight(); // screen 0 setup
-    await engine.handleRight(); // step 0 preview
+    await engine.handleRight(); // screen 0 setup + step 0 preview
     await engine.handleRight(); // step 0 fire
     await engine.handleRight(); // advance to step 1
     await engine.handleRight(); // step 1 preview
     await engine.handleRight(); // step 1 fire
     await engine.handleRight(); // crosses into screen 1 (indices only - lazy apply)
-    await engine.handleRight(); // applies screen 1's teardown+setup
+    await engine.handleRight(); // applies screen 1's teardown+setup + previews its step 0
 
     // toMatchObject, not toEqual: FeatureManager.deploy()/cleanup() always inject
     // namespace/edition into the feature's config alongside what the screen declared.
@@ -220,15 +290,13 @@ describe('WalkthroughEngine navigation', () => {
     // Advance organically (not via jumpToScreen) into screen 1 and fire its one step, so there's
     // a real cached result and revealed response to prove gets cleared below - a screen that was
     // never fired would pass the getStepResult()/isResponseRevealed() assertions trivially.
-    await engine.handleRight(); // applies screen 0 setup
-    await engine.handleRight(); // preview screen 0 step 0
+    await engine.handleRight(); // applies screen 0 setup + previews step 0
     await engine.handleRight(); // fire screen 0 step 0
     await engine.handleRight(); // advance to screen 0 step 1
     await engine.handleRight(); // preview screen 0 step 1
     await engine.handleRight(); // fire screen 0 step 1
     await engine.handleRight(); // cross into screen 1 (lazy - indices only)
-    await engine.handleRight(); // apply screen 1's teardown+setup
-    await engine.handleRight(); // preview screen 1 step 0
+    await engine.handleRight(); // apply screen 1's teardown+setup + preview its step 0
     await engine.handleRight(); // fire screen 1 step 0
     expect(engine.getStepResult()).toMatchObject({ status: 200 });
     expect(engine.isResponseRevealed()).toBe(true);

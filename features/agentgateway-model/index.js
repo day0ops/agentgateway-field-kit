@@ -20,23 +20,39 @@ const PROVIDER_ENUM = {
   anthropic: 'Anthropic',
 };
 
+// Fixed rule name on the companion HTTPRoute (httpRoute config below) - every model in a given
+// feature config attaches under this one rule via its own parentRefs.sectionName, so there's
+// never a reason to make this configurable per call.
+const HTTP_ROUTE_RULE_NAME = 'models';
+
 /**
  * AgentgatewayModel Feature
  *
  * Builds `AgentgatewayModel` resources (`agentgateway.dev/v1alpha1`), the
  * experimental model-centric API that replaces the AgentgatewayBackend+HTTPRoute pattern used
- * by every other feature in this repo. Each model attaches directly to a Gateway listener and
- * gets built-in OpenAI-compatible paths and `/v1/models` discovery - no HTTPRoute needed.
+ * by every other feature in this repo. By default each model attaches directly to a Gateway
+ * listener (the documented default) and gets built-in OpenAI-compatible paths and `/v1/models`
+ * discovery - no HTTPRoute needed. Pass `httpRoute` to attach via an HTTPRoute instead (the
+ * docs recommend this only for path-scoping or multiple independent model tables on one
+ * listener - plain Gateway attachment is still the default for everything else).
  *
  * Requires the experimental AgentgatewayModel CRD/API enabled on the cluster
  * (`agentgatewayModels.enabled=true` on the control plane chart, `installAgentgatewayModelCRD=true`
- * on the CRD chart) and a Gateway listener whose `allowedRoutes.kinds` includes AgentgatewayModel.
+ * on the CRD chart) and a Gateway listener whose `allowedRoutes.kinds` includes AgentgatewayModel
+ * (and, when using `httpRoute`, HTTPRoute too).
  *
  * Reference: https://docs.solo.io/agentgateway/latest/llm/models/about/
  *
  * Configuration:
  * {
  *   sectionName: string,        // Gateway listener sectionName (default: 'http')
+ *   httpRoute: {                 // Optional - attach every model below to this HTTPRoute
+ *     name: string,              // instead of straight to the Gateway.
+ *     pathPrefix: string,        // Required, and must not be '/' - the docs forbid a root-path
+ *   },                           // model route sharing a listener with directly (Gateway-)
+ *                                // attached models, which this walkthrough's listener has.
+ *                                // Agentgateway strips this prefix before resolving built-in
+ *                                // paths, so clients call e.g. `<pathPrefix>/v1/chat/completions`.
  *   models: [{
  *     name: string,                        // metadata.name; also the client-facing name when match is omitted
  *     match: string,                       // optional client-facing name/wildcard pattern (spec.match.model)
@@ -59,6 +75,7 @@ export class AgentgatewayModelFeature extends Feature {
   constructor(name, config) {
     super(name, config);
     this.sectionName = config.sectionName || 'http';
+    this.httpRoute = config.httpRoute || null;
     this.models = config.models || [];
     this._providerHelper = new ProvidersFeature(name, {
       providers: [],
@@ -74,6 +91,21 @@ export class AgentgatewayModelFeature extends Feature {
   }
 
   validate() {
+    if (this.httpRoute) {
+      if (!this.httpRoute.name) {
+        throw new Error('agentgateway-model: httpRoute.name is required when httpRoute is set');
+      }
+      // A root-path model route can't share a listener with directly (Gateway-)attached models
+      // (per the docs) - forcing an explicit, non-root prefix here rules that conflict out,
+      // rather than letting it surface later as a confusing routing failure on the cluster.
+      if (!this.httpRoute.pathPrefix || this.httpRoute.pathPrefix === '/') {
+        throw new Error(
+          'agentgateway-model: httpRoute.pathPrefix is required and must not be "/" - a root-path ' +
+            'model route cannot share a listener with directly attached models'
+        );
+      }
+    }
+
     if (this.models.length === 0) {
       throw new Error('agentgateway-model: at least one model is required');
     }
@@ -117,6 +149,9 @@ export class AgentgatewayModelFeature extends Feature {
     this._providerHelper.setSpinner(this.spinner);
 
     const gatewayRef = FeatureManager.getGatewayRef();
+    if (this.httpRoute) {
+      await this.applyCompanionHttpRoute(gatewayRef);
+    }
     const secretsCreated = new Set();
 
     for (const model of this.models) {
@@ -148,7 +183,45 @@ export class AgentgatewayModelFeature extends Feature {
     await this._providerHelper.createProviderSecret({ name: providerName, providerName });
   }
 
+  async applyCompanionHttpRoute(gatewayRef) {
+    await this.applyYamlFile('httproute.yaml', {
+      metadata: {
+        name: this.httpRoute.name,
+        namespace: this.namespace,
+        labels: { 'agentgateway.dev/feature': this.name },
+      },
+      spec: {
+        parentRefs: [
+          {
+            name: gatewayRef.name,
+            namespace: gatewayRef.namespace,
+            sectionName: this.sectionName,
+          },
+        ],
+        rules: [
+          {
+            name: HTTP_ROUTE_RULE_NAME,
+            matches: [{ path: { type: 'PathPrefix', value: this.httpRoute.pathPrefix } }],
+            backendRefs: [{ group: MODEL_GROUP, kind: 'AgentgatewayModel', name: '*' }],
+          },
+        ],
+      },
+    });
+    this.log(`HTTPRoute '${this.httpRoute.name}' created for AgentgatewayModel attachment`, 'info');
+  }
+
   buildParentRefs(gatewayRef) {
+    if (this.httpRoute) {
+      return [
+        {
+          group: 'gateway.networking.k8s.io',
+          kind: 'HTTPRoute',
+          name: this.httpRoute.name,
+          namespace: this.namespace,
+          sectionName: HTTP_ROUTE_RULE_NAME,
+        },
+      ];
+    }
     return [
       {
         group: 'gateway.networking.k8s.io',
@@ -245,6 +318,9 @@ export class AgentgatewayModelFeature extends Feature {
     const providersUsed = new Set(this.models.filter(m => m.provider).map(m => m.provider));
     for (const providerName of providersUsed) {
       await this.deleteResource('Secret', `${providerName}-secret`, this.namespace);
+    }
+    if (this.httpRoute) {
+      await this.deleteResource('HTTPRoute', this.httpRoute.name, this.namespace);
     }
   }
 }

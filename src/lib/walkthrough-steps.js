@@ -203,6 +203,38 @@ export function resolveVariables(value, variables) {
   return value.replace(/\{\{vars\.(\w+)\}\}/g, (_match, name) => variables?.get(name) ?? '');
 }
 
+/**
+ * Extracts a value from an http step's JSON response body into the engine's variables map, for
+ * a later step's {{vars.NAME}} to reference - e.g. an AI decision endpoint's chosen option
+ * feeding the model name of the next, routed request. Tries `step.captureVariable.jsonPaths` in
+ * order (dot-separated; a numeric segment indexes an array) and falls back to `default` if none
+ * resolve to a scalar or the body isn't JSON, so a response shape that turns out to differ from
+ * the guess degrades to that default instead of leaving the next step's placeholder unresolved.
+ * A path that resolves to an object/array/null (a too-shallow guess landing on a container
+ * rather than its leaf value) is treated as a non-match rather than stringified - this is what
+ * stops a near-miss path from capturing "[object Object]" instead of trying the next path.
+ */
+export function captureResponseVariable(step, result, variables) {
+  const capture = step.captureVariable;
+  if (!capture) return;
+  let value;
+  try {
+    const body = JSON.parse(result.body);
+    for (const path of capture.jsonPaths || []) {
+      const resolved = path
+        .split('.')
+        .reduce((acc, key) => (acc == null ? undefined : acc[key]), body);
+      if (resolved !== undefined && resolved !== null && typeof resolved !== 'object') {
+        value = resolved;
+        break;
+      }
+    }
+  } catch {
+    // non-JSON body - fall through to the default below
+  }
+  variables.set(capture.name, value !== undefined ? String(value) : (capture.default ?? ''));
+}
+
 function hasContentTypeHeader(headers) {
   return Object.keys(headers).some(key => key.toLowerCase() === 'content-type');
 }
@@ -234,7 +266,12 @@ async function buildHeaders(step, context) {
 export async function buildHttpRequest(step, context) {
   const method = step.method || 'GET';
   const headers = await buildHeaders(step, context);
-  return { method, url: step.url, headers, ...(step.body !== undefined && { body: step.body }) };
+  return {
+    method,
+    url: step.url,
+    headers,
+    ...(step.body !== undefined && { body: resolveVariables(step.body, context?.variables) }),
+  };
 }
 
 /**
@@ -291,23 +328,86 @@ export async function runHttpStep(step, context) {
 }
 
 /**
- * Fires `step.requestCount` requests and tallies responses - by `step.tallyBy`'s JSON
- * body field, or by HTTP status code when `tallyBy` is the sentinel '$status' (used for a
- * rate-limit burst, where a 429 may have no parseable JSON body). Defaults to a bodyless
- * GET; `step.method`/`step.body` let a traffic split exercise an AI route, which rejects a
- * bodyless request outright (it has no prompt to complete) rather than returning one.
+ * Builds a traffic-split step's request (method, url, headers, body), resolving any
+ * credential - but does not fire it. Split out from executeTrafficSplitRequest so the TUI can
+ * show the request before any of the `step.requestCount` copies are actually sent, mirroring
+ * buildHttpRequest/executeHttpRequest.
  */
-export async function runTrafficSplitStep(step, context) {
-  const tally = {};
-  const headers = await buildHeaders(step, context);
+export async function buildTrafficSplitRequest(step, context) {
   const method = step.method || 'GET';
-  const body = step.body;
-  const target = await connectionTarget(step, step.url, headers);
+  const headers = await buildHeaders(step, context);
+  return {
+    method,
+    url: step.url,
+    headers,
+    ...(step.body !== undefined && { body: resolveVariables(step.body, context?.variables) }),
+  };
+}
+
+const GATEWAY_METRICS_PORT = 15020;
+
+/**
+ * Reads a named Prometheus counter's current value straight off the gateway pod's own
+ * /metrics endpoint (no PromQL, no addon dependency) - null if the pod, curl, or the metric
+ * itself can't be found, so a transient failure here never fails the step it's diagnosing.
+ */
+async function readGatewayMetric(gatewayRef, metricName) {
+  try {
+    const pods = await KubernetesHelper.kubectl([
+      'get',
+      'pods',
+      '-n',
+      gatewayRef.namespace,
+      '-l',
+      `app.kubernetes.io/name=${gatewayRef.name}`,
+      '-o',
+      'jsonpath={.items[0].metadata.name}',
+    ]);
+    const pod = pods.stdout.trim();
+    if (!pod) return null;
+    const metrics = await KubernetesHelper.kubectl([
+      'exec',
+      pod,
+      '-n',
+      gatewayRef.namespace,
+      '--',
+      'curl',
+      '-s',
+      `localhost:${GATEWAY_METRICS_PORT}/metrics`,
+    ]);
+    const match = new RegExp(`^${metricName}\\s+([0-9.eE+-]+)`, 'm').exec(metrics.stdout);
+    return match ? Number(match[1]) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fires an already-built traffic-split request `step.requestCount` times and tallies responses
+ * - by `step.tallyBy`'s JSON body field, or by HTTP status code when `tallyBy` is the sentinel
+ * '$status' (used for a rate-limit burst, where a 429 may have no parseable JSON body).
+ *
+ * `step.gatewayMetric`, if set (alongside `step.resolveGateway`, which names the gateway to
+ * read it from), snapshots that Prometheus counter on the gateway pod before and after the
+ * burst - e.g. 'agentgateway_retries_total' as real, server-reported evidence that a retry
+ * policy actually fired, since retries themselves are otherwise invisible to the client.
+ */
+export async function executeTrafficSplitRequest(step, request) {
+  const tally = {};
+  const target = await connectionTarget(step, request.url, request.headers);
+  const gatewayRef =
+    step.gatewayMetric && step.resolveGateway
+      ? {
+          name: step.resolveGateway.name,
+          namespace: step.resolveGateway.namespace || FeatureManager.getDefaultNamespace(),
+        }
+      : null;
+  const before = gatewayRef ? await readGatewayMetric(gatewayRef, step.gatewayMetric) : null;
   for (let i = 0; i < step.requestCount; i++) {
     const response = await fetch(target.url, {
-      method,
+      method: request.method,
       headers: target.headers,
-      ...(body !== undefined && { body }),
+      ...(request.body !== undefined && { body: request.body }),
       ...(target.tls && { tls: target.tls }),
     });
     const bucket =
@@ -316,5 +416,25 @@ export async function runTrafficSplitStep(step, context) {
         : ((await response.json())[step.tallyBy] ?? 'unknown');
     tally[bucket] = (tally[bucket] || 0) + 1;
   }
-  return { kind: 'traffic-split', tally, requestCount: step.requestCount };
+  const after = gatewayRef ? await readGatewayMetric(gatewayRef, step.gatewayMetric) : null;
+  const gatewayMetricDelta =
+    before !== null && after !== null ? { name: step.gatewayMetric, delta: after - before } : null;
+  return {
+    kind: 'traffic-split',
+    request,
+    tally,
+    requestCount: step.requestCount,
+    ...(gatewayMetricDelta && { gatewayMetricDelta }),
+  };
+}
+
+/**
+ * Builds and immediately fires a traffic-split step in one call - for callers (e.g. `runStep`)
+ * with no separate preview stage. Defaults to a bodyless GET; `step.method`/`step.body` let a
+ * traffic split exercise an AI route, which rejects a bodyless request outright (it has no
+ * prompt to complete) rather than returning one.
+ */
+export async function runTrafficSplitStep(step, context) {
+  const request = await buildTrafficSplitRequest(step, context);
+  return executeTrafficSplitRequest(step, request);
 }

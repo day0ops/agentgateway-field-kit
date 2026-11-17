@@ -6,6 +6,7 @@ metadata:
     Single bring-your-own Kubernetes cluster
     - Solo UI and full observability
     - Keycloak OIDC login
+    - OpenFGA ReBAC authorization
 spec:
   environment: local
 
@@ -234,6 +235,12 @@ spec:
           backendClientId: enterprise-agentgateway-ui-backend
           backendClientSecret: solo-ui-backend-secret
           frontendClientId: enterprise-agentgateway-ui
+
+    - name: openfga
+      description: OpenFGA ReBAC authorization server
+      namespace: openfga
+      config:
+        image: '{{env.images.openfga.openfga-engine}}'
 
     - name: telemetry
       description: OpenTelemetry observability stack (Prometheus, Grafana, Loki, Tempo)

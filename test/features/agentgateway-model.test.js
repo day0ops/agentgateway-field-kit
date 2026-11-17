@@ -88,4 +88,93 @@ describe('AgentgatewayModelFeature provider support', () => {
     });
     expect(() => feature.validate()).toThrow(/must set exactly one of provider or virtualModel/);
   });
+
+  test('validate() throws when httpRoute is set without a name', () => {
+    const feature = new AgentgatewayModelFeature('agentgateway-model', {
+      httpRoute: { pathPrefix: '/multi-model' },
+      models: [{ name: 'x', provider: 'openai' }],
+    });
+    expect(() => feature.validate()).toThrow(/httpRoute.name is required/);
+  });
+
+  test('validate() throws when httpRoute is set without a pathPrefix', () => {
+    const feature = new AgentgatewayModelFeature('agentgateway-model', {
+      httpRoute: { name: 'multi-model-routing' },
+      models: [{ name: 'x', provider: 'openai' }],
+    });
+    expect(() => feature.validate()).toThrow(/pathPrefix is required/);
+  });
+
+  test('validate() throws when httpRoute.pathPrefix is the root path', () => {
+    const feature = new AgentgatewayModelFeature('agentgateway-model', {
+      httpRoute: { name: 'multi-model-routing', pathPrefix: '/' },
+      models: [{ name: 'x', provider: 'openai' }],
+    });
+    expect(() => feature.validate()).toThrow(/must not be "\/"/);
+  });
+});
+
+describe('AgentgatewayModelFeature httpRoute attachment', () => {
+  test('without httpRoute, a model attaches straight to the Gateway (the default)', async () => {
+    const docs = await FeatureManager.deploy(
+      'agentgateway-model',
+      { sectionName: 'https', models: [{ name: 'gpt-4o-mini', provider: 'openai' }] },
+      { dryRun: true }
+    );
+    const model = docs.map(d => yaml.load(d)).find(d => d.kind === 'AgentgatewayModel');
+
+    expect(model.spec.parentRefs).toEqual([
+      {
+        group: 'gateway.networking.k8s.io',
+        kind: 'Gateway',
+        name: 'agentgateway-gw',
+        namespace: 'agentgateway-system',
+        sectionName: 'https',
+      },
+    ]);
+    expect(docs.some(d => yaml.load(d).kind === 'HTTPRoute')).toBe(false);
+  });
+
+  test('with httpRoute, every model attaches to the named HTTPRoute instead, plus the HTTPRoute itself gets created', async () => {
+    const docs = await FeatureManager.deploy(
+      'agentgateway-model',
+      {
+        sectionName: 'https',
+        httpRoute: { name: 'multi-model-routing', pathPrefix: '/multi-model' },
+        models: [
+          { name: 'gpt-4o-mini', provider: 'openai' },
+          { name: 'claude-sonnet-5', provider: 'anthropic' },
+        ],
+      },
+      { dryRun: true }
+    );
+    const loaded = docs.map(d => yaml.load(d));
+    const models = loaded.filter(d => d.kind === 'AgentgatewayModel');
+    const route = loaded.find(d => d.kind === 'HTTPRoute');
+
+    expect(models).toHaveLength(2);
+    for (const model of models) {
+      expect(model.spec.parentRefs).toEqual([
+        {
+          group: 'gateway.networking.k8s.io',
+          kind: 'HTTPRoute',
+          name: 'multi-model-routing',
+          namespace: 'agentgateway-system',
+          sectionName: 'models',
+        },
+      ]);
+    }
+
+    expect(route.metadata.name).toBe('multi-model-routing');
+    expect(route.spec.parentRefs).toEqual([
+      { name: 'agentgateway-gw', namespace: 'agentgateway-system', sectionName: 'https' },
+    ]);
+    expect(route.spec.rules).toEqual([
+      {
+        name: 'models',
+        matches: [{ path: { type: 'PathPrefix', value: '/multi-model' } }],
+        backendRefs: [{ group: 'agentgateway.dev', kind: 'AgentgatewayModel', name: '*' }],
+      },
+    ]);
+  });
 });

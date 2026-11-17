@@ -5,16 +5,17 @@ metadata:
   description: |
     A tour of agentgateway's LLM-routing intelligence across real providers.
     - direct multi-model selection
+    - body-based routing
     - wildcard model serving
     - model aliasing
-    - body-based routing
     - load balancing with resilient retries
     - weighted virtual models
     - conditional virtual models
     - automatic failover
-    - AI-driven tier routing via a hosted decision model
+    - confidence-gated routing via a hosted decision model
 
-    Requires a profile with the cert-manager addon installed (e.g. `local-single-cluster`).
+    Requires a profile with cert-manager's Let's Encrypt DNS-01 issuer enabled (e.g.
+    `local-single-cluster`).
 
 spec:
   environment: local
@@ -23,16 +24,17 @@ spec:
       config:
         name: models-gateway-tls
         secretName: models-gateway-tls
-        issuer: '{{env.tls.issuer}}'
-        dnsNames: [models-gateway.test]
+        issuer: letsencrypt-dns
+        dnsNames: ['{{env.domains.app.walkthrough}}']
     - name: gateway
       config:
         name: models-gateway
+        registerDns: true
         listeners:
           - name: https
             port: 443
             protocol: HTTPS
-            hostname: models-gateway.test
+            hostname: '{{env.domains.app.walkthrough}}'
             tls: { mode: Terminate, certificateRefs: [{ name: models-gateway-tls }] }
             allowedRoutes:
               namespaces:
@@ -51,6 +53,7 @@ spec:
         - name: agentgateway-model
           config:
             sectionName: https
+            httpRoute: { name: multi-model-routing, pathPrefix: /multi-model }
             models:
               - name: gpt-4o-mini
                 provider: openai
@@ -58,20 +61,56 @@ spec:
                 provider: anthropic
       steps:
         - kind: http
-          label: 'POST /v1/chat/completions (gpt-4o-mini)'
+          label: 'POST /multi-model/v1/chat/completions (gpt-4o-mini)'
+          description: This request asks for gpt-4o-mini by name - agentgateway routes it straight to OpenAI.
           method: POST
-          url: 'https://models-gateway.test/v1/chat/completions'
+          url: 'https://{{env.domains.app.walkthrough}}/multi-model/v1/chat/completions'
           resolveGateway: { name: models-gateway }
-          insecure: true
           body: '{"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "What is 2+2?"}]}'
           expectStatus: 200
         - kind: http
-          label: 'POST /v1/chat/completions (claude-sonnet-5)'
+          label: 'POST /multi-model/v1/chat/completions (claude-sonnet-5)'
+          description: Same endpoint, different model name - agentgateway routes this one to Anthropic instead.
           method: POST
-          url: 'https://models-gateway.test/v1/chat/completions'
+          url: 'https://{{env.domains.app.walkthrough}}/multi-model/v1/chat/completions'
           resolveGateway: { name: models-gateway }
-          insecure: true
           body: '{"model": "claude-sonnet-5", "messages": [{"role": "user", "content": "What is 2+2?"}]}'
+          expectStatus: 200
+
+    - name: body-based-routing
+      title: Body-Based Routing
+      narration: |
+        Every model-routing screen in this tour works by inspecting the model field in the request body - a single /chat endpoint here routes to different providers based on that field alone, with no path or header involved. The next two screens build on this same mechanism: wildcard matching and friendly aliases.
+      setup:
+        - name: providers
+          config:
+            pathPrefix: /chat
+            bodyRouting: true
+            providers:
+              - name: openai
+                providerName: openai
+                model: 'gpt-.*'
+                modelMatch: RegularExpression
+              - name: vertex-ai
+                providerName: vertex-ai
+                model: 'google/gemini-.*'
+                modelMatch: RegularExpression
+      steps:
+        - kind: http
+          label: 'POST /chat (gpt-4o-mini, body-matched to OpenAI)'
+          description: The model name in the body (gpt-4o-mini) matches the OpenAI route - no separate endpoint needed.
+          method: POST
+          url: 'https://{{env.domains.app.walkthrough}}/chat'
+          resolveGateway: { name: models-gateway }
+          body: '{"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "What is 2+2?"}]}'
+          expectStatus: 200
+        - kind: http
+          label: 'POST /chat (gemini-2.5-flash, body-matched to Vertex AI)'
+          description: Same /chat endpoint, but this body's model name matches the Vertex AI route instead.
+          method: POST
+          url: 'https://{{env.domains.app.walkthrough}}/chat'
+          resolveGateway: { name: models-gateway }
+          body: '{"model": "google/gemini-2.5-flash", "messages": [{"role": "user", "content": "What is 2+2?"}]}'
           expectStatus: 200
 
     - name: wildcard-model-serving
@@ -82,6 +121,7 @@ spec:
         - name: agentgateway-model
           config:
             sectionName: https
+            httpRoute: { name: wildcard-model-serving, pathPrefix: /wildcard }
             models:
               - name: openai-models
                 match: 'openai/*'
@@ -92,11 +132,11 @@ spec:
                     expression: 'llmRequest.model.stripPrefix("openai/")'
       steps:
         - kind: http
-          label: 'POST /v1/chat/completions (openai/gpt-4o-mini, wildcard-matched)'
+          label: 'POST /wildcard/v1/chat/completions (openai/gpt-4o-mini, wildcard-matched)'
+          description: The client asks for openai/gpt-4o-mini - the wildcard match accepts it and strips the prefix before forwarding to OpenAI.
           method: POST
-          url: 'https://models-gateway.test/v1/chat/completions'
+          url: 'https://{{env.domains.app.walkthrough}}/wildcard/v1/chat/completions'
           resolveGateway: { name: models-gateway }
-          insecure: true
           body: '{"model": "openai/gpt-4o-mini", "messages": [{"role": "user", "content": "What is 2+2?"}]}'
           expectStatus: 200
 
@@ -118,55 +158,19 @@ spec:
       steps:
         - kind: http
           label: 'POST /alias (fast, resolves to gpt-4o-mini)'
+          description: The client sends the alias "fast" - agentgateway resolves it to gpt-4o-mini before forwarding.
           method: POST
-          url: 'https://models-gateway.test/alias'
+          url: 'https://{{env.domains.app.walkthrough}}/alias'
           resolveGateway: { name: models-gateway }
-          insecure: true
           body: '{"model": "fast", "messages": [{"role": "user", "content": "What is 2+2?"}]}'
           expectStatus: 200
         - kind: http
           label: 'POST /alias (smart, resolves to gpt-4o)'
+          description: The client sends the alias "smart" this time - agentgateway resolves it to gpt-4o instead.
           method: POST
-          url: 'https://models-gateway.test/alias'
+          url: 'https://{{env.domains.app.walkthrough}}/alias'
           resolveGateway: { name: models-gateway }
-          insecure: true
           body: '{"model": "smart", "messages": [{"role": "user", "content": "What is 2+2?"}]}'
-          expectStatus: 200
-
-    - name: body-based-routing
-      title: Body-Based Routing
-      narration: |
-        A single /chat endpoint routes to different providers based on the model field in the request body - the client never needs to know which provider is behind which model.
-      setup:
-        - name: providers
-          config:
-            pathPrefix: /chat
-            bodyRouting: true
-            providers:
-              - name: openai
-                providerName: openai
-                model: 'gpt-.*'
-                modelMatch: RegularExpression
-              - name: vertex-ai
-                providerName: vertex-ai
-                model: 'google/gemini-.*'
-                modelMatch: RegularExpression
-      steps:
-        - kind: http
-          label: 'POST /chat (gpt-4o-mini, body-matched to OpenAI)'
-          method: POST
-          url: 'https://models-gateway.test/chat'
-          resolveGateway: { name: models-gateway }
-          insecure: true
-          body: '{"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "What is 2+2?"}]}'
-          expectStatus: 200
-        - kind: http
-          label: 'POST /chat (gemini-2.5-flash, body-matched to Vertex AI)'
-          method: POST
-          url: 'https://models-gateway.test/chat'
-          resolveGateway: { name: models-gateway }
-          insecure: true
-          body: '{"model": "google/gemini-2.5-flash", "messages": [{"role": "user", "content": "What is 2+2?"}]}'
           expectStatus: 200
 
     - name: load-balancing
@@ -196,23 +200,24 @@ spec:
               codes: [404]
       steps:
         - kind: traffic-split
-          label: '20 requests - only the two working providers ever show up in the tally'
+          label: '10 requests - only the two working providers ever show up in the tally'
+          description: 10 requests spread across the two working providers - the deliberately broken third provider never shows up in the tally.
           method: POST
-          url: 'https://models-gateway.test/model'
+          url: 'https://{{env.domains.app.walkthrough}}/model'
           resolveGateway: { name: models-gateway }
-          insecure: true
           body: '{"messages": [{"role": "user", "content": "What is 2+2?"}]}'
-          requestCount: 20
+          requestCount: 10
           tallyBy: model
         - kind: traffic-split
-          label: 'Same 20 requests, tallied by status - the retry policy keeps every one at 200'
+          label: 'Same 10 requests, tallied by status - the retry policy keeps every one at 200'
+          description: Same 10 requests, tallied by HTTP status this time - the retry policy means every one still lands on 200. agentgateway's own retries-total counter, read straight off the gateway before and after, confirms retries actually fired rather than every request just happening to land on a working provider.
           method: POST
-          url: 'https://models-gateway.test/model'
+          url: 'https://{{env.domains.app.walkthrough}}/model'
           resolveGateway: { name: models-gateway }
-          insecure: true
           body: '{"messages": [{"role": "user", "content": "What is 2+2?"}]}'
-          requestCount: 20
+          requestCount: 10
           tallyBy: '$status'
+          gatewayMetric: agentgateway_retries_total
 
     - name: weighted-virtual-model
       title: Weighted Virtual Model
@@ -246,10 +251,10 @@ spec:
       steps:
         - kind: traffic-split
           label: '20 requests to balanced, tallied by which target served each one'
+          description: 20 requests to the virtual model "balanced" - tallied by which real target actually served each one, roughly 80/20.
           method: POST
-          url: 'https://models-gateway.test/v1/chat/completions'
+          url: 'https://{{env.domains.app.walkthrough}}/v1/chat/completions'
           resolveGateway: { name: models-gateway }
-          insecure: true
           body: '{"model": "balanced", "messages": [{"role": "user", "content": "What is 2+2?"}]}'
           requestCount: 20
           tallyBy: model
@@ -285,20 +290,20 @@ spec:
       steps:
         - kind: http
           label: 'POST /v1/chat/completions (tiered, x-model-tier: premium)'
+          description: This request sets x-model-tier to premium - the virtual model routes it to the premium target.
           method: POST
-          url: 'https://models-gateway.test/v1/chat/completions'
+          url: 'https://{{env.domains.app.walkthrough}}/v1/chat/completions'
           resolveGateway: { name: models-gateway }
-          insecure: true
           headers:
             x-model-tier: premium
           body: '{"model": "tiered", "messages": [{"role": "user", "content": "What is 2+2?"}]}'
           expectStatus: 200
         - kind: http
           label: 'POST /v1/chat/completions (tiered, no header, falls back)'
+          description: No tier header this time - the virtual model falls back to the fast target.
           method: POST
-          url: 'https://models-gateway.test/v1/chat/completions'
+          url: 'https://{{env.domains.app.walkthrough}}/v1/chat/completions'
           resolveGateway: { name: models-gateway }
-          insecure: true
           body: '{"model": "tiered", "messages": [{"role": "user", "content": "What is 2+2?"}]}'
           expectStatus: 200
 
@@ -321,6 +326,9 @@ spec:
                   unhealthyCondition: 'true'
                   eviction:
                     consecutiveFailures: 1
+                    # Without an explicit duration, eviction falls back to a 3s default -
+                    # too short for a live presenter's pace between step 1 and step 2.
+                    duration: 120s
               - name: internal-anthropic-fallback
                 provider: anthropic
                 visibility: Internal
@@ -338,25 +346,25 @@ spec:
       steps:
         - kind: http
           label: 'First request - served by the OpenAI primary'
+          description: The first request is served normally by the OpenAI primary target.
           method: POST
-          url: 'https://models-gateway.test/v1/chat/completions'
+          url: 'https://{{env.domains.app.walkthrough}}/v1/chat/completions'
           resolveGateway: { name: models-gateway }
-          insecure: true
           body: '{"model": "resilient-chat", "messages": [{"role": "user", "content": "What is 2+2?"}]}'
           expectStatus: 200
         - kind: http
           label: 'Second request - primary now evicted, fails over to Anthropic'
+          description: The primary is now marked unhealthy - this request fails over to the Anthropic target automatically.
           method: POST
-          url: 'https://models-gateway.test/v1/chat/completions'
+          url: 'https://{{env.domains.app.walkthrough}}/v1/chat/completions'
           resolveGateway: { name: models-gateway }
-          insecure: true
           body: '{"model": "resilient-chat", "messages": [{"role": "user", "content": "What is 2+2?"}]}'
           expectStatus: 200
 
     - name: jev-decision-routing
-      title: 'Jev: AI Decides the Tier'
+      title: 'Jev: Confidence-Gated Routing'
       narration: |
-        Jev, TypeSafe's hosted decision model, classifies the prompt as cheap or premium - a presenter would normally route the next request to that tier. Both calls go through the gateway, so the same auth, cost-tracking, and rate-limit policies apply to the classification call too, not just the completion.
+        Jev, TypeSafe's hosted decision model, scores its own confidence alongside its decision - the same pattern production AI gateways use (AWS Bedrock's Intelligent Prompt Routing, Azure's Model Router): above a threshold, route to a fast/cheap model automatically; otherwise fall back to a heavier one. Jev itself isn't wired into agentgateway as a native pre-routing processor (that would need a custom ExtProc service, the way the semantic-router screen's vLLM processor is), so a presenter forwards its confidence score as a header - but the actual branching decision below is agentgateway's own conditional virtual model, not client code picking a model name.
       setup:
         - name: providers
           config:
@@ -368,13 +376,36 @@ spec:
                   ai:
                     routes:
                       '*': Passthrough
+        - name: agentgateway-model
+          config:
+            sectionName: https
+            models:
+              - name: internal-jev-fast
+                provider: openai
+                visibility: Internal
+                transformations:
+                  - field: model
+                    expression: '"gpt-4o-mini"'
+              - name: internal-jev-reasoning
+                provider: anthropic
+                visibility: Internal
+                transformations:
+                  - field: model
+                    expression: '"claude-sonnet-5"'
+              - name: confidence-routed
+                virtualModel:
+                  conditional:
+                    targets:
+                      - when: 'request.headers["x-jev-confidence"].double() > 0.9'
+                        name: internal-jev-fast
+                      - name: internal-jev-reasoning
       steps:
         - kind: http
           label: 'POST /jev - classify the prompt'
+          description: Jev classifies this prompt's complexity before any completion request is made.
           method: POST
-          url: 'https://models-gateway.test/jev'
+          url: 'https://{{env.domains.app.walkthrough}}/jev'
           resolveGateway: { name: models-gateway }
-          insecure: true
           body: >-
             {"model": "jev-latest", "state": "Say hello", "questions": {"tier":
             {"type": "choice", "instructions": "Does this request need a premium
@@ -383,11 +414,29 @@ spec:
             answer well", "premium": "Complex request needing deeper reasoning or
             higher quality output"}}}}
           expectStatus: 200
+          # Jev's exact response shape is unconfirmed against a real account - try every
+          # plausible field path and fall back to 0.5 (treated as "not confident", routing to
+          # the heavier model below) rather than leave the next step's header unresolved.
+          # A live run showed top-level "tier" is itself an object, not a flat string - hence
+          # the tier.* nested guesses ahead of the flatter ones.
+          captureVariable:
+            name: confidence
+            jsonPaths:
+              [
+                tier.confidence,
+                confidence,
+                answers.confidence,
+                answers.0.confidence,
+                answers.tier.confidence,
+              ]
+            default: '0.5'
         - kind: http
-          label: 'POST /alias with the tier Jev picked (cheap)'
+          label: 'POST /v1/chat/completions (confidence-routed, header set from Jev)'
+          description: Jev's confidence score is forwarded as a header - agentgateway's own conditional virtual model does the actual routing, not client code picking a model name.
           method: POST
-          url: 'https://models-gateway.test/alias'
+          url: 'https://{{env.domains.app.walkthrough}}/v1/chat/completions'
           resolveGateway: { name: models-gateway }
-          insecure: true
-          body: '{"model": "cheap", "messages": [{"role": "user", "content": "Say hello"}]}'
+          headers:
+            x-jev-confidence: '{{vars.confidence}}'
+          body: '{"model": "confidence-routed", "messages": [{"role": "user", "content": "Say hello"}]}'
           expectStatus: 200

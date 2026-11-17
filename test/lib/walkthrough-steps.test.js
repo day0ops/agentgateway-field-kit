@@ -7,10 +7,13 @@ import { execaSync } from 'execa';
 import {
   runStep,
   resolveVariables,
+  captureResponseVariable,
   buildHttpRequest,
   executeHttpRequest,
   runHttpStep,
   runTrafficSplitStep,
+  buildTrafficSplitRequest,
+  executeTrafficSplitRequest,
   applyResolve,
   overrideAddress,
   buildTlsOptions,
@@ -93,6 +96,14 @@ describe('buildHttpRequest', () => {
       { credentials: {}, variables: new Map() }
     );
     expect('body' in request).toBe(false);
+  });
+
+  test('substitutes {{vars.*}} in the body too, not just headers', async () => {
+    const request = await buildHttpRequest(
+      { method: 'POST', url: 'http://example.com', body: '{"model":"{{vars.tier}}"}' },
+      { credentials: {}, variables: new Map([['tier', 'premium']]) }
+    );
+    expect(request.body).toBe('{"model":"premium"}');
   });
 
   test('defaults Content-Type to application/json when a body is set and none is given', async () => {
@@ -208,6 +219,86 @@ describe('executeHttpRequest', () => {
   });
 });
 
+describe('captureResponseVariable', () => {
+  test('does nothing when the step has no captureVariable', () => {
+    const variables = new Map();
+    captureResponseVariable({}, { body: '{"tier":"premium"}' }, variables);
+    expect(variables.size).toBe(0);
+  });
+
+  test('stores the first jsonPath that resolves', () => {
+    const variables = new Map();
+    const step = {
+      captureVariable: { name: 'tier', jsonPaths: ['answers.tier', 'tier'], default: 'cheap' },
+    };
+    captureResponseVariable(step, { body: '{"tier":"premium"}' }, variables);
+    expect(variables.get('tier')).toBe('premium');
+  });
+
+  test('skips a path that resolves to an object/array instead of stringifying it, and tries the next one', () => {
+    const variables = new Map();
+    const step = {
+      captureVariable: {
+        name: 'tier',
+        // 'tier' matches first but lands on a container, not a leaf value - must not win.
+        jsonPaths: ['tier', 'tier.answer'],
+        default: 'cheap',
+      },
+    };
+    captureResponseVariable(
+      step,
+      { body: '{"tier":{"answer":"premium","confidence":0.9}}' },
+      variables
+    );
+    expect(variables.get('tier')).toBe('premium');
+  });
+
+  test('falls back to default when every jsonPath only resolves to an object/array', () => {
+    const variables = new Map();
+    const step = {
+      captureVariable: { name: 'tier', jsonPaths: ['error'], default: 'cheap' },
+    };
+    captureResponseVariable(
+      step,
+      { body: '{"error":{"message":"bad request","type":"invalid_request_error"}}' },
+      variables
+    );
+    expect(variables.get('tier')).toBe('cheap');
+  });
+
+  test('indexes an array with a numeric path segment', () => {
+    const variables = new Map();
+    const step = { captureVariable: { name: 'tier', jsonPaths: ['answers.0.option'] } };
+    captureResponseVariable(
+      step,
+      { body: '{"answers":[{"option":"premium","confidence":0.9}]}' },
+      variables
+    );
+    expect(variables.get('tier')).toBe('premium');
+  });
+
+  test('falls back to default when no jsonPath resolves', () => {
+    const variables = new Map();
+    const step = { captureVariable: { name: 'tier', jsonPaths: ['nope'], default: 'cheap' } };
+    captureResponseVariable(step, { body: '{"other":"value"}' }, variables);
+    expect(variables.get('tier')).toBe('cheap');
+  });
+
+  test('falls back to default (not an exception) when the body is not JSON', () => {
+    const variables = new Map();
+    const step = { captureVariable: { name: 'tier', jsonPaths: ['tier'], default: 'cheap' } };
+    captureResponseVariable(step, { body: 'not json' }, variables);
+    expect(variables.get('tier')).toBe('cheap');
+  });
+
+  test('falls back to an empty string when no default is given and nothing resolves', () => {
+    const variables = new Map();
+    const step = { captureVariable: { name: 'tier', jsonPaths: ['nope'] } };
+    captureResponseVariable(step, { body: '{"other":"value"}' }, variables);
+    expect(variables.get('tier')).toBe('');
+  });
+});
+
 describe('runHttpStep', () => {
   let originalFetch;
   beforeEach(() => {
@@ -275,6 +366,7 @@ describe('runTrafficSplitStep', () => {
     );
     expect(result).toEqual({
       kind: 'traffic-split',
+      request: { method: 'GET', url: 'http://example.com/v1/meta', headers: {} },
       tally: { blue: 3, green: 1 },
       requestCount: 4,
     });
@@ -289,7 +381,12 @@ describe('runTrafficSplitStep', () => {
       { url: 'http://example.com/v1/airports', requestCount: 3, tallyBy: '$status' },
       { credentials: {}, variables: new Map() }
     );
-    expect(result).toEqual({ kind: 'traffic-split', tally: { 200: 1, 429: 2 }, requestCount: 3 });
+    expect(result).toEqual({
+      kind: 'traffic-split',
+      request: { method: 'GET', url: 'http://example.com/v1/airports', headers: {} },
+      tally: { 200: 1, 429: 2 },
+      requestCount: 3,
+    });
   });
 
   test('resolves a credential and {{vars.*}} headers on every request', async () => {
@@ -342,6 +439,107 @@ describe('runTrafficSplitStep', () => {
     );
     expect(seenOptions.method).toBe('GET');
     expect('body' in seenOptions).toBe(false);
+  });
+
+  describe('gatewayMetric', () => {
+    let originalKubectl, originalGetLoadBalancerAddress;
+    beforeEach(() => {
+      originalKubectl = KubernetesHelper.kubectl;
+      originalGetLoadBalancerAddress = KubernetesHelper.getLoadBalancerAddress;
+      // Stubbed separately from the kubectl mock below - getLoadBalancerAddress is a
+      // polling loop that calls kubectl internally, which would otherwise collide with
+      // (and poll-loop against) the gatewayMetric calls these tests are asserting on.
+      KubernetesHelper.getLoadBalancerAddress = async () => '127.0.0.1';
+      globalThis.fetch = async () => new Response('plain text', { status: 200 });
+    });
+    afterEach(() => {
+      KubernetesHelper.kubectl = originalKubectl;
+      KubernetesHelper.getLoadBalancerAddress = originalGetLoadBalancerAddress;
+    });
+
+    test('snapshots the named counter before and after the burst and returns the delta', async () => {
+      const kubectlCalls = [];
+      let metricValue = 10;
+      KubernetesHelper.kubectl = async args => {
+        kubectlCalls.push(args);
+        if (args[0] === 'get') return { stdout: 'gw-pod-abc123' };
+        // The 2nd exec (after the burst) sees 3 more retries than the 1st.
+        const value = metricValue;
+        metricValue = 13;
+        return {
+          stdout: `# HELP agentgateway_retries_total docs\nagentgateway_retries_total ${value}\n`,
+        };
+      };
+
+      const step = {
+        url: 'http://example.com',
+        requestCount: 3,
+        tallyBy: '$status',
+        resolveGateway: { name: 'models-gateway', namespace: 'agentgateway-system' },
+        gatewayMetric: 'agentgateway_retries_total',
+      };
+      const request = await buildTrafficSplitRequest(step, {
+        credentials: {},
+        variables: new Map(),
+      });
+      const result = await executeTrafficSplitRequest(step, request);
+
+      expect(result.gatewayMetricDelta).toEqual({ name: 'agentgateway_retries_total', delta: 3 });
+      // get pod, exec curl (before) - get pod, exec curl (after)
+      expect(kubectlCalls).toHaveLength(4);
+      expect(kubectlCalls[0]).toEqual([
+        'get',
+        'pods',
+        '-n',
+        'agentgateway-system',
+        '-l',
+        'app.kubernetes.io/name=models-gateway',
+        '-o',
+        'jsonpath={.items[0].metadata.name}',
+      ]);
+      expect(kubectlCalls[1]).toEqual([
+        'exec',
+        'gw-pod-abc123',
+        '-n',
+        'agentgateway-system',
+        '--',
+        'curl',
+        '-s',
+        'localhost:15020/metrics',
+      ]);
+    });
+
+    test('omits gatewayMetricDelta (rather than failing the step) when the pod cannot be found', async () => {
+      KubernetesHelper.kubectl = async () => ({ stdout: '' });
+      const step = {
+        url: 'http://example.com',
+        requestCount: 1,
+        tallyBy: '$status',
+        resolveGateway: { name: 'models-gateway' },
+        gatewayMetric: 'agentgateway_retries_total',
+      };
+      const request = await buildTrafficSplitRequest(step, {
+        credentials: {},
+        variables: new Map(),
+      });
+      const result = await executeTrafficSplitRequest(step, request);
+      expect(result.gatewayMetricDelta).toBeUndefined();
+    });
+
+    test('omits gatewayMetricDelta when step.resolveGateway is not set', async () => {
+      const step = {
+        url: 'http://example.com',
+        requestCount: 1,
+        tallyBy: '$status',
+        gatewayMetric: 'agentgateway_retries_total',
+      };
+      const request = await buildTrafficSplitRequest(step, {
+        credentials: {},
+        variables: new Map(),
+      });
+      const result = await executeTrafficSplitRequest(step, request);
+      expect(result.gatewayMetricDelta).toBeUndefined();
+    });
   });
 });
 

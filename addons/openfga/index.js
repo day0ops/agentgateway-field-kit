@@ -4,13 +4,14 @@ import { readFile } from 'fs/promises';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { spawn } from 'child_process';
-import yaml from 'js-yaml';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const CONFIG_DIR = join(__dirname, 'config');
 
-const OPENFGA_VERSION = 'v1.10.3';
+const OPENFGA_CHART_REPO = 'https://openfga.github.io/helm-charts';
+const OPENFGA_CHART_VERSION = '0.4.1';
+const OPENFGA_VERSION = 'v1.22.1';
 const OPENFGA_HTTP_PORT = 8080;
 const STORE_NAME = 'agentgateway-demo';
 const BOOTSTRAP_CONFIGMAP_NAME = 'openfga-bootstrap';
@@ -54,21 +55,22 @@ const SEED_TUPLES = [
 ];
 
 /**
- * OpenFGA Feature (manifest-based, no Helm)
+ * OpenFGA Feature (installed via OpenFGA's official Helm chart)
  *
- * Deploys OpenFGA (in-memory datastore) via raw Kubernetes manifests, then
+ * Deploys OpenFGA (in-memory datastore) via its official Helm chart, then
  * bootstraps a store, authorization model, and seed relationship tuples via
  * its HTTP API (port-forwarded, since the Service is ClusterIP-only). Writes
  * the resulting storeId/modelId to a ConfigMap ('openfga-bootstrap') so
  * features/openfga-authz can read them back at usecase-deploy time.
  *
- * Reference: https://openfga.dev
+ * Reference: https://openfga.dev, https://github.com/openfga/helm-charts
  */
 export class OpenfgaFeature extends Feature {
   constructor(name, config) {
     super(name, config);
     this.openfgaVersion = config.version || OPENFGA_VERSION;
     this.openfgaImage = config.image || `openfga/openfga:${this.openfgaVersion}`;
+    this.chartVersion = config.chartVersion || OPENFGA_CHART_VERSION;
     this.storeName = config.storeName || STORE_NAME;
     this.bootstrapConfigMapName = config.bootstrapConfigMapName || BOOTSTRAP_CONFIGMAP_NAME;
     this.servicePort = OPENFGA_HTTP_PORT;
@@ -85,15 +87,17 @@ export class OpenfgaFeature extends Feature {
   async deploy() {
     this.log('Installing OpenFGA...', 'info');
 
-    await KubernetesHelper.ensureNamespace(this.namespace, this.spinner);
-    await this.applyTemplate('openfga.yaml');
-    await this.waitForOpenfga();
-
     if (this.dryRun) {
-      await this.writeBootstrapConfigMap('<STORE_ID>', '<MODEL_ID>');
+      // The rendered Helm chart is too verbose to be useful in the "Applied Configuration"
+      // preview, and the real deploy call that always follows redoes this work anyway.
       this.log('OpenFGA installed successfully (dry run)', 'success');
       return;
     }
+
+    await KubernetesHelper.ensureNamespace(this.namespace, this.spinner);
+    await this.addHelmRepo();
+    await this.installChart();
+    await this.waitForOpenfga();
 
     await this.withPortForward(async baseUrl => {
       const storeId = await this.ensureStore(baseUrl);
@@ -106,43 +110,66 @@ export class OpenfgaFeature extends Feature {
   }
 
   // ---------------------------------------------------------------------------
-  // Template helpers
+  // Helm chart install
   // ---------------------------------------------------------------------------
 
-  templateVars() {
+  async addHelmRepo() {
+    this.log('Adding OpenFGA Helm repository...', 'info');
+    await CommandRunner.run('helm', ['repo', 'add', 'openfga', OPENFGA_CHART_REPO], {
+      ignoreError: true, // already added is fine
+    });
+    await CommandRunner.run('helm', ['repo', 'update']);
+  }
+
+  /** Split a full image ref (e.g. 'openfga/openfga:v1.22.1') into the chart's image.repository/tag values. */
+  splitImageRef() {
+    const lastColon = this.openfgaImage.lastIndexOf(':');
+    if (lastColon === -1) return { repository: this.openfgaImage, tag: '' };
     return {
-      NAMESPACE: this.namespace,
-      OPENFGA_IMAGE: this.openfgaImage,
+      repository: this.openfgaImage.slice(0, lastColon),
+      tag: this.openfgaImage.slice(lastColon + 1),
     };
   }
 
-  async applyTemplate(filename) {
-    const raw = await readFile(join(CONFIG_DIR, filename), 'utf8');
-    const vars = this.templateVars();
-    const rendered = raw.replace(/\{\{(\w+)\}\}/g, (_, key) => {
-      if (vars[key] === undefined)
-        throw new Error(`Unknown template variable: {{${key}}} in ${filename}`);
-      return vars[key];
-    });
+  helmChartArgs() {
+    const { repository, tag } = this.splitImageRef();
+    return [
+      'openfga',
+      'openfga/openfga',
+      '-n',
+      this.namespace,
+      '--version',
+      this.chartVersion,
+      '-f',
+      join(CONFIG_DIR, 'values.yaml'),
+      '--set',
+      `image.repository=${repository}`,
+      '--set',
+      `image.tag=${tag}`,
+    ];
+  }
 
-    const docs = yaml.loadAll(rendered).filter(Boolean);
-    for (const doc of docs) {
-      await this.applyResource(doc);
-    }
+  async installChart() {
+    this.log('Installing OpenFGA Helm chart...', 'info');
+    await KubernetesHelper.helm([
+      'upgrade',
+      '-i',
+      ...this.helmChartArgs(),
+      '--create-namespace',
+      '--wait',
+      '--timeout',
+      '3m',
+    ]);
   }
 
   async waitForOpenfga() {
     this.log('Waiting for OpenFGA to be ready...', 'info');
-    try {
-      await KubernetesHelper.cleanupAndWaitForDeployment(
-        this.namespace,
-        'openfga',
-        'app=openfga',
-        180
-      );
-    } catch (error) {
-      this.log(`OpenFGA may not be fully ready: ${error.message}`, 'warn');
-    }
+    await KubernetesHelper.cleanupAndWaitForDeployment(
+      this.namespace,
+      'openfga',
+      'app.kubernetes.io/name=openfga',
+      180
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -153,9 +180,21 @@ export class OpenfgaFeature extends Feature {
     const localPort = PORT_FORWARD_LOCAL_PORT;
     const pfProc = spawn(
       'kubectl',
-      ['port-forward', '-n', this.namespace, 'svc/openfga', `${localPort}:${this.servicePort}`],
+      [
+        ...KubernetesHelper.contextArgs(),
+        'port-forward',
+        '-n',
+        this.namespace,
+        'svc/openfga',
+        `${localPort}:${this.servicePort}`,
+      ],
       { stdio: 'pipe' }
     );
+
+    let stderrOutput = '';
+    pfProc.stderr.on('data', data => {
+      stderrOutput += data.toString();
+    });
 
     await new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error('OpenFGA port-forward timed out')), 15000);
@@ -172,7 +211,8 @@ export class OpenfgaFeature extends Feature {
       pfProc.on('close', code => {
         if (code !== null) {
           clearTimeout(timer);
-          reject(new Error(`OpenFGA port-forward failed: exit code ${code}`));
+          const detail = stderrOutput.trim() || `exit code ${code}`;
+          reject(new Error(`OpenFGA port-forward failed: ${detail}`));
         }
       });
     });
@@ -282,8 +322,9 @@ export class OpenfgaFeature extends Feature {
 
   async cleanup() {
     this.log('Cleaning up OpenFGA...', 'info');
-    await this.deleteResource('deployment', 'openfga');
-    await this.deleteResource('service', 'openfga');
+    await KubernetesHelper.helm(['uninstall', 'openfga', '-n', this.namespace], {
+      ignoreError: true, // release may not exist
+    });
     await this.deleteResource('configmap', this.bootstrapConfigMapName);
     this.log('OpenFGA cleaned up', 'success');
   }

@@ -1,0 +1,24 @@
+# rules is always overridden at deploy time (the real PathPrefix comes from httpRoute.pathPrefix) -
+# see AgentgatewayModelFeature.applyCompanionHttpRoute.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: agentgateway-model
+  namespace: agentgateway-system
+  labels:
+    app.kubernetes.io/managed-by: agentgateway-demo
+    agentgateway.dev/feature: agentgateway-model
+spec:
+  parentRefs:
+    - name: agentgateway
+      namespace: agentgateway-system
+  rules:
+    - name: models
+      matches:
+        - path:
+            type: PathPrefix
+            value: /placeholder
+      backendRefs:
+        - group: agentgateway.dev
+          kind: AgentgatewayModel
+          name: '*'

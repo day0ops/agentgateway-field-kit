@@ -86,7 +86,7 @@ spec:
       opik-guardrail-webhook: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/opik-guardrail-webhook:0.1.2
       ext-mcp-guardrail: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/ext-mcp-guardrail:0.1.2
     openfga:
-      openfga-engine: openfga/openfga:v1.10.3
+      openfga-engine: openfga/openfga:v1.22.1
       openfga-ext-authz: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/openfga-ext-authz:0.1.1
     opaAuthz:
       opa-ext-authz: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/opa-ext-authz:0.1.0
@@ -129,3 +129,4 @@ spec:
     app:
       quotaManagement: quota-management.demo.kasunt.apac.fe.solo.io
       wizard: wizard.demo.kasunt.apac.fe.solo.io
+      walkthrough: walkthrough.demo.kasunt.apac.fe.solo.io

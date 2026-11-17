@@ -12,6 +12,10 @@ function renderAgentgatewayBanner() {
 // padding: 1 on the root Box - 1 row top + 1 row bottom.
 const ROOT_VERTICAL_PADDING = 2;
 
+// The Response panel's own scroll viewport (independent of the page) - bounds a long
+// response to a fixed number of visible lines instead of growing the whole row to match it.
+const RESPONSE_PANEL_MAX_HEIGHT = 15;
+
 /**
  * Renders a vertical scrollbar as one character per viewport row - a thumb sized to the visible
  * fraction of the content, positioned to match the current scroll offset.
@@ -36,6 +40,8 @@ export function WalkthroughApp({ engine, installedVersion }) {
   const [running, setRunning] = useState(false);
   const [error, setError] = useState(null);
   const [scrollOffset, setScrollOffset] = useState(0);
+  const [responseScrollOffset, setResponseScrollOffset] = useState(0);
+  const [confirmingQuit, setConfirmingQuit] = useState(false);
   // Raw, uncommitted keystrokes for a prompt step - only the submitted value crosses into the engine.
   const [promptBuffer, setPromptBuffer] = useState('');
   // Guards against a keypress starting a second step mid-flight (e.g. a double-pressed
@@ -46,9 +52,11 @@ export function WalkthroughApp({ engine, installedVersion }) {
   const contentRef = useRef(null);
   const headerRef = useRef(null);
   const footerRef = useRef(null);
+  const responseBodyRef = useRef(null);
   const { height: contentHeight } = useBoxMetrics(contentRef);
   const { height: headerHeight } = useBoxMetrics(headerRef);
   const { height: footerHeight } = useBoxMetrics(footerRef);
+  const { height: responseBodyHeight } = useBoxMetrics(responseBodyRef);
 
   useEffect(() => {
     const onChange = () => forceRender(n => n + 1);
@@ -72,6 +80,7 @@ export function WalkthroughApp({ engine, installedVersion }) {
   // A new screen or step has entirely different content - start scrolled to the top of it.
   useEffect(() => {
     setScrollOffset(0);
+    setResponseScrollOffset(0);
   }, [engine.screenIndex, engine.stepIndex]);
 
   useEffect(() => {
@@ -84,7 +93,20 @@ export function WalkthroughApp({ engine, installedVersion }) {
   const maxScroll = viewportHeight === undefined ? 0 : Math.max(0, contentHeight - viewportHeight);
   const clampedScrollOffset = Math.min(scrollOffset, maxScroll);
 
+  const responseMaxScroll = Math.max(0, responseBodyHeight - RESPONSE_PANEL_MAX_HEIGHT);
+  const clampedResponseScrollOffset = Math.min(responseScrollOffset, responseMaxScroll);
+
   useInput((input, key) => {
+    // The quit confirmation takes over every key until answered, even mid-prompt-entry,
+    // so a presenter can't accidentally lose a walkthrough with a stray keystroke.
+    if (confirmingQuit) {
+      if (input.toLowerCase() === 'y' || key.return) {
+        exit();
+      } else {
+        setConfirmingQuit(false);
+      }
+      return;
+    }
     const currentStep = engine.currentStep;
     if (currentStep?.kind === 'prompt' && !engine.getStepResult()) {
       if (key.return) {
@@ -111,6 +133,10 @@ export function WalkthroughApp({ engine, installedVersion }) {
       }
       return;
     }
+    // ↑/↓ always scroll the whole page. w/s are dedicated to the Response panel's own bounded
+    // viewport (RESPONSE_PANEL_MAX_HEIGHT) and scrollbar, so the two scrolls never fight over
+    // the same keys - PageUp/PageDown are also wired to the same thing, but most Mac keyboards
+    // have no such key at all.
     if (key.downArrow) {
       setScrollOffset(offset => Math.min(offset + 1, maxScroll));
       return;
@@ -119,10 +145,19 @@ export function WalkthroughApp({ engine, installedVersion }) {
       setScrollOffset(offset => Math.max(offset - 1, 0));
       return;
     }
-    // q must quit even mid-operation (a stalled browser login or slow deploy shouldn't trap the
-    // presenter behind ctrl+c) - every other key still waits for the current one to finish.
+    if (key.pageDown || input.toLowerCase() === 's') {
+      setResponseScrollOffset(offset => Math.min(offset + 1, responseMaxScroll));
+      return;
+    }
+    if (key.pageUp || input.toLowerCase() === 'w') {
+      setResponseScrollOffset(offset => Math.max(offset - 1, 0));
+      return;
+    }
+    // q must be reachable even mid-operation (a stalled browser login or slow deploy shouldn't
+    // trap the presenter behind ctrl+c) - every other key still waits for the current one to
+    // finish. It only asks for confirmation rather than quitting outright.
     if (input === 'q') {
-      exit();
+      setConfirmingQuit(true);
       return;
     }
     if (busyRef.current) return;
@@ -218,19 +253,23 @@ export function WalkthroughApp({ engine, installedVersion }) {
             { marginY: 1 },
             React.createElement(Text, null, screen.narration)
           ),
-          appliedYaml &&
-            React.createElement(
-              Panel,
-              { label: 'Applied Configuration', borderColor: 'blue' },
-              React.createElement(Text, { dimColor: true }, appliedYaml)
-            ),
           step &&
             React.createElement(
-              Text,
-              { dimColor: true },
-              `Step ${engine.stepIndex + 1}/${(screen.steps || []).length}: ${step.label}`
+              Box,
+              { flexDirection: 'column', rowGap: 1 },
+              React.createElement(
+                Text,
+                null,
+                `📍 Step ${engine.stepIndex + 1}/${(screen.steps || []).length}: ${step.description || step.label}`
+              ),
+              React.createElement(Text, { bold: true }, `🚀 Executing Request: ${step.label}`)
             ),
-          running && React.createElement(Text, { color: 'yellow' }, 'Running...'),
+          running &&
+            React.createElement(
+              Box,
+              { marginY: 1 },
+              React.createElement(Text, { color: 'yellow' }, 'Running...')
+            ),
           error && React.createElement(Text, { color: 'red' }, `Error: ${error}`),
           step?.kind === 'prompt' &&
             !result &&
@@ -243,7 +282,27 @@ export function WalkthroughApp({ engine, installedVersion }) {
                 (step.mask ? '•'.repeat(promptBuffer.length) : promptBuffer) + '█'
               )
             ),
-          result && React.createElement(StepResultView, { result, responseRevealed })
+          result &&
+            React.createElement(StepResultView, {
+              result,
+              responseRevealed,
+              responseScroll: {
+                bodyRef: responseBodyRef,
+                offset: clampedResponseScrollOffset,
+                maxScroll: responseMaxScroll,
+                bodyHeight: responseBodyHeight,
+              },
+            }),
+          // Shown last, and only once the response has been revealed (or there's no step to
+          // reveal at all, e.g. a narration-only screen) - the audience sees the live
+          // request/response before the config that produced it, not alongside the request.
+          appliedYaml &&
+            (!step || responseRevealed) &&
+            React.createElement(
+              Panel,
+              { label: 'What did we just apply?', borderColor: 'blue' },
+              React.createElement(Text, { dimColor: true }, appliedYaml)
+            )
         )
       ),
       scrollbar &&
@@ -268,27 +327,33 @@ export function WalkthroughApp({ engine, installedVersion }) {
         borderColor: 'gray',
         paddingTop: 1,
       },
-      maxScroll > 0 &&
-        React.createElement(Text, { dimColor: true }, '↕ more content - scroll with ↑/↓'),
-      React.createElement(
-        Text,
-        { dimColor: true },
-        step?.kind === 'prompt' && !result
-          ? 'type your answer · enter submit · ctrl+c quit'
-          : `← back · → ${result ? 'next' : 'run'} · 1-9 jump to screen · q quit`
-      )
+      confirmingQuit
+        ? React.createElement(
+            Text,
+            { bold: true, color: 'yellow' },
+            '⚠ Quit the walkthrough? y to confirm · any other key to cancel'
+          )
+        : React.createElement(
+            React.Fragment,
+            null,
+            maxScroll > 0 &&
+              React.createElement(Text, { dimColor: true }, '↕ more content - scroll with ↑/↓'),
+            responseMaxScroll > 0 &&
+              React.createElement(
+                Text,
+                { dimColor: true },
+                '⇞⇟ response has more - scroll with w/s'
+              ),
+            React.createElement(
+              Text,
+              { dimColor: true },
+              step?.kind === 'prompt' && !result
+                ? 'type your answer · enter submit · ctrl+c quit'
+                : `← back · → ${result ? 'next' : 'run'} · 1-9 jump to screen · q quit`
+            )
+          )
     )
   );
-}
-
-/** Reconstructs the step's request as a copyable curl command, including its body if any. */
-function buildCurlLine(request) {
-  const headerFlags = Object.entries(request.headers)
-    .map(([key, value]) => `-H '${key}: ${value}'`)
-    .join(' ');
-  const methodFlag = request.method !== 'GET' ? `-X ${request.method} ` : '';
-  const dataFlag = request.body !== undefined ? `-d '${request.body}' ` : '';
-  return `curl ${methodFlag}${dataFlag}${headerFlags ? headerFlags + ' ' : ''}'${request.url}'`;
 }
 
 const BODY_PREVIEW_LENGTH = 500;
@@ -308,6 +373,32 @@ function truncateBody(body) {
   return formatted.length > BODY_PREVIEW_LENGTH
     ? `${formatted.slice(0, BODY_PREVIEW_LENGTH)}...`
     : formatted;
+}
+
+/** The method/URL, headers, and (formatted) body of a request, as separate labeled sections. */
+function RequestDetails({ request }) {
+  const headerEntries = Object.entries(request.headers || {});
+  return React.createElement(
+    Box,
+    { flexDirection: 'column' },
+    React.createElement(Text, { bold: true }, `${request.method} ${request.url}`),
+    headerEntries.length > 0 &&
+      React.createElement(
+        Box,
+        { flexDirection: 'column', marginTop: 1 },
+        React.createElement(Text, { dimColor: true, underline: true }, 'Headers'),
+        ...headerEntries.map(([key, value]) =>
+          React.createElement(Text, { key, dimColor: true }, `  ${key}: ${value}`)
+        )
+      ),
+    request.body !== undefined &&
+      React.createElement(
+        Box,
+        { flexDirection: 'column', marginTop: 1 },
+        React.createElement(Text, { dimColor: true, underline: true }, 'Body'),
+        React.createElement(Text, null, truncateBody(request.body))
+      )
+  );
 }
 
 /** A bordered panel with a small dim label - the shared "square" frame for request/response/result content. */
@@ -343,19 +434,72 @@ export function isHttpSuccess(status) {
   return status >= 200 && status < 300;
 }
 
-function StepResultView({ result, responseRevealed }) {
+/**
+ * The Response panel's body. Always renders the full formatted body (never truncated) inside a
+ * ref'd box so its true height can be measured; once that height exceeds
+ * RESPONSE_PANEL_MAX_HEIGHT, wraps it in its own fixed-height scroll viewport and draws a
+ * scrollbar alongside it - independent of the Request panel beside it and of the page's own
+ * scroll.
+ */
+function ResponseBody({ body, scroll }) {
+  const formatted = formatBody(body);
+  const content = React.createElement(
+    Box,
+    { ref: scroll?.bodyRef, flexDirection: 'column', flexShrink: 0 },
+    React.createElement(Text, { dimColor: true }, formatted)
+  );
+
+  if (!scroll || scroll.maxScroll <= 0) {
+    return content;
+  }
+
+  const scrollbar = renderScrollbar(
+    RESPONSE_PANEL_MAX_HEIGHT,
+    scroll.bodyHeight,
+    scroll.maxScroll,
+    scroll.offset
+  );
+  return React.createElement(
+    Box,
+    { flexDirection: 'row', columnGap: 1 },
+    React.createElement(
+      Box,
+      {
+        flexDirection: 'column',
+        height: RESPONSE_PANEL_MAX_HEIGHT,
+        overflowY: 'hidden',
+        contentOffsetY: scroll.offset,
+        flexGrow: 1,
+      },
+      content
+    ),
+    scrollbar &&
+      React.createElement(
+        Box,
+        { flexDirection: 'column' },
+        ...scrollbar.map((char, i) =>
+          React.createElement(Text, { key: i, dimColor: char === '│' }, char)
+        )
+      )
+  );
+}
+
+function StepResultView({ result, responseRevealed, responseScroll }) {
   if (result.kind === 'http') {
     // A null status means the request never connected at all (e.g. a Gateway listener was
     // removed) - isHttpSuccess(null) is false, so this still colors red like any other failure.
     const statusColor = isHttpSuccess(result.status) ? 'green' : 'red';
     const statusLabel = result.status === null ? 'Connection failed' : `Status: ${result.status}`;
     return React.createElement(
+      // Default (stretch) cross-axis alignment - Response is now height-capped at
+      // RESPONSE_PANEL_MAX_HEIGHT, so stretching Request to match is a small, bounded pad
+      // rather than the unbounded one a long, uncapped response used to cause.
       Box,
       { flexDirection: 'row', columnGap: 1 },
       React.createElement(
         Panel,
         { label: 'Request', grow: true },
-        React.createElement(Text, null, buildCurlLine(result.request))
+        React.createElement(RequestDetails, { request: result.request })
       ),
       responseRevealed &&
         React.createElement(
@@ -370,7 +514,8 @@ function StepResultView({ result, responseRevealed }) {
                 result.headers?.[result.expectResponseHeader.name.toLowerCase()] ?? '(missing)'
               }`
             ),
-          result.body && React.createElement(Text, { dimColor: true }, truncateBody(result.body))
+          result.body &&
+            React.createElement(ResponseBody, { body: result.body, scroll: responseScroll })
         )
     );
   }
@@ -384,12 +529,31 @@ function StepResultView({ result, responseRevealed }) {
     );
   }
   if (result.kind === 'traffic-split') {
+    // tally is absent until the preview's request has actually been fired, same as an http
+    // step's Response panel waiting on responseRevealed.
     return React.createElement(
-      Panel,
-      { label: 'Traffic Split' },
-      ...Object.entries(result.tally).map(([bucket, count]) =>
-        React.createElement(Text, { key: bucket }, `${bucket}: ${count}/${result.requestCount}`)
-      )
+      Box,
+      { flexDirection: 'row', columnGap: 1 },
+      React.createElement(
+        Panel,
+        { label: `Request (× ${result.requestCount})`, grow: true },
+        React.createElement(RequestDetails, { request: result.request })
+      ),
+      responseRevealed &&
+        result.tally &&
+        React.createElement(
+          Panel,
+          { label: 'Traffic Split', grow: true },
+          ...Object.entries(result.tally).map(([bucket, count]) =>
+            React.createElement(Text, { key: bucket }, `${bucket}: ${count}/${result.requestCount}`)
+          ),
+          result.gatewayMetricDelta &&
+            React.createElement(
+              Text,
+              { dimColor: true },
+              `${result.gatewayMetricDelta.name}: +${result.gatewayMetricDelta.delta} during this burst`
+            )
+        )
     );
   }
   return null;
