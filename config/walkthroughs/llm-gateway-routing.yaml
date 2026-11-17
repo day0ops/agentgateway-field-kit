@@ -364,7 +364,7 @@ spec:
     - name: jev-decision-routing
       title: 'Jev: AI Decides the Tier'
       narration: |
-        Jev, TypeSafe's hosted decision model, classifies the prompt as cheap or premium - a presenter would normally route the next request to that tier. Both calls go through the gateway, so the same auth, cost-tracking, and rate-limit policies apply to the classification call too, not just the completion.
+        Jev, TypeSafe's hosted decision model, classifies the prompt as cheap or premium - the next request is routed to whichever tier it actually picked, not a hardcoded guess. Both calls go through the gateway, so the same auth, cost-tracking, and rate-limit policies apply to the classification call too, not just the completion.
       setup:
         - name: providers
           config:
@@ -404,11 +404,17 @@ spec:
             answer well", "premium": "Complex request needing deeper reasoning or
             higher quality output"}}}}
           expectStatus: 200
+          # Jev's exact response shape is unconfirmed against a real account - try every
+          # plausible field path and fall back to "cheap" rather than leave step 2 unresolved.
+          captureVariable:
+            name: tier
+            jsonPaths: [tier, answers.tier, answers.tier.answer, answers.0.option, option, choice]
+            default: cheap
         - kind: http
-          label: 'POST /alias with the tier Jev picked (cheap)'
-          description: The tier Jev picked (cheap) is used as the alias for the real completion request.
+          label: 'POST /alias with the tier Jev picked'
+          description: The tier Jev just picked (see the Request panel below) is used as the alias for the real completion request - not a hardcoded value.
           method: POST
           url: 'https://{{env.domains.app.walkthrough}}/alias'
           resolveGateway: { name: models-gateway }
-          body: '{"model": "cheap", "messages": [{"role": "user", "content": "Say hello"}]}'
+          body: '{"model": "{{vars.tier}}", "messages": [{"role": "user", "content": "Say hello"}]}'
           expectStatus: 200

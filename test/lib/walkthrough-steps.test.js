@@ -7,6 +7,7 @@ import { execaSync } from 'execa';
 import {
   runStep,
   resolveVariables,
+  captureResponseVariable,
   buildHttpRequest,
   executeHttpRequest,
   runHttpStep,
@@ -95,6 +96,14 @@ describe('buildHttpRequest', () => {
       { credentials: {}, variables: new Map() }
     );
     expect('body' in request).toBe(false);
+  });
+
+  test('substitutes {{vars.*}} in the body too, not just headers', async () => {
+    const request = await buildHttpRequest(
+      { method: 'POST', url: 'http://example.com', body: '{"model":"{{vars.tier}}"}' },
+      { credentials: {}, variables: new Map([['tier', 'premium']]) }
+    );
+    expect(request.body).toBe('{"model":"premium"}');
   });
 
   test('defaults Content-Type to application/json when a body is set and none is given', async () => {
@@ -207,6 +216,55 @@ describe('executeHttpRequest', () => {
       { method: 'GET', url: 'http://example.com', headers: {} }
     );
     expect(result).toMatchObject({ status: null, passed: true });
+  });
+});
+
+describe('captureResponseVariable', () => {
+  test('does nothing when the step has no captureVariable', () => {
+    const variables = new Map();
+    captureResponseVariable({}, { body: '{"tier":"premium"}' }, variables);
+    expect(variables.size).toBe(0);
+  });
+
+  test('stores the first jsonPath that resolves', () => {
+    const variables = new Map();
+    const step = {
+      captureVariable: { name: 'tier', jsonPaths: ['answers.tier', 'tier'], default: 'cheap' },
+    };
+    captureResponseVariable(step, { body: '{"tier":"premium"}' }, variables);
+    expect(variables.get('tier')).toBe('premium');
+  });
+
+  test('indexes an array with a numeric path segment', () => {
+    const variables = new Map();
+    const step = { captureVariable: { name: 'tier', jsonPaths: ['answers.0.option'] } };
+    captureResponseVariable(
+      step,
+      { body: '{"answers":[{"option":"premium","confidence":0.9}]}' },
+      variables
+    );
+    expect(variables.get('tier')).toBe('premium');
+  });
+
+  test('falls back to default when no jsonPath resolves', () => {
+    const variables = new Map();
+    const step = { captureVariable: { name: 'tier', jsonPaths: ['nope'], default: 'cheap' } };
+    captureResponseVariable(step, { body: '{"other":"value"}' }, variables);
+    expect(variables.get('tier')).toBe('cheap');
+  });
+
+  test('falls back to default (not an exception) when the body is not JSON', () => {
+    const variables = new Map();
+    const step = { captureVariable: { name: 'tier', jsonPaths: ['tier'], default: 'cheap' } };
+    captureResponseVariable(step, { body: 'not json' }, variables);
+    expect(variables.get('tier')).toBe('cheap');
+  });
+
+  test('falls back to an empty string when no default is given and nothing resolves', () => {
+    const variables = new Map();
+    const step = { captureVariable: { name: 'tier', jsonPaths: ['nope'] } };
+    captureResponseVariable(step, { body: '{"other":"value"}' }, variables);
+    expect(variables.get('tier')).toBe('');
   });
 });
 

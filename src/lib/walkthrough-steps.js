@@ -203,6 +203,30 @@ export function resolveVariables(value, variables) {
   return value.replace(/\{\{vars\.(\w+)\}\}/g, (_match, name) => variables?.get(name) ?? '');
 }
 
+/**
+ * Extracts a value from an http step's JSON response body into the engine's variables map, for
+ * a later step's {{vars.NAME}} to reference - e.g. an AI decision endpoint's chosen option
+ * feeding the model name of the next, routed request. Tries `step.captureVariable.jsonPaths` in
+ * order (dot-separated; a numeric segment indexes an array) and falls back to `default` if none
+ * resolve or the body isn't JSON, so a response shape that turns out to differ from the guess
+ * degrades to that default instead of leaving the next step's placeholder unresolved.
+ */
+export function captureResponseVariable(step, result, variables) {
+  const capture = step.captureVariable;
+  if (!capture) return;
+  let value;
+  try {
+    const body = JSON.parse(result.body);
+    for (const path of capture.jsonPaths || []) {
+      value = path.split('.').reduce((acc, key) => (acc == null ? undefined : acc[key]), body);
+      if (value !== undefined) break;
+    }
+  } catch {
+    // non-JSON body - fall through to the default below
+  }
+  variables.set(capture.name, value !== undefined ? String(value) : (capture.default ?? ''));
+}
+
 function hasContentTypeHeader(headers) {
   return Object.keys(headers).some(key => key.toLowerCase() === 'content-type');
 }
@@ -234,7 +258,12 @@ async function buildHeaders(step, context) {
 export async function buildHttpRequest(step, context) {
   const method = step.method || 'GET';
   const headers = await buildHeaders(step, context);
-  return { method, url: step.url, headers, ...(step.body !== undefined && { body: step.body }) };
+  return {
+    method,
+    url: step.url,
+    headers,
+    ...(step.body !== undefined && { body: resolveVariables(step.body, context?.variables) }),
+  };
 }
 
 /**
@@ -299,7 +328,12 @@ export async function runHttpStep(step, context) {
 export async function buildTrafficSplitRequest(step, context) {
   const method = step.method || 'GET';
   const headers = await buildHeaders(step, context);
-  return { method, url: step.url, headers, ...(step.body !== undefined && { body: step.body }) };
+  return {
+    method,
+    url: step.url,
+    headers,
+    ...(step.body !== undefined && { body: resolveVariables(step.body, context?.variables) }),
+  };
 }
 
 const GATEWAY_METRICS_PORT = 15020;

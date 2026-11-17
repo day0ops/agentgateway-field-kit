@@ -7,6 +7,7 @@ import {
   executeHttpRequest,
   buildTrafficSplitRequest,
   executeTrafficSplitRequest,
+  captureResponseVariable,
 } from './walkthrough-steps.js';
 import { CredentialManager } from './oidc-credential.js';
 
@@ -229,7 +230,9 @@ export class WalkthroughEngine extends EventEmitter {
   /**
    * Fires the current step and stores its result, revealing the response immediately. An
    * 'http' or 'traffic-split' step reuses its already-built preview's request rather than
-   * re-resolving the credential a second time.
+   * re-resolving the credential a second time. An 'http' step with `captureVariable` set also
+   * extracts a value from its own response into `this.variables`, for a later step's
+   * `{{vars.NAME}}` to reference.
    */
   async runCurrentStep() {
     const key = this.resultKey();
@@ -237,6 +240,7 @@ export class WalkthroughEngine extends EventEmitter {
     let result;
     if (this.currentStep.kind === 'http') {
       result = await executeHttpRequest(this.currentStep, this.stepResults.get(key).request);
+      captureResponseVariable(this.currentStep, result, this.variables);
     } else if (this.currentStep.kind === 'traffic-split') {
       result = await executeTrafficSplitRequest(
         this.currentStep,

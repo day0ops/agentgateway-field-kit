@@ -166,6 +166,46 @@ describe('WalkthroughEngine navigation', () => {
     expect(engine.getStepResult()).toBeNull();
   });
 
+  test("a step's captureVariable feeds a later step's {{vars.*}} body placeholder", async () => {
+    globalThis.fetch = async () =>
+      new Response(JSON.stringify({ tier: 'premium' }), { status: 200 });
+    const engine = new WalkthroughEngine(
+      buildWalkthrough({
+        screens: [
+          {
+            name: 'one',
+            setup: [],
+            steps: [
+              {
+                kind: 'http',
+                method: 'POST',
+                url: 'http://example.com/jev',
+                captureVariable: { name: 'tier', jsonPaths: ['tier'], default: 'cheap' },
+              },
+              {
+                kind: 'http',
+                method: 'POST',
+                url: 'http://example.com/alias',
+                body: '{"model": "{{vars.tier}}"}',
+              },
+            ],
+          },
+        ],
+      })
+    );
+
+    await engine.handleRight(); // applies screen 0 setup + previews step 0
+    await engine.handleRight(); // fires step 0 - captures tier: "premium" from its response
+    expect(engine.getStepResult()).toMatchObject({ status: 200 });
+
+    await engine.handleRight(); // advances to step 1
+    await engine.handleRight(); // previews step 1 - its body should already carry the captured tier
+    expect(engine.getStepResult()).toMatchObject({
+      kind: 'http',
+      request: { body: '{"model": "premium"}' },
+    });
+  });
+
   test('handleRight on a traffic-split step previews the request before firing it', async () => {
     const engine = new WalkthroughEngine(
       buildWalkthrough({
