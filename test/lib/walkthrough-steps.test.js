@@ -235,6 +235,37 @@ describe('captureResponseVariable', () => {
     expect(variables.get('tier')).toBe('premium');
   });
 
+  test('skips a path that resolves to an object/array instead of stringifying it, and tries the next one', () => {
+    const variables = new Map();
+    const step = {
+      captureVariable: {
+        name: 'tier',
+        // 'tier' matches first but lands on a container, not a leaf value - must not win.
+        jsonPaths: ['tier', 'tier.answer'],
+        default: 'cheap',
+      },
+    };
+    captureResponseVariable(
+      step,
+      { body: '{"tier":{"answer":"premium","confidence":0.9}}' },
+      variables
+    );
+    expect(variables.get('tier')).toBe('premium');
+  });
+
+  test('falls back to default when every jsonPath only resolves to an object/array', () => {
+    const variables = new Map();
+    const step = {
+      captureVariable: { name: 'tier', jsonPaths: ['error'], default: 'cheap' },
+    };
+    captureResponseVariable(
+      step,
+      { body: '{"error":{"message":"bad request","type":"invalid_request_error"}}' },
+      variables
+    );
+    expect(variables.get('tier')).toBe('cheap');
+  });
+
   test('indexes an array with a numeric path segment', () => {
     const variables = new Map();
     const step = { captureVariable: { name: 'tier', jsonPaths: ['answers.0.option'] } };

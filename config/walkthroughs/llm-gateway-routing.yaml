@@ -406,9 +406,23 @@ spec:
           expectStatus: 200
           # Jev's exact response shape is unconfirmed against a real account - try every
           # plausible field path and fall back to "cheap" rather than leave step 2 unresolved.
+          # A live run showed top-level "tier" is itself an object, not a flat string - hence
+          # the tier.* nested guesses ahead of the flatter ones.
           captureVariable:
             name: tier
-            jsonPaths: [tier, answers.tier, answers.tier.answer, answers.0.option, option, choice]
+            jsonPaths:
+              [
+                tier.answer,
+                tier.value,
+                tier.option,
+                tier.choice,
+                tier,
+                answers.tier,
+                answers.tier.answer,
+                answers.0.option,
+                option,
+                choice,
+              ]
             default: cheap
         - kind: http
           label: 'POST /alias with the tier Jev picked'

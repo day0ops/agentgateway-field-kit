@@ -208,8 +208,11 @@ export function resolveVariables(value, variables) {
  * a later step's {{vars.NAME}} to reference - e.g. an AI decision endpoint's chosen option
  * feeding the model name of the next, routed request. Tries `step.captureVariable.jsonPaths` in
  * order (dot-separated; a numeric segment indexes an array) and falls back to `default` if none
- * resolve or the body isn't JSON, so a response shape that turns out to differ from the guess
- * degrades to that default instead of leaving the next step's placeholder unresolved.
+ * resolve to a scalar or the body isn't JSON, so a response shape that turns out to differ from
+ * the guess degrades to that default instead of leaving the next step's placeholder unresolved.
+ * A path that resolves to an object/array/null (a too-shallow guess landing on a container
+ * rather than its leaf value) is treated as a non-match rather than stringified - this is what
+ * stops a near-miss path from capturing "[object Object]" instead of trying the next path.
  */
 export function captureResponseVariable(step, result, variables) {
   const capture = step.captureVariable;
@@ -218,8 +221,13 @@ export function captureResponseVariable(step, result, variables) {
   try {
     const body = JSON.parse(result.body);
     for (const path of capture.jsonPaths || []) {
-      value = path.split('.').reduce((acc, key) => (acc == null ? undefined : acc[key]), body);
-      if (value !== undefined) break;
+      const resolved = path
+        .split('.')
+        .reduce((acc, key) => (acc == null ? undefined : acc[key]), body);
+      if (resolved !== undefined && resolved !== null && typeof resolved !== 'object') {
+        value = resolved;
+        break;
+      }
     }
   } catch {
     // non-JSON body - fall through to the default below
