@@ -185,8 +185,17 @@ export class TelemetryFeature extends Feature {
 
     // Step 6: Create PodMonitors for agentgateway metrics
     if (this.enableMetrics) {
+      // Select by GatewayClass rather than gatewayRef.name: every Gateway provisioned under
+      // the edition's default class gets its own dataplane pod (e.g. a walkthrough's extra
+      // gateway), and selecting on one Gateway's name would miss all the others.
       await this.applyYamlFile('pod-monitor.yaml', {
-        spec: { selector: { matchLabels: { 'app.kubernetes.io/name': gatewayRef.name } } },
+        spec: {
+          selector: {
+            matchLabels: {
+              'gateway.networking.k8s.io/gateway-class-name': EDITION_BASE_NAME[resolvedEdition],
+            },
+          },
+        },
       });
       await this.applyYamlFile('pod-monitor-control-plane.yaml', {
         spec: { selector: { matchLabels: { 'app.kubernetes.io/name': controlPlaneName } } },
