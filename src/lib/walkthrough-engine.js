@@ -7,12 +7,14 @@ import {
   executeHttpRequest,
   buildTrafficSplitRequest,
   executeTrafficSplitRequest,
+  buildMcpRequest,
+  executeMcpRequest,
   captureResponseVariable,
 } from './walkthrough-steps.js';
 import { CredentialManager } from './oidc-credential.js';
 
 /** Step kinds previewed (request built, not fired) before a further press runs them. */
-const PREVIEWABLE_KINDS = new Set(['http', 'traffic-split']);
+const PREVIEWABLE_KINDS = new Set(['http', 'traffic-split', 'mcp']);
 
 /** Whether a previewed step's result is still awaiting the press that actually fires it. */
 function isPreviewOnly(result) {
@@ -220,6 +222,9 @@ export class WalkthroughEngine extends EventEmitter {
         request,
         requestCount: this.currentStep.requestCount,
       });
+    } else if (this.currentStep.kind === 'mcp') {
+      const request = await buildMcpRequest(this.currentStep, context);
+      this.stepResults.set(this.resultKey(), { kind: 'mcp', request });
     } else {
       const request = await buildHttpRequest(this.currentStep, context);
       this.stepResults.set(this.resultKey(), { kind: 'http', request });
@@ -246,6 +251,9 @@ export class WalkthroughEngine extends EventEmitter {
         this.currentStep,
         this.stepResults.get(key).request
       );
+    } else if (this.currentStep.kind === 'mcp') {
+      result = await executeMcpRequest(this.currentStep, this.stepResults.get(key).request);
+      captureResponseVariable(this.currentStep, result, this.variables);
     } else {
       result = await runStep(this.currentStep, {
         credentials: this.credentials,

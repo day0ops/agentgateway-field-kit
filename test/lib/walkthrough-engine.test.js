@@ -239,6 +239,81 @@ describe('WalkthroughEngine navigation', () => {
     expect(engine.getStepResult()).toMatchObject({ tally: { 200: 3 }, requestCount: 3 });
   });
 
+  test('handleRight on an unfired mcp step previews its real-call request; handleRight again fires it', async () => {
+    globalThis.fetch = async (url, init) => {
+      const method = JSON.parse(init.body).method;
+      if (method === 'initialize')
+        return new Response('{"jsonrpc":"2.0","result":{}}', { status: 200 });
+      return new Response('{"jsonrpc":"2.0","result":{"tools":[]}}', { status: 200 });
+    };
+    const engine = new WalkthroughEngine(
+      buildWalkthrough({
+        screens: [
+          {
+            name: 'one',
+            setup: [],
+            steps: [
+              {
+                kind: 'mcp',
+                url: 'http://example.com/mcp',
+                method: 'tools/list',
+                expectStatus: 200,
+              },
+            ],
+          },
+        ],
+      })
+    );
+
+    await engine.handleRight(); // applies screen 0 setup and previews step 0 (mcp) in the same press
+    const previewed = engine.getStepResult();
+    expect(previewed.kind).toBe('mcp');
+    expect(previewed.request.method).toBe('POST');
+    expect(JSON.parse(previewed.request.body).method).toBe('tools/list');
+    expect(previewed.status).toBeUndefined(); // not yet fired
+
+    await engine.handleRight(); // fires step 0
+    expect(engine.getStepResult()).toMatchObject({ status: 200, passed: true });
+  });
+
+  test("an mcp step's captureVariable feeds a later step's {{vars.*}} body placeholder", async () => {
+    globalThis.fetch = async (url, init) => {
+      const method = JSON.parse(init.body).method;
+      if (method === 'initialize')
+        return new Response('{"jsonrpc":"2.0","result":{}}', { status: 200 });
+      return new Response('{"jsonrpc":"2.0","result":{"tools":[{"name":"get_stock_price"}]}}', {
+        status: 200,
+      });
+    };
+    const engine = new WalkthroughEngine(
+      buildWalkthrough({
+        screens: [
+          {
+            name: 'one',
+            setup: [],
+            steps: [
+              {
+                kind: 'mcp',
+                url: 'http://example.com/mcp',
+                method: 'tools/list',
+                captureVariable: {
+                  name: 'firstTool',
+                  jsonPaths: ['result.tools.0.name'],
+                  default: 'none',
+                },
+              },
+            ],
+          },
+        ],
+      })
+    );
+
+    await engine.handleRight(); // applies setup + previews
+    await engine.handleRight(); // fires - captures firstTool from the response body
+    expect(engine.getStepResult().body).toContain('get_stock_price');
+    expect(engine.variables.get('firstTool')).toBe('get_stock_price');
+  });
+
   test("crossing a screen boundary runs the next screen's teardown then setup exactly once", async () => {
     const engine = new WalkthroughEngine(buildWalkthrough());
     await engine.handleRight(); // screen 0 setup + step 0 preview
