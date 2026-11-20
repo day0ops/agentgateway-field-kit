@@ -565,6 +565,29 @@ export class KubernetesHelper {
   }
 
   /**
+   * Polls a resource's status until the given jsonpath expression resolves to "True", or the
+   * timeout elapses. Best-effort: logs a warning instead of throwing on timeout, since this
+   * guards against a brief propagation race (a policy/budget's own status can flip True as
+   * soon as the control plane accepts it, ahead of the data-plane proxy actually enforcing it -
+   * a request fired immediately after deploy can briefly sail through unenforced) rather than a
+   * hard dependency a demo should abort over.
+   */
+  static async waitForConditionTrue(kind, name, namespace, conditionJsonPath, timeout = 15) {
+    const startTime = Date.now();
+    while (Date.now() - startTime < timeout * 1000) {
+      const result = await this.kubectl(
+        ['get', kind, name, '-n', namespace, '-o', `jsonpath=${conditionJsonPath}`],
+        { ignoreError: true }
+      );
+      if (result.stdout.trim() === 'True') return;
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+    Logger.warn(
+      `Timed out after ${timeout}s waiting for ${kind}/${name} (namespace: ${namespace}) to report its condition as True - it may not be enforced on the data plane yet.`
+    );
+  }
+
+  /**
    * Check whether the current (or given) kube context can reach the API server.
    * Bounds both kubectl's own request and the child process itself, so an unreachable
    * API server (dead VPN, stale kubeconfig, dropped packets) fails fast instead of hanging

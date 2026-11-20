@@ -1,0 +1,112 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: eager-auth-pingfederate
+  description: |
+    Fronts an MCP server with agentgateway's MCP-auth bridge configured against PingFederate with no provider adapter, since agentgateway has no PingFederate option. This reproduces a known gap live: PingFederate's metadata still advertises its own, usually non-functional, registration endpoint instead of the gateway's working one, so clients that follow the metadata literally fail dynamic client registration even though a pre-registered clientId would otherwise let them skip it entirely.
+  docs: https://docs.solo.io/agentgateway/latest/mcp/auth/setup/
+
+spec:
+  diagram: |
+    sequenceDiagram
+      participant Client as MCP Client
+      participant AGW as agentgateway
+      participant Ping as PingFederate
+
+      Client->>AGW: POST /mcp (no token)
+      AGW-->>Client: 401 + OAuth metadata
+      Client->>AGW: GET /.well-known/oauth-protected-resource/mcp
+      AGW-->>Client: {resource, authorization_servers, ...}
+      Client->>AGW: GET /.well-known/oauth-authorization-server/mcp
+      AGW-->>Client: PingFederate's authorization server metadata (proxied, unmodified)
+      Client->>Ping: POST registration_endpoint (dynamic client registration)
+      Ping-->>Client: 404 (PingFederate has no usable DCR endpoint; known gap, see docs)
+      Note over Client,AGW: A client given the clientId up front skips registration entirely:
+      Client->>Ping: authorization request + login (direct, no broker)
+      Ping-->>Client: authorization code
+      Client->>Ping: POST token_endpoint (direct, no broker)
+      Ping-->>Client: access token (JWT)
+      Client->>AGW: POST /mcp + Bearer JWT
+      AGW->>Ping: validate JWT via JWKS
+      AGW-->>Client: MCP response
+
+  features:
+    - name: mcp-server
+      config:
+        serverName: mcp-eager-auth-pingfederate-server
+        protocol: StreamableHTTP
+        # stock-server-mcp (the default image this feature deploys) serves at /mcp, not
+        # root - without this, a real authenticated initialize call 404s even though the
+        # discovery/401 automated tests below don't reach far enough to notice.
+        mcpPath: /mcp
+        # Browser-based clients (e.g. the MCP inspector) send a CORS preflight before
+        # the real request - without this, the Strict MCP auth policy 401s the
+        # preflight with no CORS headers and the browser blocks the real request.
+        cors:
+          enabled: true
+        backendName: mcp-backend
+        routeName: mcp
+
+    - name: mcp-eager-auth-pingfederate
+      config:
+        issuer: '{{env.pingFederate.issuer}}'
+        jwksPath: '{{env.pingFederate.jwksPath}}'
+        clientId: '{{env.pingFederate.clientId}}'
+        # Real OAuth 2.1 clients (e.g. the MCP inspector) refuse non-TLS redirect/token
+        # endpoints, so a real interactive login needs the profile's public HTTPS
+        # listener (port 443), not the plain :8080 address - same rationale as
+        # eager-auth-okta/entra's resource override. The automated tests below still
+        # hit the default :8080 address; only the browser-login discoveryUrl needs the
+        # public HTTPS listener.
+        resource: 'https://{{env.domains.core.agentgateway}}/mcp'
+
+  tests:
+    - name: unauthenticated-mcp-request-rejected
+      description: An MCP request without a token is rejected before reaching the backend
+      steps:
+        - action: send-mcp-request
+          endpoint: /mcp
+          method: tools/list
+        - action: verify
+          expect:
+            statusCode: 401
+            headers:
+              www-authenticate: '*'
+
+    - name: protected-resource-metadata-discoverable
+      description: MCP clients can discover the protected-resource metadata endpoint
+      steps:
+        - action: send-request
+          endpoint: /.well-known/oauth-protected-resource/mcp
+        - action: verify
+          expect:
+            status: success
+            contains: resource
+
+    - name: authorization-server-metadata-advertises-upstream-registration-known-gap
+      description: |
+        Known gap, not a regression: with no provider adapter, the gateway proxies PingFederate's authorization server metadata unmodified, including its own registration_endpoint. This passes today because that is the documented current behavior; it is the live signature of the bug this usecase exists to reproduce, and should start failing once the gateway advertises its own facade regardless of provider.
+      steps:
+        - action: send-request
+          endpoint: /.well-known/oauth-authorization-server/mcp
+        - action: verify
+          expect:
+            status: success
+            contains: '{{env.pingFederate.issuer}}'
+
+    - name: authenticated-mcp-tools-list-via-browser-login
+      description: |
+        Opens a real browser for an interactive PingFederate login using the pre-registered clientId (no DCR involved - this is the escape hatch for the known gap above), then calls MCP tools with the resulting genuine PingFederate JWT. Not part of `--no-prompt` CI runs - requires a human to complete the login (manual verification).
+      steps:
+        - action: get-token
+          pingFederate:
+            clientId: '{{env.pingFederate.clientId}}'
+            discoveryUrl: 'https://{{env.domains.core.agentgateway}}/.well-known/oauth-authorization-server/mcp'
+        - action: send-mcp-request
+          endpoint: /mcp
+          method: tools/list
+          auth: bearer
+        - action: verify
+          expect:
+            status: success
+            contains: get_stock_price

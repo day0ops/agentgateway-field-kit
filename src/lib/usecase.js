@@ -914,9 +914,15 @@ export class UseCaseManager {
   /**
    * Clean up a use case
    * @param {string} name - Use case name or file path
+   * @param {Object} [options]
+   * @param {boolean} [options.force] - Remove everything, with no exceptions. False (the
+   *   default) skips resources that are costly/slow to re-provision - currently just the
+   *   `certificate` feature, since certs (especially real ACME/DNS-01 ones) are slow and
+   *   rate-limited to re-issue, so leaving them in place lets a re-deploy of the same use
+   *   case reuse them.
    * @returns {Promise<void>}
    */
-  static async cleanup(name) {
+  static async cleanup(name, { force = false } = {}) {
     const spinner = new SpinnerLogger();
 
     try {
@@ -982,6 +988,11 @@ export class UseCaseManager {
       for (const feature of features.reverse()) {
         const { name: featureName, config = {} } = feature;
 
+        if (!force && featureName === 'certificate') {
+          Logger.info(`Skipping certificate '${config.name}' - pass --force to include it`);
+          continue;
+        }
+
         try {
           await FeatureManager.cleanup(featureName, config, { edition, deploymentId });
         } catch (error) {
@@ -1037,7 +1048,9 @@ export class UseCaseManager {
       if (shouldCleanup) {
         Logger.info('Running post-test cleanup...');
         try {
-          await this.cleanup(filePath);
+          // force: true - a test run tears down everything it deployed, unlike the
+          // interactive `usecase clean` CLI command, which keeps certs around by default.
+          await this.cleanup(filePath, { force: true });
           Logger.success('Post-test cleanup completed');
         } catch (cleanupError) {
           Logger.warn(`Post-test cleanup failed: ${cleanupError.message}`);

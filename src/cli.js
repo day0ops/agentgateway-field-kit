@@ -1034,6 +1034,7 @@ usecase
   .option('-c, --current', 'Use currently deployed use case (auto-detect from cluster)')
   .option('--no-prompt', 'Skip interactive prompts')
   .option('--context <name>', 'kubectl context to use (overrides auto-detected infra context)')
+  .option('-f, --force', 'Force removal of everything, including resources skipped by default')
   .action(async options => {
     try {
       await applyKubeContextOption(options);
@@ -1066,7 +1067,7 @@ usecase
         process.exit(1);
       }
 
-      await UseCaseManager.cleanup(usecaseName);
+      await UseCaseManager.cleanup(usecaseName, { force: options.force });
     } catch (error) {
       // UseCaseManager already logged the error with spinner.fail()
       process.exit(1);
@@ -1181,6 +1182,7 @@ walkthrough
   .description('Remove everything a walkthrough applied')
   .option('-n, --name <name>', 'Walkthrough name')
   .option('--context <name>', 'kubectl context to use (overrides auto-detected infra context)')
+  .option('-f, --force', 'Force removal of everything, including resources skipped by default')
   .action(async options => {
     try {
       await applyKubeContextOption(options);
@@ -1191,7 +1193,7 @@ walkthrough
       }
 
       const name = await resolveWalkthroughName(options.name);
-      await cleanWalkthrough(name);
+      await cleanWalkthrough(name, { force: options.force });
       Logger.success(`Walkthrough '${name}' cleaned up`);
     } catch (error) {
       Logger.error(`Failed to clean walkthrough: ${error.message}`);

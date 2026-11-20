@@ -5,14 +5,12 @@ metadata:
   description: |
     A tour of agentgateway's access-control and traffic-shaping capabilities for LLM traffic.
     - identity and RBAC
-    - budget and spend limits
+    - budget and spend limits, stacked as independent tiers
     - prompt guardrails
     - token rate limiting
-    - a capstone screen stacking all of them, against real OpenAI and Anthropic traffic
-
-    Requires a profile with `budgetDimensions` configured and an `alice` Keycloak user in the `agw-dev` realm (`agentgateway-with-keycloak`, or `local-single-cluster`, which already carries the same config) - when a credential step opens a browser login, sign in as `alice` with the cluster's `KEYCLOAK_DEFAULT_PASSWORD`.
-
-    Provisions its own dedicated `governance-gateway` Gateway, so it does not conflict with any other usecase or walkthrough that attaches a Gateway-level `keycloak-jwt-auth`, `virtual-keys`, or body-routing `providers` policy to the shared default `agentgateway-gw` Gateway - including its own source usecases, `security/openfga-rebac` and `cost-management/tiered-cost-control`.
+    - prompt enrichment
+    - function calling
+    - a capstone screen stacking identity, authorization, budget, and rate limit, against real OpenAI and Anthropic traffic
 
 spec:
   environment: local
@@ -52,7 +50,7 @@ spec:
     - name: identity-and-access
       title: Identity and Access
       narration: |
-        One endpoint, two gates: a Keycloak-issued JWT proves who's calling, then OpenFGA decides whether that identity is allowed to use the requested model - via org membership, team allowlists, or a direct grant. This screen also switches on Gateway-level API-key authentication that a later screen in this walkthrough uses, even though these steps only exercise the JWT path. The JWT is cached for this session and isn't refreshed - revisiting this screen's steps a few minutes after signing in may show a 401 instead of 200/403 simply because the token expired; the capstone screen signs in again under its own credential, so it isn't affected.
+        One endpoint, two gates: a Keycloak JWT proves identity, then OpenFGA decides which models that identity can reach via org/team/direct grants. This screen also switches on Gateway-level API-key auth for a later screen to reuse. The JWT is cached for this session - revisiting after it expires may show 401 instead of 200/403.
       setup:
         - name: openfga
           config:
@@ -82,6 +80,9 @@ spec:
                 header: x-user-id
                 fallback: "apiKey['user_id']"
         - name: virtual-keys
+          # Switched on here for the budget-and-spend-limits screen to use - none of this
+          # screen's own steps send an API key, so it's excluded from this screen's preview.
+          skipPreview: true
           config:
             mode: Optional
             location:
@@ -117,6 +118,8 @@ spec:
           resolveGateway: { name: governance-gateway }
           body: '{"model": "gpt-4o", "messages": [{"role": "user", "content": "What is 2+2?"}]}'
           expectStatus: 401
+          # Rejected at the JWT gate, before routing or OpenFGA ever run.
+          relevantSetup: [providers, keycloak-jwt-auth]
         - kind: http
           label: 'POST /gov-chat (gpt-4o, alice via JWT)'
           description: alice signs in via Keycloak JWT and OpenFGA grants her access to gpt-4o.
@@ -126,6 +129,7 @@ spec:
           resolveGateway: { name: governance-gateway }
           body: '{"model": "gpt-4o", "messages": [{"role": "user", "content": "What is 2+2?"}]}'
           expectStatus: 200
+          relevantSetup: [providers, keycloak-jwt-auth, openfga, openfga-authz]
         - kind: http
           label: 'POST /gov-chat (claude-sonnet-5, alice via JWT)'
           description: Same JWT, different model - OpenFGA denies alice access to claude-sonnet-5.
@@ -135,10 +139,11 @@ spec:
           resolveGateway: { name: governance-gateway }
           body: '{"model": "claude-sonnet-5", "messages": [{"role": "user", "content": "What is 2+2?"}]}'
           expectStatus: 403
+          relevantSetup: [providers, keycloak-jwt-auth, openfga, openfga-authz]
     - name: budget-and-spend-limits
       title: Budget and Spend Limits
       narration: |
-        Virtual API keys carry their own identity and token budgets - no JWT required. This screen issues alice, bob, and team-ci keys scoped to a dedicated route, then layers per-key budgets on top: bob's daily budget is exhausted by the first real request of the day and blocks every one after it with 429 (budget usage is recorded after a request completes, so the very first request in a fresh window still goes through), alice's is also exhausted but only audits (logs) the overage and lets the request through, and a wildcard org-wide monthly ceiling acts as a catch-all safety net. Because screen 1 already switched on a Gateway-wide Optional API-key policy, these requests use X-Api-Key instead of Authorization - a present-but-malformed Authorization header would otherwise be parsed as a JWT and rejected. This route's own key check is also Optional, not Strict - a Route-scoped Strict check on the same header never sees it once the Gateway-level Optional check has already read it, so it would reject every request outright. The tradeoff: a malformed key is still rejected, but a request with no key at all is forwarded unauthenticated, since no other auth method is stacked on this route.
+        Virtual API keys carry their own identity and token budget - no JWT required. Usage is recorded after a request completes, so the first request always goes through; bob's 1-token budget then blocks every request after with 429, while alice's only audits the overage. Budgets stack into tiers without cascading - every matching budget is charged independently, so the same traffic counts against bob/alice, team-ci, and the org ceiling at once. team-ci's 25-token budget fills after a couple of requests - watch it reach 100% in the Solo UI while the 10M-token org wildcard barely moves. Uses X-Api-Key, not Authorization, so screen 1's JWT check doesn't misparse it.
       setup:
         - name: providers
           config:
@@ -195,6 +200,15 @@ spec:
                 window:
                   unit: Day
                 onBudgetExceeded: Audit
+              - name: team-ci-daily-tokens
+                subject:
+                  virtualKey: team-ci
+                limit:
+                  unit: Tokens
+                  amount: 25
+                window:
+                  unit: Day
+                onBudgetExceeded: Audit
               - name: org-wide-monthly-ceiling
                 subject:
                   virtualKey: '*'
@@ -206,8 +220,18 @@ spec:
                 onBudgetExceeded: Audit
       steps:
         - kind: http
+          label: 'POST /gov-cost (bob, first request of the day, establishes usage)'
+          description: Budget usage is recorded after a request completes, so bob's first real request of the day still goes through - this one establishes the usage the next request will trip.
+          method: POST
+          url: 'https://{{env.domains.app.walkthrough}}/gov-cost'
+          resolveGateway: { name: governance-gateway }
+          headers:
+            X-Api-Key: sk-bob-demo-xyz789uvw012
+          body: '{"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "Hello"}]}'
+          expectStatus: 200
+        - kind: http
           label: 'POST /gov-cost (bob, 1-token daily budget exceeded, Block)'
-          description: bob's 1-token daily budget is already exhausted - this request is blocked with 429.
+          description: bob's 1-token daily budget is now exhausted from the previous request - this one is blocked with 429.
           method: POST
           url: 'https://{{env.domains.app.walkthrough}}/gov-cost'
           resolveGateway: { name: governance-gateway }
@@ -225,10 +249,30 @@ spec:
             X-Api-Key: sk-alice-demo-abc123def456
           body: '{"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "Hello"}]}'
           expectStatus: 200
+        - kind: http
+          label: "POST /gov-cost (team-ci, request 1 of the team tier's daily budget)"
+          description: team-ci's shared key starts filling its 25-token daily budget - tracked independently from bob's and alice's individual caps.
+          method: POST
+          url: 'https://{{env.domains.app.walkthrough}}/gov-cost'
+          resolveGateway: { name: governance-gateway }
+          headers:
+            X-Api-Key: sk-team-ci-demo-9f3c7a1e
+          body: '{"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "Hello"}]}'
+          expectStatus: 200
+        - kind: http
+          label: 'POST /gov-cost (team-ci, request 2 fills the team tier - check the Solo UI)'
+          description: A second request pushes team-ci's cumulative usage past its 25-token budget. The Audit action lets it through regardless.
+          method: POST
+          url: 'https://{{env.domains.app.walkthrough}}/gov-cost'
+          resolveGateway: { name: governance-gateway }
+          headers:
+            X-Api-Key: sk-team-ci-demo-9f3c7a1e
+          body: '{"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "Hello"}]}'
+          expectStatus: 200
     - name: prompt-guardrails
       title: Prompt Guardrails
       narration: |
-        Unlike the previous two screens, this one shares no Gateway-level policy, credential, or API key - it's a single route guarded by its own prompt-guards policy, scoped via targetRefs so it only applies here. agentgateway's guardrail engine scans both the request and the response: built-in PII detectors (SSN, credit card, phone number) and custom regex patterns (credit card mentions, prompt-injection phrases, password requests) reject a request before it reaches the LLM, and the same builtins mask sensitive data in anything that comes back. No JWT and no API key are involved - these requests are unauthenticated by design, since this screen only exercises guardrail behavior.
+        A single, self-contained route with no shared Gateway policy, credential, or API key. Its prompt-guards policy scans both request and response: built-in PII detectors (SSN, credit card, phone) and custom regex (injection phrases, password requests) reject before the LLM is reached, and the same builtins mask sensitive data in responses. Unauthenticated by design - this screen only exercises guardrails.
       setup:
         - name: providers
           config:
@@ -280,7 +324,7 @@ spec:
     - name: token-rate-limiting
       title: Token Rate Limiting
       narration: |
-        This screen's policy counts input tokens per proxy replica, not centrally - each replica enforces its own budget independently, with no shared rate-limit server. The route is scoped to its own rate-limit policy via targetRefs, with no shared Gateway-level policy, credential, or API key - fully self-contained like the guardrails screen. "What is your favorite poem?" consumes about 5 tokens, and the budget is 5 tokens per minute, so the first request fits but the second - fired immediately after, within the same minute - exceeds it and gets a 429. Because the counter is per-replica, this demo only behaves this way if the gateway is running a single replica; with more than one replica, the second request could land on a different replica with its own fresh budget and succeed instead.
+        Counts input tokens per proxy replica, not centrally - each replica enforces its own budget independently. The prompt costs ~5 tokens against a 5-token/minute budget, so the first request fits and the second, fired immediately after, exceeds it with 429. This only holds with a single replica - with more than one, the second request could land on a fresh-budget replica and succeed instead.
       setup:
         - name: providers
           config:
@@ -316,10 +360,87 @@ spec:
           resolveGateway: { name: governance-gateway }
           body: '{"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "What is your favorite poem?"}]}'
           expectStatus: 429
+    - name: prompt-enrichment
+      title: Prompt Enrichment
+      narration: |
+        A policy prepends system instructions to every request before it reaches the model, without the client asking for it - here, forcing CSV output on an otherwise plain-text prompt. The policy's instructions are always injected, but a client's own system prompt can still steer the model, so treat enrichment as a default rather than an enforced constraint.
+      setup:
+        - name: providers
+          config:
+            providers:
+              - name: gov-enrich-openai
+                providerName: openai
+                pathPrefix: /gov-enrich
+                model: gpt-4o-mini
+        - name: prompt-enrichment
+          config:
+            targetRefs:
+              - group: gateway.networking.k8s.io
+                kind: HTTPRoute
+                name: governance-gateway-gov-enrich-openai
+            prepend:
+              - role: system
+                content: 'Parse the unstructured text into CSV format.'
+              - role: system
+                content: 'Always include a header row with column names.'
+      steps:
+        - kind: http
+          label: 'POST /gov-enrich (plain prompt, no system message - policy forces CSV)'
+          description: The client sends no system prompt at all - the policy's prepended instructions still force CSV output.
+          method: POST
+          url: 'https://{{env.domains.app.walkthrough}}/gov-enrich'
+          resolveGateway: { name: governance-gateway }
+          body: '{"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "Seattle, Los Angeles, and Chicago are cities in North America. London, Paris, and Berlin are cities in Europe."}]}'
+          expectStatus: 200
+        - kind: http
+          label: 'POST /gov-enrich (client system prompt steers the model to JSON)'
+          description: A client-supplied system prompt asking for JSON sits closer to the user's turn than the policy's prepended CSV instructions, and typically wins.
+          method: POST
+          url: 'https://{{env.domains.app.walkthrough}}/gov-enrich'
+          resolveGateway: { name: governance-gateway }
+          body: '{"model": "gpt-4o-mini", "messages": [{"role": "system", "content": "Parse the unstructured content and give back a JSON format"}, {"role": "user", "content": "The recipe called for eggs, flour and sugar. The price was $5, $3, and $2."}]}'
+          expectStatus: 200
+    - name: function-calling
+      title: Function Calling
+      narration: |
+        agentgateway forwards function-calling (tool use) requests unmodified - the model decides whether to call a tool, but execution and validation stay entirely client-side. Attaching a tool definition changes the model's response from a plain-text answer to a tool_call; agentgateway doesn't execute or alter it either way.
+      setup:
+        - name: providers
+          config:
+            providers:
+              - name: gov-functions-openai
+                providerName: openai
+                pathPrefix: /gov-functions
+                model: gpt-4o-mini
+        - name: function-calling
+          config:
+            enabled: true
+            validateRequests: true
+      steps:
+        - kind: http
+          label: 'POST /gov-functions (no tools, plain text answer)'
+          description: No tool definitions attached - the model just answers in plain text.
+          method: POST
+          url: 'https://{{env.domains.app.walkthrough}}/gov-functions'
+          resolveGateway: { name: governance-gateway }
+          body: '{"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "How is the current weather in Columbus?"}]}'
+          expectStatus: 200
+        - kind: http
+          label: 'POST /gov-functions (tool attached, model responds with a tool_call)'
+          description: Same question, with a get_weather tool attached - the model responds with a tool_call instead of an answer; agentgateway just forwards it, nothing executes server-side.
+          method: POST
+          url: 'https://{{env.domains.app.walkthrough}}/gov-functions'
+          resolveGateway: { name: governance-gateway }
+          body: '{"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "How is the current weather in Columbus?"}], "tools": [{"type": "function", "function": {"name": "get_weather", "description": "Get the current weather for a location", "parameters": {"type": "object", "properties": {"location": {"type": "string", "description": "The city and state, e.g. San Francisco, CA"}, "format": {"type": "string", "enum": ["celsius", "fahrenheit"]}}, "required": ["location", "format"]}}}], "tool_choice": "required"}'
+          expectStatus: 200
     - name: defense-in-depth
       title: Defense in Depth
       narration: |
-        The capstone: every control in this walkthrough, stacked on one route. A Keycloak JWT or a virtual API key proves identity - the same Gateway-level policy screen 1 switched on - OpenFGA ReBAC decides which models that identity can reach, five independent budgets cap spend across four levels - org, team, per-user, and the automation key - and a token-based rate limit catches bursts within the minute. Authentication, authorization, budget, and rate limit are each enforced independently - a request can pass one and still be rejected by the next. alice can reach gpt-4o-mini via her org:acme entitlement, but claude-sonnet-5 is denied by OpenFGA before the budget layer is ever reached, since she isn't on team:acme-ml. team-ci authenticates via its own API key and is entitled to gpt-4o-mini, but its 1-token daily budget is exhausted by the first real request of the day and blocks every one after it with 429 (budget usage is recorded after a request completes, so the very first request in a fresh window still goes through) - so it's the budget layer, not authz, that rejects it.
+        The capstone: identity, authorization, budget, and rate limit, stacked on one route. Each layer is enforced independently - a request can pass one and still be rejected by the next.
+        - identity: a JWT or virtual API key proves who's calling.
+        - authorization: OpenFGA decides which models that identity can reach - alice reaches gpt-4o-mini via org:acme, but is denied claude-sonnet-5 since she isn't on team:acme-ml.
+        - budget: five budgets cap spend across org/team/user/automation-key levels - usage is recorded after completion, so team-ci's first request goes through and exhausts its 1-token budget.
+        - rate limit: team-ci's second request fails twice over - its budget is already exhausted, and the route's shared token-bucket rate limit is too, so it's rejected either way.
       setup:
         - name: openfga
           config:
@@ -432,7 +553,7 @@ spec:
           config:
             name: chat-burst-limit
             type: TOKEN
-            requestsPerUnit: 20000
+            requestsPerUnit: 30
             unit: MINUTE
             targetRefs:
               - group: gateway.networking.k8s.io
@@ -458,8 +579,18 @@ spec:
           body: '{"model": "claude-sonnet-5", "messages": [{"role": "user", "content": "What is 2+2?"}]}'
           expectStatus: 403
         - kind: http
-          label: 'POST /gov-chat-tiered (gpt-4o-mini, team-ci via API key, denied by budget)'
-          description: team-ci is entitled to gpt-4o-mini, but its 1-token daily budget is already exhausted.
+          label: 'POST /gov-chat-tiered (gpt-4o-mini, team-ci via API key, first request establishes usage)'
+          description: Budget usage is recorded after a request completes, so team-ci's first real request of the day still goes through - this one establishes the usage the next request will trip.
+          method: POST
+          url: 'https://{{env.domains.app.walkthrough}}/gov-chat-tiered'
+          resolveGateway: { name: governance-gateway }
+          headers:
+            X-Api-Key: sk-team-ci-demo-9f3c7a1e
+          body: '{"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "Hello"}]}'
+          expectStatus: 200
+        - kind: http
+          label: 'POST /gov-chat-tiered (gpt-4o-mini, team-ci via API key, denied by budget and rate limit)'
+          description: team-ci is entitled to gpt-4o-mini, but its 1-token daily budget is now exhausted - the route's shared rate limit is also exhausted from the two calls so far, so this fails twice over.
           method: POST
           url: 'https://{{env.domains.app.walkthrough}}/gov-chat-tiered'
           resolveGateway: { name: governance-gateway }

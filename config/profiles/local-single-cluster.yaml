@@ -11,11 +11,11 @@ spec:
   environment: local
 
   agentgateway:
-    version: v2026.11.0
+    version: v2026.11.1
     ociRegistry: oci://us-docker.pkg.dev/solo-public/enterprise-agentgateway/charts
 
   agentgateway-crds:
-    version: v2026.11.0
+    version: v2026.11.1
     ociRegistry: oci://us-docker.pkg.dev/solo-public/enterprise-agentgateway/charts
     helmValues:
       installAgentgatewayModelCRD: true
@@ -241,6 +241,12 @@ spec:
       namespace: openfga
       config:
         image: '{{env.images.openfga.openfga-engine}}'
+
+    - name: pingfederate
+      description: PingFederate (DevOps Program eval license) for mcp-eager-auth-pingfederate
+      namespace: pingfederate
+      config:
+        issuer: https://pingfederate-pingfederate-engine.pingfederate.svc.cluster.local:9031
 
     - name: telemetry
       description: OpenTelemetry observability stack (Prometheus, Grafana, Loki, Tempo)

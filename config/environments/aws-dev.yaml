@@ -119,6 +119,13 @@ spec:
     domain: dev-35g28e7t10wuhl3i.us.auth0.com
     audience: https://agentgateway.example.com/mcp
 
+  # PingFederate trial - fill in issuer/jwksPath/clientId once the app
+  # registration is created (see mcp-eager-auth-pingfederate's doc comment).
+  pingFederate:
+    issuer: https://pingfederate.example.com/as
+    jwksPath: /pf/JWKS
+    clientId: ''
+
   # Domain mappings - auto-generated pattern: <service>.<childZone>.<parentDomain>
   domains:
     core:

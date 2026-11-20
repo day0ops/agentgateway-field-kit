@@ -40,6 +40,7 @@ export GCP_PROJECT=
 export GCP_LOCATION=
 export ENTRA_ISSUER_CLIENT_SECRET=     # jwt-corporate-proxy-entra and obo-entra-token-exchange usecases' live-token tests
 export OKTA_ISSUER_CLIENT_ID=          # eager-auth-okta usecase's live-login test (public/PKCE client, no secret)
+export PINGFEDERATE_ISSUER_CLIENT_ID=  # eager-auth-pingfederate usecase's live-login test (public/PKCE client, no secret)
 export OAUTH_TOKEN_EXCHANGE_CLIENT_SECRET=  # required to deploy oauth-token-exchange at all, not just its live-exchange test
 export DEMO_USER_PASSWORD=              # demo-wizard usecase's demo-login shortcut password - must match the target realm's actual user password (e.g. KEYCLOAK_DEFAULT_PASSWORD), defaults to 'Password1!' otherwise
 export GITHUB_ISSUER_CLIENT_ID=        # elicitation-oauth-flow usecase's GitHub OAuth App (live consent flow)
@@ -80,7 +81,7 @@ Features live in `features/<name>/index.js` (one capability per directory), addo
 
 Two editions: **enterprise** (default, needs `ENTERPRISE_AGENTGATEWAY_LICENSE`) and **opensource** (opt-in via `spec.edition: opensource`). This picks which Helm chart/CRDs get installed and which CRD group features emit.
 
-Most features work on both editions unmodified. Some are enterprise-only because no equivalent OSS CRD exists - check a feature's `SUPPORTED_EDITIONS` static field in `features/<name>/index.js` (default: both) rather than assuming from this list, since it grows as features are added. Enterprise-only as of this writing: `apikey-auth`, `auth-only-mcp`, `budget-limits`, `direct-response`, `elicitation-backend`, `llm-cost-tracking`, `mcp-eager-auth-auth0`, `mcp-eager-auth-entra`, `mcp-eager-auth-okta`, the `entMcp` family (`mcp-enterprise`, `mcp-guardrails`), `multi-org-jwt-auth`, `oauth-access-token-validation`, `oauth-authorization-code`, `oauth-issuer-route`, `oauth-token-exchange`, `obo-token-exchange`, `opa-authz`, `openfga-authz`, `quota-budget`, `quota-ratelimit`, `token-exchange`, `traffic-policy`.
+Most features work on both editions unmodified. Some are enterprise-only because no equivalent OSS CRD exists - check a feature's `SUPPORTED_EDITIONS` static field in `features/<name>/index.js` (default: both) rather than assuming from this list, since it grows as features are added. Enterprise-only as of this writing: `apikey-auth`, `auth-only-mcp`, `budget-limits`, `direct-response`, `elicitation-backend`, `llm-cost-tracking`, `mcp-eager-auth-auth0`, `mcp-eager-auth-entra`, `mcp-eager-auth-okta`, `mcp-eager-auth-pingfederate`, the `entMcp` family (`mcp-enterprise`, `mcp-guardrails`), `multi-org-jwt-auth`, `oauth-access-token-validation`, `oauth-authorization-code`, `oauth-issuer-route`, `oauth-token-exchange`, `obo-token-exchange`, `opa-authz`, `openfga-authz`, `quota-budget`, `quota-ratelimit`, `token-exchange`, `traffic-policy`.
 
 Usecase names resolve to the enterprise edition by default; use an `opensource/...` prefix to pick the OSS version when both exist.
 

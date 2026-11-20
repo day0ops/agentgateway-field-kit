@@ -81,7 +81,7 @@ function buildWalkthrough(overrides = {}) {
 }
 
 let originalFeatures, originalGatewayRef, originalDefaultNamespace, originalFetch;
-let originalEnsureNamespace, originalApplyYaml;
+let originalEnsureNamespace, originalApplyYaml, originalWaitForConditionTrue;
 let appliedYamlDocs;
 
 beforeEach(() => {
@@ -107,6 +107,10 @@ beforeEach(() => {
   KubernetesHelper.applyYaml = async yamlContent => {
     appliedYamlDocs.push(yamlContent);
   };
+  // PolicyRegistry.commit() polls this after every non-dry-run apply to wait for the data
+  // plane to actually attach the policy - a real cluster dependency these tests don't have.
+  originalWaitForConditionTrue = KubernetesHelper.waitForConditionTrue;
+  KubernetesHelper.waitForConditionTrue = async () => {};
 });
 
 afterEach(() => {
@@ -116,6 +120,7 @@ afterEach(() => {
   globalThis.fetch = originalFetch;
   KubernetesHelper.ensureNamespace = originalEnsureNamespace;
   KubernetesHelper.applyYaml = originalApplyYaml;
+  KubernetesHelper.waitForConditionTrue = originalWaitForConditionTrue;
   PolicyRegistry.clear();
   PolicyRegistry.disable();
 });
@@ -509,6 +514,70 @@ describe('WalkthroughEngine PolicyRegistry integration', () => {
     expect(committedDoc.metadata.labels['agentgateway.dev/contributors']).toBe(
       'policy-feature_policy-feature-b'
     );
+  });
+
+  test('skipPreview: true excludes a setup entry from "Applied Configuration" but still deploys it for real', async () => {
+    const walkthrough = {
+      screens: [
+        {
+          name: 'one',
+          setup: [{ name: 'policy-feature', skipPreview: true }, { name: 'policy-feature-b' }],
+          steps: [],
+        },
+      ],
+      credentials: {},
+      preProvision: [],
+      edition: 'enterprise',
+    };
+    const engine = new WalkthroughEngine(walkthrough);
+    await engine.ensureAppliedThrough(0);
+
+    // Only policy-feature-b's own (unmerged) resource shows up in the preview.
+    const previewDoc = yaml.load(engine.getAppliedYaml(0));
+    expect(previewDoc.metadata.name).toBe('policy-b-under-test');
+
+    // Both features still contributed to the real, merged, committed object.
+    const committedDoc = appliedYamlDocs
+      .map(doc => yaml.load(doc))
+      .find(doc => doc.kind === 'EnterpriseAgentgatewayPolicy');
+    expect(committedDoc.metadata.labels['agentgateway.dev/contributors']).toBe(
+      'policy-feature_policy-feature-b'
+    );
+  });
+
+  test("a step's relevantSetup filters the preview to just the setup features it names, per step", async () => {
+    const walkthrough = {
+      screens: [
+        {
+          name: 'one',
+          setup: [{ name: 'policy-feature' }, { name: 'policy-feature-b' }],
+          steps: [
+            {
+              kind: 'http',
+              method: 'GET',
+              url: 'http://example.com/a',
+              relevantSetup: ['policy-feature'],
+            },
+            { kind: 'http', method: 'GET', url: 'http://example.com/b' }, // no filter - shows everything
+          ],
+        },
+      ],
+      credentials: {},
+      preProvision: [],
+      edition: 'enterprise',
+    };
+    const engine = new WalkthroughEngine(walkthrough);
+    await engine.ensureAppliedThrough(0);
+
+    engine.stepIndex = 0;
+    expect(yaml.load(engine.getAppliedYaml(0)).metadata.name).toBe('policy-under-test');
+
+    engine.stepIndex = 1;
+    const bothDocs = engine
+      .getAppliedYaml(0)
+      .split('\n\n---\n\n')
+      .map(doc => yaml.load(doc).metadata.name);
+    expect(bothDocs).toEqual(['policy-under-test', 'policy-b-under-test']);
   });
 });
 

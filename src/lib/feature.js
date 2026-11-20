@@ -526,6 +526,15 @@ export class PolicyRegistry {
         yamlDocs.push(yamlContent);
       } else {
         await KubernetesHelper.applyYaml(yamlContent, spinner);
+        // Wait for the data plane to actually attach this policy before the caller's first
+        // request fires - status.ancestors[].conditions flips Attached=True as soon as the
+        // control plane accepts it, which can briefly race ahead of enforcement.
+        await KubernetesHelper.waitForConditionTrue(
+          cleanPolicy.kind,
+          policyName,
+          cleanPolicy.metadata.namespace,
+          '{.status.ancestors[0].conditions[?(@.type=="Attached")].status}'
+        );
       }
     }
     return yamlDocs;
