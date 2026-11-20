@@ -14,4 +14,4 @@ spec:
     - port: metrics
   selector:
     matchLabels:
-      app.kubernetes.io/name: agentgateway
+      gateway.networking.k8s.io/gateway-class-name: enterprise-agentgateway

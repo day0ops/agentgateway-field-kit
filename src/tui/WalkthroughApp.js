@@ -16,10 +16,20 @@ const ROOT_VERTICAL_PADDING = 2;
 // response to a fixed number of visible lines instead of growing the whole row to match it.
 const RESPONSE_PANEL_MAX_HEIGHT = 15;
 
+// </> jump the outer viewport by this many lines per press, vs. the 1-line step for plain arrows.
+// Not a modifier+arrow combo: Ctrl+arrow is swallowed by macOS (Mission Control/Spaces) before
+// it ever reaches the terminal, and Cmd+arrow never reaches the program at all on most terminals.
+const JUMP_SCROLL_LINES = 10;
+
 /**
- * Renders a vertical scrollbar as one character per viewport row - a thumb sized to the visible
- * fraction of the content, positioned to match the current scroll offset.
- * @returns {?string[]} one character per row, or null when nothing needs to scroll
+ * Renders a vertical scrollbar as one row per viewport row - a thumb sized to the visible
+ * fraction of the content, positioned to match the current scroll offset. Callers render
+ * each row as the same full-width block character (e.g. '█' for the thumb, '░' for the
+ * track) rather than switching to a thin line character for the track, which would vary
+ * the rendered width row-to-row and make the bar look disjointed. The glyph itself (not
+ * just color) carries the thumb/track distinction, so it stays visible even when the
+ * terminal renders dim/faint text with too little contrast to notice.
+ * @returns {?boolean[]} one `isThumb` flag per row, or null when nothing needs to scroll
  */
 export function renderScrollbar(viewportHeight, contentHeight, maxScroll, scrollOffset) {
   if (maxScroll <= 0 || !viewportHeight) return null;
@@ -28,8 +38,9 @@ export function renderScrollbar(viewportHeight, contentHeight, maxScroll, scroll
   const maxThumbPosition = viewportHeight - thumbSize;
   const thumbPosition = Math.round((scrollOffset / maxScroll) * maxThumbPosition);
 
-  return Array.from({ length: viewportHeight }, (_, i) =>
-    i >= thumbPosition && i < thumbPosition + thumbSize ? '█' : '│'
+  return Array.from(
+    { length: viewportHeight },
+    (_, i) => i >= thumbPosition && i < thumbPosition + thumbSize
   );
 }
 
@@ -53,10 +64,28 @@ export function WalkthroughApp({ engine, installedVersion }) {
   const headerRef = useRef(null);
   const footerRef = useRef(null);
   const responseBodyRef = useRef(null);
+  const requestContentRef = useRef(null);
   const { height: contentHeight } = useBoxMetrics(contentRef);
   const { height: headerHeight } = useBoxMetrics(headerRef);
   const { height: footerHeight } = useBoxMetrics(footerRef);
   const { height: responseBodyHeight } = useBoxMetrics(responseBodyRef);
+  // Request and Response are siblings in a stretched row, so Request's own rendered height is
+  // exactly how tall Response's panel ends up too. Sizing Response's scroll viewport off of it
+  // (rather than a flex-grow guess) lets a taller Request pull Response's viewport up with it,
+  // without resorting to flex-basis/flex-grow, which Yoga only honors when some ancestor has a
+  // definite height - on this app's auto-sized root, it was silently ignored in favor of the
+  // full, uncapped content size, reintroducing the unbounded-row-height bug this height was
+  // meant to prevent in the first place.
+  const { height: requestContentHeight } = useBoxMetrics(requestContentRef);
+  const result = engine.getStepResult();
+  // 1 line for "Status: ...", +1 more if a response-header expectation is also rendered above it.
+  const responseStatusLines =
+    1 +
+    ((result?.kind === 'http' || result?.kind === 'mcp') && result?.expectResponseHeader ? 1 : 0);
+  const responseViewportHeight = Math.max(
+    RESPONSE_PANEL_MAX_HEIGHT,
+    requestContentHeight - responseStatusLines
+  );
 
   useEffect(() => {
     const onChange = () => forceRender(n => n + 1);
@@ -93,7 +122,7 @@ export function WalkthroughApp({ engine, installedVersion }) {
   const maxScroll = viewportHeight === undefined ? 0 : Math.max(0, contentHeight - viewportHeight);
   const clampedScrollOffset = Math.min(scrollOffset, maxScroll);
 
-  const responseMaxScroll = Math.max(0, responseBodyHeight - RESPONSE_PANEL_MAX_HEIGHT);
+  const responseMaxScroll = Math.max(0, responseBodyHeight - responseViewportHeight);
   const clampedResponseScrollOffset = Math.min(responseScrollOffset, responseMaxScroll);
 
   useInput((input, key) => {
@@ -133,10 +162,18 @@ export function WalkthroughApp({ engine, installedVersion }) {
       }
       return;
     }
-    // ↑/↓ always scroll the whole page. w/s are dedicated to the Response panel's own bounded
-    // viewport (RESPONSE_PANEL_MAX_HEIGHT) and scrollbar, so the two scrolls never fight over
-    // the same keys - PageUp/PageDown are also wired to the same thing, but most Mac keyboards
-    // have no such key at all.
+    // ↑/↓ always scroll the whole page, </> jump it by JUMP_SCROLL_LINES. w/s are
+    // dedicated to the Response panel's own bounded viewport (RESPONSE_PANEL_MAX_HEIGHT) and
+    // scrollbar, so the two scrolls never fight over the same keys - PageUp/PageDown are also
+    // wired to the same thing, but most Mac keyboards have no such key at all.
+    if (input === '>') {
+      setScrollOffset(offset => Math.min(offset + JUMP_SCROLL_LINES, maxScroll));
+      return;
+    }
+    if (input === '<') {
+      setScrollOffset(offset => Math.max(offset - JUMP_SCROLL_LINES, 0));
+      return;
+    }
     if (key.downArrow) {
       setScrollOffset(offset => Math.min(offset + 1, maxScroll));
       return;
@@ -169,7 +206,9 @@ export function WalkthroughApp({ engine, installedVersion }) {
           await engine.handleRight();
         } else if (key.leftArrow) {
           await engine.handleLeft();
-        } else if (/^[1-9]$/.test(input)) {
+        } else if (
+          new RegExp(`^[1-${Math.min(9, engine.walkthrough.screens.length)}]$`).test(input)
+        ) {
           await engine.jumpToScreen(Number(input) - 1);
         }
       } catch (err) {
@@ -183,7 +222,6 @@ export function WalkthroughApp({ engine, installedVersion }) {
 
   const screen = engine.currentScreen;
   const step = engine.currentStep;
-  const result = engine.getStepResult();
   const appliedYaml = engine.getAppliedYaml();
   const responseRevealed = engine.isResponseRevealed();
 
@@ -286,8 +324,10 @@ export function WalkthroughApp({ engine, installedVersion }) {
             React.createElement(StepResultView, {
               result,
               responseRevealed,
+              requestContentRef,
               responseScroll: {
                 bodyRef: responseBodyRef,
+                viewportHeight: responseViewportHeight,
                 offset: clampedResponseScrollOffset,
                 maxScroll: responseMaxScroll,
                 bodyHeight: responseBodyHeight,
@@ -309,8 +349,8 @@ export function WalkthroughApp({ engine, installedVersion }) {
         React.createElement(
           Box,
           { flexDirection: 'column', marginLeft: 1 },
-          ...scrollbar.map((char, i) =>
-            React.createElement(Text, { key: i, dimColor: char === '│' }, char)
+          ...scrollbar.map((isThumb, i) =>
+            React.createElement(Text, { key: i, dimColor: !isThumb }, isThumb ? '█' : '░')
           )
         )
     ),
@@ -337,7 +377,11 @@ export function WalkthroughApp({ engine, installedVersion }) {
             React.Fragment,
             null,
             maxScroll > 0 &&
-              React.createElement(Text, { dimColor: true }, '↕ more content - scroll with ↑/↓'),
+              React.createElement(
+                Text,
+                { dimColor: true },
+                '↕ more content - scroll with ↑/↓ · jump with </>'
+              ),
             responseMaxScroll > 0 &&
               React.createElement(
                 Text,
@@ -349,7 +393,7 @@ export function WalkthroughApp({ engine, installedVersion }) {
               { dimColor: true },
               step?.kind === 'prompt' && !result
                 ? 'type your answer · enter submit · ctrl+c quit'
-                : `← back · → ${result ? 'next' : 'run'} · 1-9 jump to screen · q quit`
+                : `← back · → ${result ? 'next' : 'run'} · 1-${Math.min(9, engine.walkthrough.screens.length)} jump to screen · q quit`
             )
           )
     )
@@ -376,11 +420,11 @@ function truncateBody(body) {
 }
 
 /** The method/URL, headers, and (formatted) body of a request, as separate labeled sections. */
-function RequestDetails({ request }) {
+function RequestDetails({ request, contentRef }) {
   const headerEntries = Object.entries(request.headers || {});
   return React.createElement(
     Box,
-    { flexDirection: 'column' },
+    { ref: contentRef, flexDirection: 'column' },
     React.createElement(Text, { bold: true }, `${request.method} ${request.url}`),
     headerEntries.length > 0 &&
       React.createElement(
@@ -436,10 +480,13 @@ export function isHttpSuccess(status) {
 
 /**
  * The Response panel's body. Always renders the full formatted body (never truncated) inside a
- * ref'd box so its true height can be measured; once that height exceeds
- * RESPONSE_PANEL_MAX_HEIGHT, wraps it in its own fixed-height scroll viewport and draws a
- * scrollbar alongside it - independent of the Request panel beside it and of the page's own
- * scroll.
+ * ref'd box so its true height can be measured; once that height exceeds the viewport height,
+ * wraps it in a scroll viewport and draws a scrollbar alongside it - independent of the Request
+ * panel beside it and of the page's own scroll. `scroll.viewportHeight` is RESPONSE_PANEL_MAX_HEIGHT
+ * or, when the Request panel next to it is taller, however much of that extra height Response's
+ * own chrome (the Status line, etc.) leaves over - computed by the caller from Request's measured
+ * height, since Yoga only honors flex-grow/flex-basis sizing when some ancestor has a definite
+ * height, which isn't the case on this app's auto-sized root.
  */
 function ResponseBody({ body, scroll }) {
   const formatted = formatBody(body);
@@ -453,8 +500,9 @@ function ResponseBody({ body, scroll }) {
     return content;
   }
 
+  const viewportHeight = scroll.viewportHeight ?? RESPONSE_PANEL_MAX_HEIGHT;
   const scrollbar = renderScrollbar(
-    RESPONSE_PANEL_MAX_HEIGHT,
+    viewportHeight,
     scroll.bodyHeight,
     scroll.maxScroll,
     scroll.offset
@@ -466,10 +514,10 @@ function ResponseBody({ body, scroll }) {
       Box,
       {
         flexDirection: 'column',
-        height: RESPONSE_PANEL_MAX_HEIGHT,
+        flexGrow: 1,
+        height: viewportHeight,
         overflowY: 'hidden',
         contentOffsetY: scroll.offset,
-        flexGrow: 1,
       },
       content
     ),
@@ -477,29 +525,33 @@ function ResponseBody({ body, scroll }) {
       React.createElement(
         Box,
         { flexDirection: 'column' },
-        ...scrollbar.map((char, i) =>
-          React.createElement(Text, { key: i, dimColor: char === '│' }, char)
+        ...scrollbar.map((isThumb, i) =>
+          React.createElement(Text, { key: i, dimColor: !isThumb }, isThumb ? '█' : '░')
         )
       )
   );
 }
 
-function StepResultView({ result, responseRevealed, responseScroll }) {
+function StepResultView({ result, responseRevealed, requestContentRef, responseScroll }) {
   if (result.kind === 'http' || result.kind === 'mcp') {
     // A null status means the request never connected at all (e.g. a Gateway listener was
     // removed) - isHttpSuccess(null) is false, so this still colors red like any other failure.
     const statusColor = isHttpSuccess(result.status) ? 'green' : 'red';
     const statusLabel = result.status === null ? 'Connection failed' : `Status: ${result.status}`;
     return React.createElement(
-      // Default (stretch) cross-axis alignment - Response is now height-capped at
-      // RESPONSE_PANEL_MAX_HEIGHT, so stretching Request to match is a small, bounded pad
-      // rather than the unbounded one a long, uncapped response used to cause.
+      // Default (stretch) cross-axis alignment pads whichever panel is naturally shorter - the
+      // Response viewport's own height is computed from Request's measured height instead of
+      // relying on that stretch, so it can grow past RESPONSE_PANEL_MAX_HEIGHT when Request is
+      // the taller sibling, without also letting a long response balloon the row on its own.
       Box,
       { flexDirection: 'row', columnGap: 1 },
       React.createElement(
         Panel,
         { label: 'Request', grow: true },
-        React.createElement(RequestDetails, { request: result.request })
+        React.createElement(RequestDetails, {
+          request: result.request,
+          contentRef: requestContentRef,
+        })
       ),
       responseRevealed &&
         React.createElement(

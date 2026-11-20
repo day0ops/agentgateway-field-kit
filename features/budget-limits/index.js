@@ -1,4 +1,5 @@
 import { Feature, FeatureManager } from '../../src/lib/feature.js';
+import { KubernetesHelper } from '../../src/lib/common.js';
 
 const DEFAULT_BUDGETS_RESOURCE_NAME = 'budget-limits';
 const DEFAULT_POLICY_NAME = 'budget-enforcement';
@@ -130,6 +131,17 @@ export class BudgetLimitsFeature extends Feature {
       metadata: { name: this.budgetsResourceName, namespace: this.namespace },
       spec: { budgets },
     });
+    if (!this.dryRun) {
+      // status.conditions flips Enforced=True as soon as the control plane accepts the budget,
+      // which can briefly race ahead of the rate-limit/budget service actually loading it - a
+      // request fired immediately after deploy can briefly sail through unenforced.
+      await KubernetesHelper.waitForConditionTrue(
+        'EnterpriseAgentgatewayBudget',
+        this.budgetsResourceName,
+        this.namespace,
+        '{.status.conditions[?(@.type=="Enforced")].status}'
+      );
+    }
     this.log(
       `EnterpriseAgentgatewayBudget '${this.budgetsResourceName}' applied with ${budgets.length} budget(s)`,
       'info'

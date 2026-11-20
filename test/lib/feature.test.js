@@ -21,6 +21,17 @@ class DummyEnterpriseOnlyFeature extends Feature {
 FeatureManager.register('__test-dummy-both', DummyBothFeature);
 FeatureManager.register('__test-dummy-enterprise-only', DummyEnterpriseOnlyFeature);
 
+// PolicyRegistry.commit() polls this after every non-dry-run apply to wait for the data plane
+// to actually attach the policy - a real cluster dependency none of these unit tests have.
+let originalWaitForConditionTrue;
+beforeEach(() => {
+  originalWaitForConditionTrue = KubernetesHelper.waitForConditionTrue;
+  KubernetesHelper.waitForConditionTrue = async () => {};
+});
+afterEach(() => {
+  KubernetesHelper.waitForConditionTrue = originalWaitForConditionTrue;
+});
+
 describe('Feature.SUPPORTED_EDITIONS default', () => {
   test('base Feature class supports both editions by default', () => {
     expect(Feature.SUPPORTED_EDITIONS).toEqual(EDITIONS);

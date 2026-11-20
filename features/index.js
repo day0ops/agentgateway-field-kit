@@ -61,6 +61,7 @@ import { WafFeature } from './waf/index.js';
 import { McpEagerAuthOktaFeature } from './mcp-eager-auth-okta/index.js';
 import { McpEagerAuthAuth0Feature } from './mcp-eager-auth-auth0/index.js';
 import { McpEagerAuthEntraFeature } from './mcp-eager-auth-entra/index.js';
+import { McpEagerAuthPingFederateFeature } from './mcp-eager-auth-pingfederate/index.js';
 import { SemanticRouterFeature } from './semantic-router/index.js';
 import { OauthTokenExchangeFeature } from './oauth-token-exchange/index.js';
 import { TrafficPolicyFeature } from './traffic-policy/index.js';
@@ -123,6 +124,7 @@ FeatureManager.register('waf', WafFeature);
 FeatureManager.register('mcp-eager-auth-okta', McpEagerAuthOktaFeature);
 FeatureManager.register('mcp-eager-auth-auth0', McpEagerAuthAuth0Feature);
 FeatureManager.register('mcp-eager-auth-entra', McpEagerAuthEntraFeature);
+FeatureManager.register('mcp-eager-auth-pingfederate', McpEagerAuthPingFederateFeature);
 FeatureManager.register('semantic-router', SemanticRouterFeature);
 FeatureManager.register('oauth-token-exchange', OauthTokenExchangeFeature);
 FeatureManager.register('traffic-policy', TrafficPolicyFeature);
@@ -188,6 +190,7 @@ export {
   McpEagerAuthOktaFeature,
   McpEagerAuthAuth0Feature,
   McpEagerAuthEntraFeature,
+  McpEagerAuthPingFederateFeature,
   SemanticRouterFeature,
   OauthTokenExchangeFeature,
   HttpbinBackendFeature,

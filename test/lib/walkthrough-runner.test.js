@@ -94,6 +94,45 @@ describe('cleanWalkthrough', () => {
     mkdirSync(WalkthroughManager.WALKTHROUGHS_DIR, { recursive: true });
     await expect(cleanWalkthrough('missing')).rejects.toThrow(/not found/);
   });
+
+  describe('certificate/gateway skip/force', () => {
+    beforeEach(() => {
+      FeatureManager.register('certificate', RecordingFeatureA);
+      FeatureManager.register('gateway', RecordingFeatureA);
+      mkdirSync(WalkthroughManager.WALKTHROUGHS_DIR, { recursive: true });
+      writeFileSync(
+        join(WalkthroughManager.WALKTHROUGHS_DIR, 'demo.yaml'),
+        [
+          'apiVersion: agentgateway.demo/v1',
+          'kind: Walkthrough',
+          'metadata:',
+          '  name: demo',
+          'spec:',
+          '  preProvision:',
+          '    - name: certificate',
+          '      config: { name: demo-tls }',
+          '    - name: gateway',
+          '      config: { name: demo-gateway }',
+          '  screens:',
+          '    - name: one',
+          '      setup:',
+          '        - name: feature-b',
+          '      steps: []',
+          '',
+        ].join('\n')
+      );
+    });
+
+    test('skips both the certificate and gateway features by default', async () => {
+      await cleanWalkthrough('demo');
+      expect(RecordingFeature.cleanedUp).toEqual(['feature-b']);
+    });
+
+    test('cleans up the certificate and gateway features too when force is set', async () => {
+      await cleanWalkthrough('demo', { force: true });
+      expect(RecordingFeature.cleanedUp).toEqual(['feature-b', 'gateway', 'certificate']);
+    });
+  });
 });
 
 describe('cleanWalkthrough merged-policy sweep', () => {
