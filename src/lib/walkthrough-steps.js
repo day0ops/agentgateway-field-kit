@@ -177,6 +177,134 @@ export async function connectionTarget(step, url, headers) {
 }
 
 /**
+ * Unwraps an SSE-framed response body into plain JSON when content-type is
+ * text/event-stream. Returns the body unchanged for other content types.
+ * Extracts the JSON payload from every line starting with 'data:' (trimmed),
+ * joining them together.
+ */
+export function unwrapSseBody(body, contentType) {
+  if (!contentType || !contentType.includes('text/event-stream')) {
+    return body;
+  }
+
+  const dataLines = body
+    .split('\n')
+    .filter(line => line.startsWith('data:'))
+    .map(line => line.slice(5).trim());
+
+  if (dataLines.length === 0) {
+    return body;
+  }
+
+  return dataLines.join('');
+}
+
+/**
+ * Builds an mcp step's request (method, url, headers, body), resolving
+ * `step.credential` into a Bearer token if set - but does not fire it.
+ * Split out from executeMcpRequest so the TUI can show the request before
+ * it's actually sent, mirroring buildHttpRequest/buildTrafficSplitRequest.
+ */
+export async function buildMcpRequest(step, context) {
+  const headers = await buildHeaders(step, context);
+  headers['Content-Type'] = 'application/json';
+  headers['Accept'] = 'application/json, text/event-stream';
+
+  return {
+    method: 'POST',
+    url: step.url,
+    headers,
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id: Date.now(),
+      method: step.method,
+      params: step.params || {},
+    }),
+  };
+}
+
+/**
+ * Fires an already-built mcp request with the initialize handshake: first sends
+ * an initialize request to get a session ID, then fires the real request with
+ * that session ID attached. If initialize returns non-2xx, returns immediately
+ * with the initialize response (not the real one). Otherwise, reads the
+ * mcp-session-id header from the initialize response and attaches it to the
+ * real call. Unwraps SSE-framed responses. Returns the same shape as
+ * executeHttpRequest but with kind: 'mcp' and the original request object.
+ */
+export async function executeMcpRequest(step, request) {
+  const target = await connectionTarget(step, request.url, request.headers);
+
+  const initBody = JSON.stringify({
+    jsonrpc: '2.0',
+    id: 1,
+    method: 'initialize',
+    params: {
+      protocolVersion: '2024-11-05',
+      capabilities: {},
+      clientInfo: { name: 'agw-walkthrough', version: '1.0.0' },
+    },
+  });
+
+  const initResponse = await fetch(target.url, {
+    method: 'POST',
+    headers: target.headers,
+    body: initBody,
+    ...(target.tls && { tls: target.tls }),
+  });
+
+  if (initResponse.status < 200 || initResponse.status >= 300) {
+    const initBody_text = await initResponse.text();
+    const initHeaders = Object.fromEntries(initResponse.headers.entries());
+    const statusMatches =
+      step.expectStatus === undefined || initResponse.status === step.expectStatus;
+    return {
+      kind: 'mcp',
+      request: { method: 'POST', url: request.url, headers: request.headers, body: initBody },
+      status: initResponse.status,
+      expectStatus: step.expectStatus,
+      passed: statusMatches,
+      body: unwrapSseBody(initBody_text, initResponse.headers.get('content-type')),
+      headers: initHeaders,
+    };
+  }
+
+  const sessionId = initResponse.headers.get('mcp-session-id');
+  const realCallHeaders = {
+    ...target.headers,
+    ...(sessionId && { 'mcp-session-id': sessionId }),
+  };
+
+  const realResponse = await fetch(target.url, {
+    method: 'POST',
+    headers: realCallHeaders,
+    body: request.body,
+    ...(target.tls && { tls: target.tls }),
+  });
+
+  const realBody = await realResponse.text();
+  const realHeaders = Object.fromEntries(realResponse.headers.entries());
+  const statusMatches =
+    step.expectStatus === undefined || realResponse.status === step.expectStatus;
+
+  return {
+    kind: 'mcp',
+    request,
+    status: realResponse.status,
+    expectStatus: step.expectStatus,
+    passed: statusMatches,
+    body: unwrapSseBody(realBody, realResponse.headers.get('content-type')),
+    headers: realHeaders,
+  };
+}
+
+/** Builds and immediately fires an mcp request in one call - for callers with no separate preview stage. */
+export async function runMcpStep(step, context) {
+  const request = await buildMcpRequest(step, context);
+  return executeMcpRequest(step, request);
+}
+
+/**
  * Executes one walkthrough step and returns a plain result object describing what
  * happened, for the TUI to render. An unexpected HTTP status is still a normal
  * result (passed: false) - only a transport-level failure (network error, unknown
@@ -188,6 +316,8 @@ export async function runStep(step, context) {
       return runHttpStep(step, context);
     case 'traffic-split':
       return runTrafficSplitStep(step, context);
+    case 'mcp':
+      return runMcpStep(step, context);
     default:
       throw new Error(`Unknown step kind: '${step.kind}'`);
   }
