@@ -273,15 +273,17 @@ export async function executeMcpRequest(step, request) {
   });
 
   if (initResponse.status < 200 || initResponse.status >= 300) {
-    const initBody_text = await initResponse.text();
+    const initResponseBody = await initResponse.text();
     return toMcpResult(
       initResponse,
-      initBody_text,
+      initResponseBody,
       { method: 'POST', url: request.url, headers: request.headers, body: initBody },
       step.expectStatus,
       step.expectResponseHeader
     );
   }
+
+  await initResponse.body?.cancel();
 
   const sessionId = initResponse.headers.get('mcp-session-id');
   const realCallHeaders = {

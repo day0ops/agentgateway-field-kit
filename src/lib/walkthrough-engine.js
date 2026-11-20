@@ -209,8 +209,8 @@ export class WalkthroughEngine extends EventEmitter {
 
   /**
    * Builds and stores the current step's request (resolving any credential) without firing it
-   * - so the TUI can show the request before the step actually runs. Covers both 'http' and
-   * 'traffic-split' (which fires the same built request `step.requestCount` times).
+   * - so the TUI can show the request before the step actually runs. Covers every previewable kind
+   * (see `PREVIEWABLE_KINDS`), which fire in preview; others build/fire in the same press.
    */
   async previewCurrentStep() {
     this.emit('running');
@@ -233,11 +233,11 @@ export class WalkthroughEngine extends EventEmitter {
   }
 
   /**
-   * Fires the current step and stores its result, revealing the response immediately. An
-   * 'http' or 'traffic-split' step reuses its already-built preview's request rather than
-   * re-resolving the credential a second time. An 'http' step with `captureVariable` set also
-   * extracts a value from its own response into `this.variables`, for a later step's
-   * `{{vars.NAME}}` to reference.
+   * Fires the current step and stores its result, revealing the response immediately. A
+   * previewable step (see `PREVIEWABLE_KINDS`) reuses its already-built preview's request rather
+   * than re-resolving the credential a second time. An 'http' or 'mcp' step with
+   * `captureVariable` set also extracts a value from its own response into `this.variables`,
+   * for a later step's `{{vars.NAME}}` to reference.
    */
   async runCurrentStep() {
     const key = this.resultKey();
@@ -316,7 +316,7 @@ export class WalkthroughEngine extends EventEmitter {
   }
 
   /**
-   * Right-arrow: for a previewable step ('http' or 'traffic-split'), applying a screen's setup
+   * Right-arrow: for a previewable step (see `PREVIEWABLE_KINDS`), applying a screen's setup
    * also previews the request (built but not sent) in the same press; firing it (which reveals
    * the response/tally) and advancing are two further presses. A 'prompt' step has nothing to
    * fire here - submitPromptValue (via Enter) drives it. Other step kinds fire directly on

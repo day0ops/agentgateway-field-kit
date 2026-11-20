@@ -1147,7 +1147,6 @@ describe('executeMcpRequest', () => {
     const headersSent = [];
     globalThis.fetch = async (url, init) => {
       headersSent.push(init.headers);
-      const first = headersSent.length === 1;
       return new Response('{"jsonrpc":"2.0","result":{}}', { status: 200 });
     };
     await executeMcpRequest(
