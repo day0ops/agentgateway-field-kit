@@ -223,6 +223,24 @@ export async function buildMcpRequest(step, context) {
   };
 }
 
+function toMcpResult(response, bodyText, requestObj, expectStatus, expectResponseHeader) {
+  const headers = Object.fromEntries(response.headers.entries());
+  const statusMatches = expectStatus === undefined || response.status === expectStatus;
+  const headerMatches =
+    !expectResponseHeader ||
+    headers[expectResponseHeader.name.toLowerCase()] === expectResponseHeader.value;
+  return {
+    kind: 'mcp',
+    request: requestObj,
+    status: response.status,
+    expectStatus,
+    expectResponseHeader,
+    passed: statusMatches && headerMatches,
+    body: unwrapSseBody(bodyText, response.headers.get('content-type')),
+    headers,
+  };
+}
+
 /**
  * Fires an already-built mcp request with the initialize handshake: first sends
  * an initialize request to get a session ID, then fires the real request with
@@ -230,7 +248,8 @@ export async function buildMcpRequest(step, context) {
  * with the initialize response (not the real one). Otherwise, reads the
  * mcp-session-id header from the initialize response and attaches it to the
  * real call. Unwraps SSE-framed responses. Returns the same shape as
- * executeHttpRequest but with kind: 'mcp' and the original request object.
+ * executeHttpRequest: including expectResponseHeader and a passed field that
+ * reflects both status and header-match validation.
  */
 export async function executeMcpRequest(step, request) {
   const target = await connectionTarget(step, request.url, request.headers);
@@ -255,18 +274,13 @@ export async function executeMcpRequest(step, request) {
 
   if (initResponse.status < 200 || initResponse.status >= 300) {
     const initBody_text = await initResponse.text();
-    const initHeaders = Object.fromEntries(initResponse.headers.entries());
-    const statusMatches =
-      step.expectStatus === undefined || initResponse.status === step.expectStatus;
-    return {
-      kind: 'mcp',
-      request: { method: 'POST', url: request.url, headers: request.headers, body: initBody },
-      status: initResponse.status,
-      expectStatus: step.expectStatus,
-      passed: statusMatches,
-      body: unwrapSseBody(initBody_text, initResponse.headers.get('content-type')),
-      headers: initHeaders,
-    };
+    return toMcpResult(
+      initResponse,
+      initBody_text,
+      { method: 'POST', url: request.url, headers: request.headers, body: initBody },
+      step.expectStatus,
+      step.expectResponseHeader
+    );
   }
 
   const sessionId = initResponse.headers.get('mcp-session-id');
@@ -283,19 +297,7 @@ export async function executeMcpRequest(step, request) {
   });
 
   const realBody = await realResponse.text();
-  const realHeaders = Object.fromEntries(realResponse.headers.entries());
-  const statusMatches =
-    step.expectStatus === undefined || realResponse.status === step.expectStatus;
-
-  return {
-    kind: 'mcp',
-    request,
-    status: realResponse.status,
-    expectStatus: step.expectStatus,
-    passed: statusMatches,
-    body: unwrapSseBody(realBody, realResponse.headers.get('content-type')),
-    headers: realHeaders,
-  };
+  return toMcpResult(realResponse, realBody, request, step.expectStatus, step.expectResponseHeader);
 }
 
 /** Builds and immediately fires an mcp request in one call - for callers with no separate preview stage. */

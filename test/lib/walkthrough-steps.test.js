@@ -1206,6 +1206,51 @@ describe('executeMcpRequest', () => {
     expect(result.status).toBe(403);
     expect(result.passed).toBe(false);
   });
+
+  test('passes when expectResponseHeader matches', async () => {
+    globalThis.fetch = async (url, init) => {
+      const method = JSON.parse(init.body).method;
+      if (method === 'initialize') return new Response('{}', { status: 200 });
+      return new Response('{}', {
+        status: 200,
+        headers: { 'X-MCP-Version': '2024-11-05' },
+      });
+    };
+    const result = await executeMcpRequest(
+      {
+        expectStatus: 200,
+        expectResponseHeader: { name: 'X-MCP-Version', value: '2024-11-05' },
+      },
+      { method: 'POST', url: 'https://example.com/mcp', headers: {}, body: '{}' }
+    );
+    expect(result.passed).toBe(true);
+  });
+
+  test('fails when expectResponseHeader value does not match', async () => {
+    globalThis.fetch = async (url, init) => {
+      const method = JSON.parse(init.body).method;
+      if (method === 'initialize') return new Response('{}', { status: 200 });
+      return new Response('{}', { status: 200 });
+    };
+    const result = await executeMcpRequest(
+      {
+        expectStatus: 200,
+        expectResponseHeader: { name: 'X-MCP-Version', value: '2024-11-05' },
+      },
+      { method: 'POST', url: 'https://example.com/mcp', headers: {}, body: '{}' }
+    );
+    expect(result.passed).toBe(false);
+  });
+
+  test('includes expectResponseHeader in the result object', async () => {
+    globalThis.fetch = async () => new Response('{}', { status: 200 });
+    const expectResponseHeader = { name: 'X-Custom', value: 'test' };
+    const result = await executeMcpRequest(
+      { expectResponseHeader },
+      { method: 'POST', url: 'https://example.com/mcp', headers: {}, body: '{}' }
+    );
+    expect(result.expectResponseHeader).toEqual(expectResponseHeader);
+  });
 });
 
 describe('runStep', () => {
