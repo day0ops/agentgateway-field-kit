@@ -485,7 +485,7 @@ function ResponseBody({ body, scroll }) {
 }
 
 function StepResultView({ result, responseRevealed, responseScroll }) {
-  if (result.kind === 'http') {
+  if (result.kind === 'http' || result.kind === 'mcp') {
     // A null status means the request never connected at all (e.g. a Gateway listener was
     // removed) - isHttpSuccess(null) is false, so this still colors red like any other failure.
     const statusColor = isHttpSuccess(result.status) ? 'green' : 'red';

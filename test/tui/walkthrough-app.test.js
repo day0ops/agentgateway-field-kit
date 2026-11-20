@@ -148,3 +148,31 @@ test('a previewed traffic-split step shows only the request, not yet the tally',
   expect(frame).not.toContain('Traffic Split');
   unmount();
 });
+
+test('an mcp result renders the request and response like an http result does', () => {
+  const engine = buildFakeEngine();
+  engine.currentScreen.steps[0] = {
+    kind: 'mcp',
+    label: 'tools/list',
+    url: 'http://example.com/mcp',
+    method: 'tools/list',
+  };
+  engine.currentStep = engine.currentScreen.steps[0];
+  engine.getStepResult = () => ({
+    kind: 'mcp',
+    request: { method: 'POST', url: 'http://example.com/mcp', headers: {}, body: '{}' },
+    status: 200,
+    passed: true,
+    body: '{"result":{}}',
+  });
+  engine.isResponseRevealed = () => true;
+
+  const { lastFrame, unmount } = render(
+    React.createElement(WalkthroughApp, { engine, installedVersion: null })
+  );
+
+  const frame = lastFrame();
+  expect(frame).toContain('POST http://example.com/mcp');
+  expect(frame).toContain('Status: 200');
+  unmount();
+});
