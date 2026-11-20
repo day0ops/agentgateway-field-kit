@@ -4,6 +4,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { Feature, FeatureManager } from '../../src/lib/feature.js';
 import { WalkthroughManager } from '../../src/lib/walkthroughs.js';
+import '../../features/index.js';
 
 class DualEditionFeature extends Feature {
   async deploy() {}
@@ -15,19 +16,6 @@ class EnterpriseOnlyFeature extends Feature {
   async deploy() {}
   async cleanup() {}
 }
-
-let originalFeatures;
-
-beforeEach(() => {
-  originalFeatures = FeatureManager.features;
-  FeatureManager.features = new Map();
-  FeatureManager.register('dual-edition-feature', DualEditionFeature);
-  FeatureManager.register('enterprise-only-feature', EnterpriseOnlyFeature);
-});
-
-afterEach(() => {
-  FeatureManager.features = originalFeatures;
-});
 
 describe('WalkthroughManager.list', () => {
   test('lists walkthroughs found under <root>/config/walkthroughs with their descriptions', async () => {
@@ -66,6 +54,19 @@ describe('WalkthroughManager.list', () => {
 });
 
 describe('WalkthroughManager.load', () => {
+  let originalFeatures;
+
+  beforeEach(() => {
+    originalFeatures = FeatureManager.features;
+    FeatureManager.features = new Map();
+    FeatureManager.register('dual-edition-feature', DualEditionFeature);
+    FeatureManager.register('enterprise-only-feature', EnterpriseOnlyFeature);
+  });
+
+  afterEach(() => {
+    FeatureManager.features = originalFeatures;
+  });
+
   test('loads a walkthrough with no environment binding as-is, defaulting optional fields', async () => {
     const root = mkdtempSync(join(tmpdir(), 'agw-walkthroughs-load-'));
     const filePath = join(root, 'standalone.yaml');
@@ -249,5 +250,20 @@ describe('WalkthroughManager.load', () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+});
+
+describe('mcp-core-capabilities walkthrough (real file)', () => {
+  test('loads successfully as an enterprise walkthrough with four screens in order', async () => {
+    const walkthrough = await WalkthroughManager.load(
+      join(WalkthroughManager.WALKTHROUGHS_DIR, 'mcp-core-capabilities.yaml')
+    );
+    expect(walkthrough.edition).toBe('enterprise');
+    expect(walkthrough.screens.map(s => s.name)).toEqual([
+      'progressive-disclosure',
+      'mcp-auth',
+      'rbac',
+      'persona-tool-access',
+    ]);
   });
 });
