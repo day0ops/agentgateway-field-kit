@@ -204,7 +204,7 @@ export class AgentGatewayManager {
       );
     }
 
-    const crdsReleaseName = await this.detectInstalledCrdsRelease();
+    const crdsReleaseName = await this.detectInstalledCrdsRelease(spinner);
     if (crdsReleaseName) {
       await KubernetesHelper.helm([
         'uninstall',
@@ -649,9 +649,11 @@ export class AgentGatewayManager {
    * listing releases rather than recomputing the expected name, since AGENTGATEWAY_CRDS_RELEASE
    * may differ between the install and the current shell session.
    * @returns {Promise<string|null>} The installed CRDs release name, or null if none is found
+   * @param {SpinnerLogger} [externalSpinner] - reuse a caller's active spinner (see
+   *   KubernetesHelper.isClusterAccessible)
    */
-  static async detectInstalledCrdsRelease() {
-    if (!(await KubernetesHelper.isClusterAccessible())) {
+  static async detectInstalledCrdsRelease(externalSpinner = null) {
+    if (!(await KubernetesHelper.isClusterAccessible('', externalSpinner))) {
       throw new Error(
         'Cannot reach the Kubernetes API — check your kubeconfig/credentials before continuing.'
       );
