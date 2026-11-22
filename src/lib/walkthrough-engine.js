@@ -7,12 +7,14 @@ import {
   executeHttpRequest,
   buildTrafficSplitRequest,
   executeTrafficSplitRequest,
+  buildMcpRequest,
+  executeMcpRequest,
   captureResponseVariable,
 } from './walkthrough-steps.js';
 import { CredentialManager } from './oidc-credential.js';
 
 /** Step kinds previewed (request built, not fired) before a further press runs them. */
-const PREVIEWABLE_KINDS = new Set(['http', 'traffic-split']);
+const PREVIEWABLE_KINDS = new Set(['http', 'traffic-split', 'mcp']);
 
 /** Whether a previewed step's result is still awaiting the press that actually fires it. */
 function isPreviewOnly(result) {
@@ -55,6 +57,8 @@ export class WalkthroughEngine extends EventEmitter {
     this.screenIndex = 0;
     this.stepIndex = 0;
     this.appliedScreens = new Set();
+    // Map<screenIndex, Array<{ name: string, yaml: string }>> - one entry per setup feature's
+    // own rendered doc, so getAppliedYaml() can filter it down per-step.
     this.appliedYaml = new Map();
     this.stepResults = new Map();
     this.responseRevealed = new Set();
@@ -88,9 +92,21 @@ export class WalkthroughEngine extends EventEmitter {
     return this.stepResults.get(this.resultKey(screenIndex, stepIndex)) ?? null;
   }
 
-  /** @returns {?string} the YAML applied for a screen's setup, or null if it hasn't been applied/captured */
-  getAppliedYaml(screenIndex = this.screenIndex) {
-    return this.appliedYaml.get(screenIndex) ?? null;
+  /**
+   * @returns {?string} the YAML applied for a screen's setup, or null if it hasn't been
+   * applied/captured. When the given step declares `relevantSetup` (an array of setup feature
+   * names), only those features' docs are included - lets a step that doesn't exercise every
+   * feature the screen sets up (e.g. one gated earlier in the chain, before a later step's own
+   * dependency is ever reached) show just what it actually used. Steps that don't declare it
+   * keep the full per-screen set, unfiltered.
+   */
+  getAppliedYaml(screenIndex = this.screenIndex, stepIndex = this.stepIndex) {
+    const docs = this.appliedYaml.get(screenIndex);
+    if (!docs) return null;
+    const relevantSetup = this.walkthrough.screens[screenIndex]?.steps?.[stepIndex]?.relevantSetup;
+    const filtered = relevantSetup ? docs.filter(doc => relevantSetup.includes(doc.name)) : docs;
+    if (filtered.length === 0) return null;
+    return filtered.map(doc => doc.yaml.trim()).join('\n\n---\n\n');
   }
 
   isResponseRevealed(screenIndex = this.screenIndex, stepIndex = this.stepIndex) {
@@ -130,32 +146,38 @@ export class WalkthroughEngine extends EventEmitter {
         const docs = [];
         for (const featureRef of screen.setup || []) {
           const config = featureRef.config || {};
-          // Disable PolicyRegistry for just this one dry-run capture call: Feature.applyResource
-          // defers an EnterpriseAgentgatewayPolicy resource to PolicyRegistry.register() whenever
-          // PolicyRegistry.isEnabled() is true, which would otherwise mean a policy-emitting
-          // feature's dry-run call registers into the batch's coalesced state exactly like the
-          // real deploy call that follows it - double-registering this feature as its own
-          // contributor. Disabling it here makes applyResource() fall through to the normal
-          // _dryRunYaml capture path instead, so the preview panel shows this feature's own real
-          // (unmerged) YAML, and the dry-run call no longer touches PolicyRegistry's maps at all -
-          // the double-registration this was built to prevent can no longer happen. Reading/writing
-          // `enabled` directly (not enable()/disable()) because enable()'s clear() would wipe this
-          // batch's already-coalesced state from earlier features in the same loop.
-          const wasEnabled = PolicyRegistry.enabled;
-          PolicyRegistry.enabled = false;
-          try {
-            // Best-effort only, for the "Applied Configuration" preview panel - a feature whose
-            // dry-run isn't side-effect-pure must not block the real deploy below.
-            const rendered = await FeatureManager.deploy(featureRef.name, config, {
-              dryRun: true,
-              edition: this.edition,
-              deploymentId: this.name,
-            });
-            docs.push(...(rendered || []));
-          } catch {
-            // see above
-          } finally {
-            PolicyRegistry.enabled = wasEnabled;
+          // skipPreview: true opts a setup entry out of the "Applied Configuration" preview -
+          // for a feature this screen provisions only for a later screen's steps to use, never
+          // exercised by any step of its own (e.g. screen 1's virtual-keys, consumed starting
+          // screen 2). The real deploy below still runs unconditionally.
+          if (!featureRef.skipPreview) {
+            // Disable PolicyRegistry for just this one dry-run capture call: Feature.applyResource
+            // defers an EnterpriseAgentgatewayPolicy resource to PolicyRegistry.register() whenever
+            // PolicyRegistry.isEnabled() is true, which would otherwise mean a policy-emitting
+            // feature's dry-run call registers into the batch's coalesced state exactly like the
+            // real deploy call that follows it - double-registering this feature as its own
+            // contributor. Disabling it here makes applyResource() fall through to the normal
+            // _dryRunYaml capture path instead, so the preview panel shows this feature's own real
+            // (unmerged) YAML, and the dry-run call no longer touches PolicyRegistry's maps at all -
+            // the double-registration this was built to prevent can no longer happen. Reading/writing
+            // `enabled` directly (not enable()/disable()) because enable()'s clear() would wipe this
+            // batch's already-coalesced state from earlier features in the same loop.
+            const wasEnabled = PolicyRegistry.enabled;
+            PolicyRegistry.enabled = false;
+            try {
+              // Best-effort only, for the "Applied Configuration" preview panel - a feature whose
+              // dry-run isn't side-effect-pure must not block the real deploy below.
+              const rendered = await FeatureManager.deploy(featureRef.name, config, {
+                dryRun: true,
+                edition: this.edition,
+                deploymentId: this.name,
+              });
+              docs.push(...(rendered || []).map(doc => ({ name: featureRef.name, yaml: doc })));
+            } catch {
+              // see above
+            } finally {
+              PolicyRegistry.enabled = wasEnabled;
+            }
           }
           await FeatureManager.deploy(featureRef.name, config, {
             edition: this.edition,
@@ -163,8 +185,7 @@ export class WalkthroughEngine extends EventEmitter {
             spinner: SILENT_SPINNER,
           });
         }
-        if (docs.length > 0)
-          this.appliedYaml.set(i, docs.map(doc => doc.trim()).join('\n\n---\n\n'));
+        if (docs.length > 0) this.appliedYaml.set(i, docs);
         this.appliedScreens.add(i);
       }
 
@@ -207,8 +228,8 @@ export class WalkthroughEngine extends EventEmitter {
 
   /**
    * Builds and stores the current step's request (resolving any credential) without firing it
-   * - so the TUI can show the request before the step actually runs. Covers both 'http' and
-   * 'traffic-split' (which fires the same built request `step.requestCount` times).
+   * - so the TUI can show the request before the step actually runs. Covers every previewable kind
+   * (see `PREVIEWABLE_KINDS`), which fire in preview; others build/fire in the same press.
    */
   async previewCurrentStep() {
     this.emit('running');
@@ -220,6 +241,9 @@ export class WalkthroughEngine extends EventEmitter {
         request,
         requestCount: this.currentStep.requestCount,
       });
+    } else if (this.currentStep.kind === 'mcp') {
+      const request = await buildMcpRequest(this.currentStep, context);
+      this.stepResults.set(this.resultKey(), { kind: 'mcp', request });
     } else {
       const request = await buildHttpRequest(this.currentStep, context);
       this.stepResults.set(this.resultKey(), { kind: 'http', request });
@@ -228,11 +252,11 @@ export class WalkthroughEngine extends EventEmitter {
   }
 
   /**
-   * Fires the current step and stores its result, revealing the response immediately. An
-   * 'http' or 'traffic-split' step reuses its already-built preview's request rather than
-   * re-resolving the credential a second time. An 'http' step with `captureVariable` set also
-   * extracts a value from its own response into `this.variables`, for a later step's
-   * `{{vars.NAME}}` to reference.
+   * Fires the current step and stores its result, revealing the response immediately. A
+   * previewable step (see `PREVIEWABLE_KINDS`) reuses its already-built preview's request rather
+   * than re-resolving the credential a second time. An 'http' or 'mcp' step with
+   * `captureVariable` set also extracts a value from its own response into `this.variables`,
+   * for a later step's `{{vars.NAME}}` to reference.
    */
   async runCurrentStep() {
     const key = this.resultKey();
@@ -246,6 +270,9 @@ export class WalkthroughEngine extends EventEmitter {
         this.currentStep,
         this.stepResults.get(key).request
       );
+    } else if (this.currentStep.kind === 'mcp') {
+      result = await executeMcpRequest(this.currentStep, this.stepResults.get(key).request);
+      captureResponseVariable(this.currentStep, result, this.variables);
     } else {
       result = await runStep(this.currentStep, {
         credentials: this.credentials,
@@ -308,7 +335,7 @@ export class WalkthroughEngine extends EventEmitter {
   }
 
   /**
-   * Right-arrow: for a previewable step ('http' or 'traffic-split'), applying a screen's setup
+   * Right-arrow: for a previewable step (see `PREVIEWABLE_KINDS`), applying a screen's setup
    * also previews the request (built but not sent) in the same press; firing it (which reveals
    * the response/tally) and advancing are two further presses. A 'prompt' step has nothing to
    * fire here - submitPromptValue (via Enter) drives it. Other step kinds fire directly on

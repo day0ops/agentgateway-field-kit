@@ -235,6 +235,14 @@ export class UseCaseTestRunner {
             spinner.start(prevText);
             break;
           }
+          if (step.pingFederate) {
+            spinner.stop();
+            Logger.info('Opening browser for PingFederate login...');
+            bearerToken = await this.getTokenViaBrowserPingFederate(step);
+            Logger.success('Token obtained via browser login (real PingFederate JWT)');
+            spinner.start(prevText);
+            break;
+          }
           if (step.auth0) {
             spinner.stop();
             Logger.info('Registering a client via DCR and opening browser for Auth0 login...');
@@ -1305,6 +1313,127 @@ export class UseCaseTestRunner {
     }
     if (!tokenResp.access_token) {
       throw new Error('Okta token exchange: no access_token in response');
+    }
+
+    return tokenResp.access_token;
+  }
+
+  /**
+   * Complete a real interactive PingFederate login for eager-auth-pingfederate, using a
+   * pre-registered clientId (no DCR involved - see that feature's doc comment for why).
+   * Identical PKCE authorization_code shape to getTokenViaBrowserOkta above: read the
+   * gateway's proxied authorization-server metadata for the real authorize/token
+   * endpoints (passed through unmodified since no provider adapter rewrites them), open
+   * a browser for a human to complete the login, wait for the callback, exchange the
+   * code directly against PingFederate. Returns a genuine PingFederate-issued JWT.
+   */
+  static async getTokenViaBrowserPingFederate(step) {
+    const pf = step.pingFederate || {};
+    const loginTimeout = pf.timeout || 240000;
+    const clientId = pf.clientId || process.env.PINGFEDERATE_ISSUER_CLIENT_ID;
+    if (!clientId) {
+      throw new Error(
+        'get-token pingFederate requires clientId (or PINGFEDERATE_ISSUER_CLIENT_ID env var)'
+      );
+    }
+    if (!pf.discoveryUrl) {
+      throw new Error(
+        "get-token pingFederate requires discoveryUrl (the gateway's .well-known/oauth-authorization-server URL)"
+      );
+    }
+
+    const metaResult = await CommandRunner.run(
+      'curl',
+      ['-sSk', '--max-time', '10', pf.discoveryUrl],
+      { ignoreError: true }
+    );
+    const metaBody = (metaResult.stdout || '').trim();
+    if (!metaBody)
+      throw new Error('get-token pingFederate: empty authorization-server metadata response');
+
+    let metadata;
+    try {
+      metadata = JSON.parse(metaBody);
+    } catch {
+      throw new Error(
+        `get-token pingFederate: invalid authorization-server metadata JSON: ${metaBody.substring(0, 200)}`
+      );
+    }
+    if (!metadata.authorization_endpoint || !metadata.token_endpoint) {
+      throw new Error(
+        'get-token pingFederate: authorization-server metadata missing authorization_endpoint/token_endpoint'
+      );
+    }
+
+    const codeVerifier = randomBytes(32).toString('base64url');
+    const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url');
+    const state = randomBytes(12).toString('base64url');
+
+    const callbackPort = pf.callbackPort || 8766;
+    const { codePromise, server } = await this.startCallbackServer(loginTimeout, callbackPort);
+    const redirectUri = `http://localhost:${callbackPort}/callback`;
+
+    const authorizeUrl = new URL(metadata.authorization_endpoint);
+    authorizeUrl.searchParams.set('client_id', clientId);
+    authorizeUrl.searchParams.set('response_type', 'code');
+    authorizeUrl.searchParams.set('redirect_uri', redirectUri);
+    authorizeUrl.searchParams.set('scope', pf.scope || 'openid');
+    authorizeUrl.searchParams.set('code_challenge', codeChallenge);
+    authorizeUrl.searchParams.set('code_challenge_method', 'S256');
+    authorizeUrl.searchParams.set('state', state);
+
+    const openCmd =
+      process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start' : 'xdg-open';
+    spawn(openCmd, [authorizeUrl.toString()], { stdio: 'ignore', detached: true }).unref();
+
+    Logger.info(`Waiting for login (timeout: ${loginTimeout / 1000}s)...`);
+    const authCode = await codePromise;
+    server.close();
+
+    const tokenParts = [
+      'grant_type=authorization_code',
+      `client_id=${encodeURIComponent(clientId)}`,
+      `code=${encodeURIComponent(authCode)}`,
+      `redirect_uri=${encodeURIComponent(redirectUri)}`,
+      `code_verifier=${encodeURIComponent(codeVerifier)}`,
+    ];
+
+    const tokenResult = await CommandRunner.run(
+      'curl',
+      [
+        '-sSk',
+        '--max-time',
+        '10',
+        '-X',
+        'POST',
+        metadata.token_endpoint,
+        '-H',
+        'Content-Type: application/x-www-form-urlencoded',
+        '-d',
+        tokenParts.join('&'),
+      ],
+      { ignoreError: true }
+    );
+
+    const body = (tokenResult.stdout || '').trim();
+    if (!body)
+      throw new Error('PingFederate token exchange failed: empty response from token endpoint');
+
+    let tokenResp;
+    try {
+      tokenResp = JSON.parse(body);
+    } catch {
+      throw new Error(
+        `PingFederate token exchange: invalid JSON response: ${body.substring(0, 200)}`
+      );
+    }
+    if (tokenResp.error) {
+      throw new Error(
+        `PingFederate token exchange failed: ${tokenResp.error_description || tokenResp.error}`
+      );
+    }
+    if (!tokenResp.access_token) {
+      throw new Error('PingFederate token exchange: no access_token in response');
     }
 
     return tokenResp.access_token;

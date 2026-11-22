@@ -19,6 +19,10 @@ import {
   buildTlsOptions,
   assertTlsOptionsSupported,
   connectionTarget,
+  unwrapSseBody,
+  buildMcpRequest,
+  executeMcpRequest,
+  runMcpStep,
 } from '../../src/lib/walkthrough-steps.js';
 import { KubernetesHelper } from '../../src/lib/common.js';
 import { FeatureManager } from '../../src/lib/feature.js';
@@ -1034,6 +1038,220 @@ describe('against a real TLS server (resolve/insecure/client-cert/body)', () => 
   });
 });
 
+describe('unwrapSseBody', () => {
+  test('returns the body unchanged when content-type is not text/event-stream', () => {
+    expect(unwrapSseBody('{"jsonrpc":"2.0"}', 'application/json')).toBe('{"jsonrpc":"2.0"}');
+  });
+
+  test('returns the body unchanged when content-type is null', () => {
+    expect(unwrapSseBody('{"jsonrpc":"2.0"}', null)).toBe('{"jsonrpc":"2.0"}');
+  });
+
+  test('extracts the JSON payload out of a single SSE data line', () => {
+    const sse = 'event: message\ndata: {"jsonrpc":"2.0","id":1,"result":{}}\n\n';
+    expect(unwrapSseBody(sse, 'text/event-stream')).toBe('{"jsonrpc":"2.0","id":1,"result":{}}');
+  });
+});
+
+describe('buildMcpRequest', () => {
+  test('builds a POST with explicit Content-Type and Accept headers', async () => {
+    const request = await buildMcpRequest(
+      { url: 'https://example.com/mcp', method: 'tools/list' },
+      { credentials: {}, variables: new Map() }
+    );
+    expect(request.method).toBe('POST');
+    expect(request.url).toBe('https://example.com/mcp');
+    expect(request.headers['Content-Type']).toBe('application/json');
+    expect(request.headers['Accept']).toBe('application/json, text/event-stream');
+  });
+
+  test('encodes method/params as a JSON-RPC 2.0 envelope', async () => {
+    const request = await buildMcpRequest(
+      {
+        url: 'https://example.com/mcp',
+        method: 'tools/call',
+        params: { name: 'get_stock_price', arguments: { symbol: 'AAPL' } },
+      },
+      { credentials: {}, variables: new Map() }
+    );
+    const body = JSON.parse(request.body);
+    expect(body.jsonrpc).toBe('2.0');
+    expect(body.method).toBe('tools/call');
+    expect(body.params).toEqual({ name: 'get_stock_price', arguments: { symbol: 'AAPL' } });
+  });
+
+  test('resolves a credential into a Bearer Authorization header', async () => {
+    const request = await buildMcpRequest(
+      { url: 'https://example.com/mcp', method: 'tools/list', credential: 'alice' },
+      { credentials: { getToken: async name => `token-for-${name}` }, variables: new Map() }
+    );
+    expect(request.headers.Authorization).toBe('Bearer token-for-alice');
+  });
+});
+
+describe('executeMcpRequest', () => {
+  let originalFetch;
+  beforeEach(() => {
+    originalFetch = globalThis.fetch;
+  });
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  test('fires initialize then the real call, in that order', async () => {
+    const calls = [];
+    globalThis.fetch = async (url, init) => {
+      calls.push(JSON.parse(init.body).method);
+      if (calls.length === 1) {
+        return new Response('{"jsonrpc":"2.0","id":1,"result":{}}', {
+          status: 200,
+          headers: { 'mcp-session-id': 'sess-123' },
+        });
+      }
+      return new Response('{"jsonrpc":"2.0","id":2,"result":{"tools":[]}}', { status: 200 });
+    };
+    const request = { method: 'POST', url: 'https://example.com/mcp', headers: {}, body: '{}' };
+    const result = await executeMcpRequest({ expectStatus: 200 }, request);
+    expect(calls.length).toBe(2);
+    expect(calls[0]).toBe('initialize');
+    expect(result.kind).toBe('mcp');
+    expect(result.status).toBe(200);
+    expect(result.passed).toBe(true);
+    expect(result.request).toBe(request);
+  });
+
+  test('sends exactly two requests on the success path - never a notifications/initialized third one', async () => {
+    let callCount = 0;
+    globalThis.fetch = async () => {
+      callCount += 1;
+      return new Response('{"jsonrpc":"2.0","result":{}}', { status: 200 });
+    };
+    await executeMcpRequest(
+      {},
+      { method: 'POST', url: 'https://example.com/mcp', headers: {}, body: '{}' }
+    );
+    expect(callCount).toBe(2);
+  });
+
+  test('a non-2xx initialize returns immediately with the initialize request, not the real one', async () => {
+    globalThis.fetch = async () => new Response('{"error":"unauthorized"}', { status: 401 });
+    const request = { method: 'POST', url: 'https://example.com/mcp', headers: {}, body: '{}' };
+    const result = await executeMcpRequest({ expectStatus: 401 }, request);
+    expect(result.status).toBe(401);
+    expect(result.passed).toBe(true);
+    expect(result.request).not.toBe(request);
+    expect(JSON.parse(result.request.body).method).toBe('initialize');
+  });
+
+  test('proceeds without a session header when initialize returns none', async () => {
+    const headersSent = [];
+    globalThis.fetch = async (url, init) => {
+      headersSent.push(init.headers);
+      return new Response('{"jsonrpc":"2.0","result":{}}', { status: 200 });
+    };
+    await executeMcpRequest(
+      {},
+      { method: 'POST', url: 'https://example.com/mcp', headers: {}, body: '{}' }
+    );
+    expect(headersSent[1]['mcp-session-id']).toBeUndefined();
+  });
+
+  test('attaches the mcp-session-id header to the real call when initialize returns one', async () => {
+    const headersSent = [];
+    globalThis.fetch = async (url, init) => {
+      headersSent.push(init.headers);
+      if (headersSent.length === 1) {
+        return new Response('{"jsonrpc":"2.0","result":{}}', {
+          status: 200,
+          headers: { 'mcp-session-id': 'sess-abc' },
+        });
+      }
+      return new Response('{"jsonrpc":"2.0","result":{}}', { status: 200 });
+    };
+    await executeMcpRequest(
+      {},
+      { method: 'POST', url: 'https://example.com/mcp', headers: {}, body: '{}' }
+    );
+    expect(headersSent[1]['mcp-session-id']).toBe('sess-abc');
+  });
+
+  test('unwraps an SSE-framed real-call response into plain JSON in result.body', async () => {
+    globalThis.fetch = async (url, init) => {
+      const method = JSON.parse(init.body).method;
+      if (method === 'initialize')
+        return new Response('{"jsonrpc":"2.0","result":{}}', { status: 200 });
+      return new Response('data: {"jsonrpc":"2.0","result":{"tools":[]}}\n\n', {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+      });
+    };
+    const result = await executeMcpRequest(
+      {},
+      { method: 'POST', url: 'https://example.com/mcp', headers: {}, body: '{}' }
+    );
+    expect(JSON.parse(result.body)).toEqual({ jsonrpc: '2.0', result: { tools: [] } });
+  });
+
+  test('passed reflects the real call status, not initialize', async () => {
+    globalThis.fetch = async (url, init) => {
+      const method = JSON.parse(init.body).method;
+      if (method === 'initialize') return new Response('{}', { status: 200 });
+      return new Response('{}', { status: 403 });
+    };
+    const result = await executeMcpRequest(
+      { expectStatus: 200 },
+      { method: 'POST', url: 'https://example.com/mcp', headers: {}, body: '{}' }
+    );
+    expect(result.status).toBe(403);
+    expect(result.passed).toBe(false);
+  });
+
+  test('passes when expectResponseHeader matches', async () => {
+    globalThis.fetch = async (url, init) => {
+      const method = JSON.parse(init.body).method;
+      if (method === 'initialize') return new Response('{}', { status: 200 });
+      return new Response('{}', {
+        status: 200,
+        headers: { 'X-MCP-Version': '2024-11-05' },
+      });
+    };
+    const result = await executeMcpRequest(
+      {
+        expectStatus: 200,
+        expectResponseHeader: { name: 'X-MCP-Version', value: '2024-11-05' },
+      },
+      { method: 'POST', url: 'https://example.com/mcp', headers: {}, body: '{}' }
+    );
+    expect(result.passed).toBe(true);
+  });
+
+  test('fails when expectResponseHeader value does not match', async () => {
+    globalThis.fetch = async (url, init) => {
+      const method = JSON.parse(init.body).method;
+      if (method === 'initialize') return new Response('{}', { status: 200 });
+      return new Response('{}', { status: 200 });
+    };
+    const result = await executeMcpRequest(
+      {
+        expectStatus: 200,
+        expectResponseHeader: { name: 'X-MCP-Version', value: '2024-11-05' },
+      },
+      { method: 'POST', url: 'https://example.com/mcp', headers: {}, body: '{}' }
+    );
+    expect(result.passed).toBe(false);
+  });
+
+  test('includes expectResponseHeader in the result object', async () => {
+    globalThis.fetch = async () => new Response('{}', { status: 200 });
+    const expectResponseHeader = { name: 'X-Custom', value: 'test' };
+    const result = await executeMcpRequest(
+      { expectResponseHeader },
+      { method: 'POST', url: 'https://example.com/mcp', headers: {}, body: '{}' }
+    );
+    expect(result.expectResponseHeader).toEqual(expectResponseHeader);
+  });
+});
+
 describe('runStep', () => {
   let originalFetch;
   beforeEach(() => {
@@ -1071,5 +1289,15 @@ describe('runStep', () => {
     await expect(
       runStep({ kind: 'prompt' }, { credentials: {}, variables: new Map() })
     ).rejects.toThrow(/Unknown step kind/);
+  });
+
+  test('dispatches an mcp step through build + execute', async () => {
+    globalThis.fetch = async () => new Response('{"jsonrpc":"2.0","result":{}}', { status: 200 });
+    const result = await runStep(
+      { kind: 'mcp', url: 'https://example.com/mcp', method: 'tools/list', expectStatus: 200 },
+      { credentials: {}, variables: new Map() }
+    );
+    expect(result.kind).toBe('mcp');
+    expect(result.passed).toBe(true);
   });
 });

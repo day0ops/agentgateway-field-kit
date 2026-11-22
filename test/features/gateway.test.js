@@ -4,6 +4,13 @@ import '../../features/index.js';
 import { FeatureManager } from '../../src/lib/feature.js';
 import { KubernetesHelper } from '../../src/lib/common.js';
 
+// Every gateway feature deploy calls FeatureManager.setGatewayRef(), a static, process-wide
+// field - reset it after each test so this file's non-default names/namespaces don't leak
+// into whichever test file bun runs next in this process.
+afterEach(() => {
+  FeatureManager.gatewayRef = null;
+});
+
 describe('GatewayFeature edition-aware defaults', () => {
   test('enterprise (default) uses agentgateway-gw and the enterprise GatewayClass', async () => {
     const docs = await FeatureManager.deploy('gateway', {}, { dryRun: true });
@@ -115,5 +122,81 @@ describe('GatewayFeature registerDns opt-in', () => {
     );
     const annotateCalls = calls.filter(args => args.includes('annotate'));
     expect(annotateCalls).toEqual([]);
+  });
+});
+
+describe('GatewayFeature registerWithTelemetry', () => {
+  let originalKubectl, calls, policies;
+
+  beforeEach(() => {
+    calls = [];
+    // Keyed by policy name - undefined means "not installed" (kubectl get fails).
+    policies = {
+      'logging-policy': { spec: { targetRefs: [] } },
+      'tracing-policy': { spec: { targetRefs: [] } },
+      'tracing-solo-ui': { spec: { targetRefs: [] } },
+    };
+    originalKubectl = KubernetesHelper.kubectl;
+    KubernetesHelper.kubectl = async args => {
+      calls.push(args);
+      if (args[0] === 'get' && args[1] === 'svc') {
+        return { stdout: '10.0.0.5', stderr: '', exitCode: 0 }; // short-circuits waitForGatewayReachable
+      }
+      if (args[0] === 'get' && args[1] === 'enterpriseagentgatewaypolicy') {
+        const policy = policies[args[2]];
+        return policy
+          ? { stdout: JSON.stringify(policy), stderr: '', exitCode: 0 }
+          : { stdout: '', stderr: 'not found', exitCode: 1 };
+      }
+      return { stdout: '', stderr: '', exitCode: 0 };
+    };
+  });
+
+  afterEach(() => {
+    KubernetesHelper.kubectl = originalKubectl;
+  });
+
+  test('appends the new Gateway to logging-policy/tracing-policy/tracing-solo-ui targetRefs', async () => {
+    await FeatureManager.deploy('gateway', { name: 'governance-gateway' }, { dryRun: false });
+
+    const patchCalls = calls.filter(args => args[0] === 'patch');
+    expect(patchCalls).toHaveLength(3);
+    for (const args of patchCalls) {
+      const body = JSON.parse(args[args.indexOf('-p') + 1]);
+      expect(body.spec.targetRefs).toContainEqual({
+        group: 'gateway.networking.k8s.io',
+        kind: 'Gateway',
+        name: 'governance-gateway',
+      });
+    }
+  });
+
+  test('is a no-op when telemetry is not installed (policy lookup fails)', async () => {
+    policies = {};
+    await FeatureManager.deploy('gateway', { name: 'governance-gateway' }, { dryRun: false });
+
+    expect(calls.filter(args => args[0] === 'patch')).toEqual([]);
+  });
+
+  test('does not duplicate an already-registered Gateway on a repeat deploy', async () => {
+    policies['logging-policy'].spec.targetRefs = [
+      { group: 'gateway.networking.k8s.io', kind: 'Gateway', name: 'governance-gateway' },
+    ];
+    await FeatureManager.deploy('gateway', { name: 'governance-gateway' }, { dryRun: false });
+
+    // Only tracing-policy and tracing-solo-ui (not yet registered) get patched.
+    const patchCalls = calls.filter(args => args[0] === 'patch');
+    expect(patchCalls).toHaveLength(2);
+    expect(patchCalls.map(args => args[2]).sort()).toEqual(['tracing-policy', 'tracing-solo-ui']);
+  });
+
+  test('skips entirely for a Gateway outside agentgateway-system (targetRefs cannot cross namespaces)', async () => {
+    await FeatureManager.deploy(
+      'gateway',
+      { name: 'other-gateway', namespace: 'some-other-namespace' },
+      { dryRun: false }
+    );
+
+    expect(calls.some(args => args[1] === 'enterpriseagentgatewaypolicy')).toBe(false);
   });
 });

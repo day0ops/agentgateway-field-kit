@@ -128,3 +128,11 @@ spec:
   auth0:
     domain: dev-00000000.us.auth0.com
     audience: https://agentgateway.example.com/mcp
+
+  # PingFederate on zeus, deployed via the pingfederate addon (ping-devops Helm chart).
+  # issuer/clientId match the Access Token Manager and OAuth client that addon
+  # bootstraps via the Admin API - see addons/pingfederate/index.js.
+  pingFederate:
+    issuer: https://pingfederate-pingfederate-engine.pingfederate.svc.cluster.local:9031
+    jwksPath: /pf/JWKS
+    clientId: agentgateway-mcp

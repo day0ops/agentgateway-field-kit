@@ -69,14 +69,31 @@ export async function runWalkthrough(name) {
   }
 }
 
-/** Cleans up every feature a walkthrough's screens and pre-provisioning applied, in reverse order. */
-export async function cleanWalkthrough(name) {
+// Skipped by cleanWalkthrough() unless force is set - each is costly/slow to re-provision:
+// certs (especially real ACME/DNS-01 ones) are slow and rate-limited to re-issue, and a
+// deleted-then-recreated Gateway gets a new LoadBalancer IP, which re-triggers external-dns'
+// delete+create cycle and the real-world DNS propagation delay that comes with it.
+const FORCE_ONLY_FEATURES = ['certificate', 'gateway'];
+
+/**
+ * Cleans up every feature a walkthrough's screens and pre-provisioning applied, in reverse
+ * order. `force: false` (the default) skips FORCE_ONLY_FEATURES, so a re-run of the same
+ * walkthrough can reuse them instead of re-provisioning from scratch. `force: true` removes
+ * everything, with no exceptions.
+ */
+export async function cleanWalkthrough(name, { force = false } = {}) {
   const engine = await loadEngine(name);
   const allFeatureRefs = [
     ...engine.walkthrough.preProvision,
     ...engine.walkthrough.screens.flatMap(screen => screen.setup || []),
   ];
   for (const featureRef of [...allFeatureRefs].reverse()) {
+    if (!force && FORCE_ONLY_FEATURES.includes(featureRef.name)) {
+      Logger.info(
+        `Skipping ${featureRef.name} '${featureRef.config?.name}' - pass --force to include it`
+      );
+      continue;
+    }
     try {
       await FeatureManager.cleanup(featureRef.name, featureRef.config || {}, {
         edition: engine.edition,

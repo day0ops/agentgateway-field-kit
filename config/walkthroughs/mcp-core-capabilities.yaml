@@ -1,0 +1,370 @@
+apiVersion: agentgateway.demo/v1
+kind: Walkthrough
+metadata:
+  name: mcp-core-capabilities
+  description: |
+    A tour of agentgateway's core MCP capabilities: progressive tool disclosure, OAuth-based MCP auth, CEL-based RBAC on individual tools, and persona-level tool access across a federated backend. Navigate forward through the screens in order - jumping backward past RBAC or Persona-Level Tool Access in the screen list leaves that screen's tool-access policy in place on the shared backend.
+
+spec:
+  environment: local
+  preProvision:
+    - name: certificate
+      config:
+        name: mcp-walkthrough-gateway-tls
+        secretName: mcp-walkthrough-gateway-tls
+        issuer: letsencrypt-dns
+        dnsNames: ['{{env.domains.app.walkthrough}}']
+    - name: gateway
+      config:
+        name: mcp-walkthrough-gateway
+        registerDns: true
+        listeners:
+          - name: https
+            port: 443
+            protocol: HTTPS
+            hostname: '{{env.domains.app.walkthrough}}'
+            tls: { mode: Terminate, certificateRefs: [{ name: mcp-walkthrough-gateway-tls }] }
+            allowedRoutes:
+              namespaces:
+                from: All
+              kinds:
+                - group: gateway.networking.k8s.io
+                  kind: HTTPRoute
+                - group: agentgateway.dev
+                  kind: AgentgatewayModel
+  credentials:
+    alice:
+      issuerUrl: 'https://{{env.domains.core.keycloak}}/realms/agw-dev'
+      clientId: agw-client-public
+    bob:
+      issuerUrl: 'https://{{env.domains.core.keycloak}}/realms/agw-dev'
+      clientId: agw-client-public
+  screens:
+    - name: progressive-disclosure
+      title: Progressive Disclosure
+      narration: |
+        A federated MCP catalog doesn't have to mean dumping every tool from every backend into context at once. toolMode: Search collapses it into two meta-tools - get_tool to look up a tool's description and schema, and invoke_tool to call it - so the agent discovers what it needs instead of being handed everything up front.
+      setup:
+        - name: mcp-server
+          config:
+            backendName: mcp-workloads-backend
+            routeName: mcp-workloads
+            pathPrefix: /mcp-workloads
+            protocol: StreamableHTTP
+            mcpPath: /mcp
+            servers:
+              - name: stock-server-mcp
+                image: '{{env.images.common.stock-server-mcp}}'
+                serverPort: 8000
+                servicePort: 80
+              - name: currency-server-mcp
+                image: '{{env.images.common.currency-server-mcp}}'
+                serverPort: 8000
+                servicePort: 80
+            targets:
+              - name: stock-server-mcp
+                matchLabels:
+                  app: stock-server-mcp
+              - name: currency-server-mcp
+                matchLabels:
+                  app: currency-server-mcp
+        - name: mcp-enterprise
+          config:
+            backendName: mcp-search-backend
+            routeName: mcp-search
+            pathPrefix: /mcp-search
+            toolMode: Search
+            targets:
+              - name: stock-server-mcp
+                matchLabels:
+                  app: stock-server-mcp
+              - name: currency-server-mcp
+                matchLabels:
+                  app: currency-server-mcp
+      steps:
+        - kind: mcp
+          label: 'tools/list (federated catalog, toolMode: Search)'
+          description: Instead of every tool from both servers, the catalog is just two meta-tools.
+          url: 'https://{{env.domains.app.walkthrough}}/mcp-search'
+          resolveGateway: { name: mcp-walkthrough-gateway }
+          method: tools/list
+          expectStatus: 200
+          relevantSetup: [mcp-enterprise]
+        - kind: mcp
+          label: 'tools/call get_tool (stock-server-mcp-80_get_stock_price)'
+          description: Look up a specific tool's description and input schema before calling it.
+          url: 'https://{{env.domains.app.walkthrough}}/mcp-search'
+          resolveGateway: { name: mcp-walkthrough-gateway }
+          method: tools/call
+          params:
+            name: get_tool
+            arguments:
+              name: stock-server-mcp-80_get_stock_price
+          expectStatus: 200
+          relevantSetup: [mcp-enterprise]
+        - kind: mcp
+          label: 'tools/call invoke_tool (stock-server-mcp-80_get_stock_price, AAPL)'
+          description: Now actually call it through the same meta-tool.
+          url: 'https://{{env.domains.app.walkthrough}}/mcp-search'
+          resolveGateway: { name: mcp-walkthrough-gateway }
+          method: tools/call
+          params:
+            name: invoke_tool
+            arguments:
+              name: stock-server-mcp-80_get_stock_price
+              arguments:
+                symbol: AAPL
+          expectStatus: 200
+          relevantSetup: [mcp-enterprise]
+
+    - name: mcp-auth
+      title: MCP Auth
+      narration: |
+        An unauthenticated MCP client gets a 401 with an OAuth Protected Resource Metadata pointer, discovers Keycloak, and - once signed in - attaches a Bearer token to every MCP call. agentgateway validates that token before ever forwarding to the backend.
+      setup:
+        - name: mcp-server
+          config:
+            deployServer: true
+            image: '{{env.images.common.stock-server-mcp}}'
+            serverName: stock-server-mcp
+            serverPort: 8000
+            servicePort: 80
+            protocol: StreamableHTTP
+            mcpPath: /mcp
+            backendName: mcp-backend
+            routeName: mcp
+        - name: mcp-auth
+          config:
+            policyName: mcp-auth
+            backendName: mcp-backend
+            routeName: mcp
+            mcpPath: /mcp
+            keycloak:
+              realm: agw-dev
+              serviceName: keycloak
+              serviceNamespace: keycloak
+              servicePort: 443
+              externalUrl: '{{env.keycloak.scheme}}://{{env.domains.core.keycloak}}'
+              configureDynamicRegistration: true
+              grantAudienceToClients:
+                - agw-client
+                - agw-client-public
+            audiences:
+              - 'https://{{env.domains.app.walkthrough}}/mcp'
+            resource: 'https://{{env.domains.app.walkthrough}}/mcp'
+            scopesSupported:
+              - email
+            mode: Strict
+            provider: Keycloak
+      steps:
+        - kind: mcp
+          label: 'tools/list (no credentials)'
+          description: No Bearer token at all - the initialize call itself is rejected.
+          url: 'https://{{env.domains.app.walkthrough}}/mcp'
+          resolveGateway: { name: mcp-walkthrough-gateway }
+          method: tools/list
+          expectStatus: 401
+          relevantSetup: [mcp-auth]
+        - kind: http
+          label: 'GET /.well-known/oauth-protected-resource/mcp'
+          description: The discovery document a real MCP client reads to find the IdP.
+          method: GET
+          url: 'https://{{env.domains.app.walkthrough}}/.well-known/oauth-protected-resource/mcp'
+          resolveGateway: { name: mcp-walkthrough-gateway }
+          expectStatus: 200
+          relevantSetup: [mcp-auth]
+        - kind: mcp
+          label: 'tools/list (alice, Bearer token)'
+          description: alice signs in via Keycloak; the token is attached as a Bearer header.
+          credential: alice
+          url: 'https://{{env.domains.app.walkthrough}}/mcp'
+          resolveGateway: { name: mcp-walkthrough-gateway }
+          method: tools/list
+          expectStatus: 200
+          relevantSetup: [mcp-auth]
+        - kind: mcp
+          label: 'tools/call get_stock_price (alice, AAPL)'
+          description: The same authenticated session calling a tool.
+          credential: alice
+          url: 'https://{{env.domains.app.walkthrough}}/mcp'
+          resolveGateway: { name: mcp-walkthrough-gateway }
+          method: tools/call
+          params:
+            name: get_stock_price
+            arguments:
+              symbol: AAPL
+          expectStatus: 200
+          relevantSetup: [mcp-auth]
+
+    - name: rbac
+      title: RBAC
+      narration: |
+        The same auth gate as before, plus a second one: a CEL policy keyed on a JWT claim and the requested tool's name. alice (user1) matches the rule and can call get_stock_price; bob (user2) doesn't match it, and his tool list comes back filtered.
+      setup:
+        - name: mcp-server
+          config:
+            deployServer: true
+            image: '{{env.images.common.stock-server-mcp}}'
+            serverName: stock-server-mcp
+            serverPort: 8000
+            servicePort: 80
+            protocol: StreamableHTTP
+            mcpPath: /mcp
+            backendName: mcp-backend
+            routeName: mcp
+        - name: mcp-auth
+          config:
+            policyName: mcp-auth
+            backendName: mcp-backend
+            routeName: mcp
+            mcpPath: /mcp
+            keycloak:
+              realm: agw-dev
+              serviceName: keycloak
+              serviceNamespace: keycloak
+              servicePort: 443
+              externalUrl: '{{env.keycloak.scheme}}://{{env.domains.core.keycloak}}'
+              configureDynamicRegistration: true
+              grantAudienceToClients:
+                - agw-client
+                - agw-client-public
+            audiences:
+              - 'https://{{env.domains.app.walkthrough}}/mcp'
+            resource: 'https://{{env.domains.app.walkthrough}}/mcp'
+            scopesSupported:
+              - email
+            mode: Strict
+            provider: Keycloak
+        - name: mcp-tool-access
+          config:
+            policyName: mcp-tool-access
+            backendName: mcp-backend
+            action: Allow
+            matchExpressions:
+              - 'jwt.preferred_username == "user1" && mcp.tool.name == "get_stock_price"'
+      steps:
+        - kind: mcp
+          label: 'tools/list (no credentials)'
+          description: Same base gate as the previous screen.
+          url: 'https://{{env.domains.app.walkthrough}}/mcp'
+          resolveGateway: { name: mcp-walkthrough-gateway }
+          method: tools/list
+          expectStatus: 401
+          relevantSetup: [mcp-auth]
+        - kind: mcp
+          label: 'tools/list (alice)'
+          description: alice matches the CEL rule - get_stock_price is still listed.
+          credential: alice
+          url: 'https://{{env.domains.app.walkthrough}}/mcp'
+          resolveGateway: { name: mcp-walkthrough-gateway }
+          method: tools/list
+          expectStatus: 200
+          relevantSetup: [mcp-auth, mcp-tool-access]
+        - kind: mcp
+          label: 'tools/call get_stock_price (alice)'
+          description: alice can call the tool her claim is allowed to call.
+          credential: alice
+          url: 'https://{{env.domains.app.walkthrough}}/mcp'
+          resolveGateway: { name: mcp-walkthrough-gateway }
+          method: tools/call
+          params:
+            name: get_stock_price
+            arguments:
+              symbol: AAPL
+          expectStatus: 200
+          relevantSetup: [mcp-auth, mcp-tool-access]
+        - kind: mcp
+          label: 'tools/list (bob)'
+          description: bob authenticates fine, but the CEL rule only matches user1 - his tool list comes back filtered.
+          credential: bob
+          url: 'https://{{env.domains.app.walkthrough}}/mcp'
+          resolveGateway: { name: mcp-walkthrough-gateway }
+          method: tools/list
+          expectStatus: 200
+          relevantSetup: [mcp-auth, mcp-tool-access]
+
+    - name: persona-tool-access
+      title: Persona-Level Tool Access
+      narration: |
+        The same CEL mechanism, keyed on the federation target instead of an individual tool name: user1 is granted the stock and currency targets, user2 is granted only the random target. Each user's tools/list shows a completely different catalog from the same federated endpoint.
+      setup:
+        - name: mcp-server
+          config:
+            backendName: mcp-backend
+            routeName: mcp
+            protocol: StreamableHTTP
+            mcpPath: /mcp
+            servers:
+              - name: stock-server-mcp
+                image: '{{env.images.common.stock-server-mcp}}'
+                serverPort: 8000
+                servicePort: 80
+              - name: currency-server-mcp
+                image: '{{env.images.common.currency-server-mcp}}'
+                serverPort: 8000
+                servicePort: 80
+              - name: random-server-mcp
+                image: '{{env.images.common.random-server-mcp}}'
+                serverPort: 8000
+                servicePort: 80
+            targets:
+              - name: stock-server-mcp
+                matchLabels:
+                  app: stock-server-mcp
+              - name: currency-server-mcp
+                matchLabels:
+                  app: currency-server-mcp
+              - name: random-server-mcp
+                matchLabels:
+                  app: random-server-mcp
+            failureMode: FailOpen
+        - name: mcp-auth
+          config:
+            policyName: mcp-auth
+            backendName: mcp-backend
+            routeName: mcp
+            mcpPath: /mcp
+            keycloak:
+              realm: agw-dev
+              serviceName: keycloak
+              serviceNamespace: keycloak
+              servicePort: 443
+              externalUrl: '{{env.keycloak.scheme}}://{{env.domains.core.keycloak}}'
+              configureDynamicRegistration: true
+              grantAudienceToClients:
+                - agw-client
+                - agw-client-public
+            audiences:
+              - 'https://{{env.domains.app.walkthrough}}/mcp'
+            resource: 'https://{{env.domains.app.walkthrough}}/mcp'
+            scopesSupported:
+              - email
+            mode: Strict
+            provider: Keycloak
+        - name: mcp-tool-access
+          config:
+            policyName: mcp-tool-access
+            backendName: mcp-backend
+            action: Allow
+            matchExpressions:
+              - 'jwt.preferred_username == "user1" && (mcp.tool.target == "stock-server-mcp" || mcp.tool.target == "currency-server-mcp")'
+              - 'jwt.preferred_username == "user2" && mcp.tool.target == "random-server-mcp"'
+      steps:
+        - kind: mcp
+          label: 'tools/list (alice / user1)'
+          description: user1 is granted the stock and currency targets.
+          credential: alice
+          url: 'https://{{env.domains.app.walkthrough}}/mcp'
+          resolveGateway: { name: mcp-walkthrough-gateway }
+          method: tools/list
+          expectStatus: 200
+          relevantSetup: [mcp-auth, mcp-tool-access]
+        - kind: mcp
+          label: 'tools/list (bob / user2)'
+          description: user2 is granted only the random target - a completely different catalog, same endpoint.
+          credential: bob
+          url: 'https://{{env.domains.app.walkthrough}}/mcp'
+          resolveGateway: { name: mcp-walkthrough-gateway }
+          method: tools/list
+          expectStatus: 200
+          relevantSetup: [mcp-auth, mcp-tool-access]

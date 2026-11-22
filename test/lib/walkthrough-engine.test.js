@@ -81,7 +81,7 @@ function buildWalkthrough(overrides = {}) {
 }
 
 let originalFeatures, originalGatewayRef, originalDefaultNamespace, originalFetch;
-let originalEnsureNamespace, originalApplyYaml;
+let originalEnsureNamespace, originalApplyYaml, originalWaitForConditionTrue, originalKubectl;
 let appliedYamlDocs;
 
 beforeEach(() => {
@@ -107,6 +107,17 @@ beforeEach(() => {
   KubernetesHelper.applyYaml = async yamlContent => {
     appliedYamlDocs.push(yamlContent);
   };
+  // PolicyRegistry.commit() also reads back any live object's contributor-deployments
+  // annotation via a raw kubectl get (ignoreError: true) before applying - a real cluster
+  // dependency these tests don't have either. Unmocked, this hangs past bun's test timeout
+  // trying to reach a cluster that doesn't exist, and the killed dangling process's late
+  // rejection corrupts whichever test runs next.
+  originalKubectl = KubernetesHelper.kubectl;
+  KubernetesHelper.kubectl = async () => ({ stdout: '', stderr: '', exitCode: 1 });
+  // PolicyRegistry.commit() polls this after every non-dry-run apply to wait for the data
+  // plane to actually attach the policy - a real cluster dependency these tests don't have.
+  originalWaitForConditionTrue = KubernetesHelper.waitForConditionTrue;
+  KubernetesHelper.waitForConditionTrue = async () => {};
 });
 
 afterEach(() => {
@@ -116,6 +127,8 @@ afterEach(() => {
   globalThis.fetch = originalFetch;
   KubernetesHelper.ensureNamespace = originalEnsureNamespace;
   KubernetesHelper.applyYaml = originalApplyYaml;
+  KubernetesHelper.kubectl = originalKubectl;
+  KubernetesHelper.waitForConditionTrue = originalWaitForConditionTrue;
   PolicyRegistry.clear();
   PolicyRegistry.disable();
 });
@@ -237,6 +250,81 @@ describe('WalkthroughEngine navigation', () => {
 
     await engine.handleRight(); // fires it
     expect(engine.getStepResult()).toMatchObject({ tally: { 200: 3 }, requestCount: 3 });
+  });
+
+  test('handleRight on an unfired mcp step previews its real-call request; handleRight again fires it', async () => {
+    globalThis.fetch = async (url, init) => {
+      const method = JSON.parse(init.body).method;
+      if (method === 'initialize')
+        return new Response('{"jsonrpc":"2.0","result":{}}', { status: 200 });
+      return new Response('{"jsonrpc":"2.0","result":{"tools":[]}}', { status: 200 });
+    };
+    const engine = new WalkthroughEngine(
+      buildWalkthrough({
+        screens: [
+          {
+            name: 'one',
+            setup: [],
+            steps: [
+              {
+                kind: 'mcp',
+                url: 'http://example.com/mcp',
+                method: 'tools/list',
+                expectStatus: 200,
+              },
+            ],
+          },
+        ],
+      })
+    );
+
+    await engine.handleRight(); // applies screen 0 setup and previews step 0 (mcp) in the same press
+    const previewed = engine.getStepResult();
+    expect(previewed.kind).toBe('mcp');
+    expect(previewed.request.method).toBe('POST');
+    expect(JSON.parse(previewed.request.body).method).toBe('tools/list');
+    expect(previewed.status).toBeUndefined(); // not yet fired
+
+    await engine.handleRight(); // fires step 0
+    expect(engine.getStepResult()).toMatchObject({ status: 200, passed: true });
+  });
+
+  test("an mcp step's captureVariable feeds a later step's {{vars.*}} body placeholder", async () => {
+    globalThis.fetch = async (url, init) => {
+      const method = JSON.parse(init.body).method;
+      if (method === 'initialize')
+        return new Response('{"jsonrpc":"2.0","result":{}}', { status: 200 });
+      return new Response('{"jsonrpc":"2.0","result":{"tools":[{"name":"get_stock_price"}]}}', {
+        status: 200,
+      });
+    };
+    const engine = new WalkthroughEngine(
+      buildWalkthrough({
+        screens: [
+          {
+            name: 'one',
+            setup: [],
+            steps: [
+              {
+                kind: 'mcp',
+                url: 'http://example.com/mcp',
+                method: 'tools/list',
+                captureVariable: {
+                  name: 'firstTool',
+                  jsonPaths: ['result.tools.0.name'],
+                  default: 'none',
+                },
+              },
+            ],
+          },
+        ],
+      })
+    );
+
+    await engine.handleRight(); // applies setup + previews
+    await engine.handleRight(); // fires - captures firstTool from the response body
+    expect(engine.getStepResult().body).toContain('get_stock_price');
+    expect(engine.variables.get('firstTool')).toBe('get_stock_price');
   });
 
   test("crossing a screen boundary runs the next screen's teardown then setup exactly once", async () => {
@@ -509,6 +597,70 @@ describe('WalkthroughEngine PolicyRegistry integration', () => {
     expect(committedDoc.metadata.labels['agentgateway.dev/contributors']).toBe(
       'policy-feature_policy-feature-b'
     );
+  });
+
+  test('skipPreview: true excludes a setup entry from "Applied Configuration" but still deploys it for real', async () => {
+    const walkthrough = {
+      screens: [
+        {
+          name: 'one',
+          setup: [{ name: 'policy-feature', skipPreview: true }, { name: 'policy-feature-b' }],
+          steps: [],
+        },
+      ],
+      credentials: {},
+      preProvision: [],
+      edition: 'enterprise',
+    };
+    const engine = new WalkthroughEngine(walkthrough);
+    await engine.ensureAppliedThrough(0);
+
+    // Only policy-feature-b's own (unmerged) resource shows up in the preview.
+    const previewDoc = yaml.load(engine.getAppliedYaml(0));
+    expect(previewDoc.metadata.name).toBe('policy-b-under-test');
+
+    // Both features still contributed to the real, merged, committed object.
+    const committedDoc = appliedYamlDocs
+      .map(doc => yaml.load(doc))
+      .find(doc => doc.kind === 'EnterpriseAgentgatewayPolicy');
+    expect(committedDoc.metadata.labels['agentgateway.dev/contributors']).toBe(
+      'policy-feature_policy-feature-b'
+    );
+  });
+
+  test("a step's relevantSetup filters the preview to just the setup features it names, per step", async () => {
+    const walkthrough = {
+      screens: [
+        {
+          name: 'one',
+          setup: [{ name: 'policy-feature' }, { name: 'policy-feature-b' }],
+          steps: [
+            {
+              kind: 'http',
+              method: 'GET',
+              url: 'http://example.com/a',
+              relevantSetup: ['policy-feature'],
+            },
+            { kind: 'http', method: 'GET', url: 'http://example.com/b' }, // no filter - shows everything
+          ],
+        },
+      ],
+      credentials: {},
+      preProvision: [],
+      edition: 'enterprise',
+    };
+    const engine = new WalkthroughEngine(walkthrough);
+    await engine.ensureAppliedThrough(0);
+
+    engine.stepIndex = 0;
+    expect(yaml.load(engine.getAppliedYaml(0)).metadata.name).toBe('policy-under-test');
+
+    engine.stepIndex = 1;
+    const bothDocs = engine
+      .getAppliedYaml(0)
+      .split('\n\n---\n\n')
+      .map(doc => yaml.load(doc).metadata.name);
+    expect(bothDocs).toEqual(['policy-under-test', 'policy-b-under-test']);
   });
 });
 

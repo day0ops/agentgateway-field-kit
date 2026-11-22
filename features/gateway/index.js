@@ -96,6 +96,8 @@ export class GatewayFeature extends Feature {
     );
 
     if (!this.dryRun) {
+      await this.registerWithTelemetry(overrides.metadata.name, overrides.metadata.namespace);
+
       const firstListener = specOverrides.listeners?.[0];
       const port = firstListener?.port ?? 8080;
       const protocol = firstListener?.protocol === 'HTTPS' ? 'https' : 'http';
@@ -114,6 +116,74 @@ export class GatewayFeature extends Feature {
           hostname,
           port,
           protocol
+        );
+      }
+    }
+  }
+
+  // Three independent subsystems each build a Gateway-targeting EnterpriseAgentgatewayPolicy
+  // once, at `agw base install` time, against whatever Gateway was "current" then (the shared
+  // default) - the telemetry addon's logging-policy/tracing-policy (-> fan-out-collector ->
+  // Loki/Tempo/Grafana) and AgentGatewayManager's own tracing-solo-ui (-> the Solo UI's
+  // dedicated telemetry-collector, which its own "Tracing" page reads from - a completely
+  // separate pipeline from Tempo/Grafana). A dedicated Gateway this feature creates afterward
+  // is otherwise never covered by any of them. Best-effort: a targetRef here has no namespace
+  // field of its own (this CRD's targetRefs only resolve within the policy's own namespace),
+  // so a Gateway outside it genuinely can't be covered this way; no-op for whichever of these
+  // policies isn't installed. Never fails the Gateway deploy.
+  async registerWithTelemetry(gatewayName, gatewayNamespace) {
+    const TELEMETRY_POLICY_NAMESPACE = 'agentgateway-system';
+    if (gatewayNamespace !== TELEMETRY_POLICY_NAMESPACE) {
+      this.log(
+        `Gateway '${gatewayName}' is in namespace '${gatewayNamespace}', not '${TELEMETRY_POLICY_NAMESPACE}' - ` +
+          "can't be added to telemetry's/Solo UI's tracing policies (their targetRefs only resolve same-namespace)",
+        'debug'
+      );
+      return;
+    }
+
+    for (const policyName of ['logging-policy', 'tracing-policy', 'tracing-solo-ui']) {
+      try {
+        const result = await KubernetesHelper.kubectl(
+          [
+            'get',
+            'enterpriseagentgatewaypolicy',
+            policyName,
+            '-n',
+            TELEMETRY_POLICY_NAMESPACE,
+            '-o',
+            'json',
+          ],
+          { ignoreError: true }
+        );
+        if (result.exitCode !== 0) continue; // telemetry addon not installed - nothing to register with
+
+        const policy = JSON.parse(result.stdout);
+        const targetRefs = policy.spec?.targetRefs || [];
+        const alreadyTargeted = targetRefs.some(
+          ref => ref.kind === 'Gateway' && ref.name === gatewayName
+        );
+        if (alreadyTargeted) continue;
+
+        const updatedRefs = [
+          ...targetRefs,
+          { group: 'gateway.networking.k8s.io', kind: 'Gateway', name: gatewayName },
+        ];
+        await KubernetesHelper.kubectl([
+          'patch',
+          'enterpriseagentgatewaypolicy',
+          policyName,
+          '-n',
+          TELEMETRY_POLICY_NAMESPACE,
+          '--type=merge',
+          '-p',
+          JSON.stringify({ spec: { targetRefs: updatedRefs } }),
+        ]);
+        this.log(`Registered Gateway '${gatewayName}' with telemetry's '${policyName}'`, 'info');
+      } catch (error) {
+        this.log(
+          `Could not register Gateway '${gatewayName}' with telemetry's '${policyName}': ${error.message}`,
+          'warn'
         );
       }
     }
