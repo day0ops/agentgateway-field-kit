@@ -140,17 +140,6 @@ export class Feature {
    * Helper: Apply Kubernetes resource (or collect YAML when dryRun)
    */
   async applyResource(resource) {
-    if (resource.kind === 'Certificate') {
-      console.error(
-        'TEMP_DEBUG applyResource',
-        JSON.stringify({
-          kind: resource.kind,
-          dryRun: this.dryRun,
-          hasDryRunYaml: !!this._dryRunYaml,
-          dryRunYamlLen: this._dryRunYaml?.length,
-        })
-      );
-    }
     // Policies PolicyRegistry actually defers get their own deployment-contributor tracking
     // and label at commit() time - a scalar label here would just get clobbered by the next
     // contributor's own value when multiple deployments share one merged object. register()
@@ -253,12 +242,6 @@ export class Feature {
     try {
       const content = await readFile(configPath, 'utf8');
       let resource = yaml.load(content);
-      if (filename === 'certificate.yaml') {
-        console.error(
-          'TEMP_DEBUG applyYamlFile',
-          JSON.stringify({ configPath, contentLen: content.length, resourceKind: resource?.kind })
-        );
-      }
 
       // Update namespace in the resource if it differs from the YAML default
       if (resource.metadata && resource.metadata.namespace !== this.namespace) {

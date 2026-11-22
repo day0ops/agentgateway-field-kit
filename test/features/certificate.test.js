@@ -11,9 +11,7 @@ describe('CertificateFeature issuer passthrough', () => {
       { name: 'my-cert', secretName: 'my-cert-tls', dnsNames: ['example.local'] },
       { dryRun: true }
     );
-    console.error('TEMP_DEBUG docs=', JSON.stringify(docs));
     const cert = yaml.load(docs[0]);
-    console.error('TEMP_DEBUG cert=', JSON.stringify(cert));
     expect(cert.spec.issuerRef.name).toBe('selfsigned-issuer');
   });
 
@@ -28,9 +26,7 @@ describe('CertificateFeature issuer passthrough', () => {
       },
       { dryRun: true }
     );
-    console.error('TEMP_DEBUG docs=', JSON.stringify(docs));
     const cert = yaml.load(docs[0]);
-    console.error('TEMP_DEBUG cert=', JSON.stringify(cert));
     expect(cert.spec.issuerRef.name).toBe('letsencrypt-dns');
   });
 });
@@ -62,7 +58,6 @@ describe('CertificateFeature waits for Ready', () => {
       { dryRun: false }
     );
 
-    console.error('TEMP_DEBUG calls=', JSON.stringify(calls));
     const readyChecks = calls.filter(args => args[0] === 'get' && args[1] === 'certificate');
     expect(readyChecks.length).toBe(1);
   });
