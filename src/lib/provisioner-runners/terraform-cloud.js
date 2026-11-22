@@ -67,6 +67,11 @@ const PROVIDER_CONFIGS = {
       if (config.team) vars.team = config.team;
       if (config.purpose) vars.purpose = config.purpose;
       if (config.kubernetesVersion) vars.kubernetes_version = config.kubernetesVersion;
+      if (config.enableNodeSleepSchedule !== undefined)
+        vars.enable_node_sleep_schedule = config.enableNodeSleepSchedule;
+      if (config.nodeSleepCron) vars.node_sleep_cron = config.nodeSleepCron;
+      if (config.nodeWakeCron) vars.node_wake_cron = config.nodeWakeCron;
+      if (config.nodeSleepTimezone) vars.node_sleep_timezone = config.nodeSleepTimezone;
       // DNS configuration for Route53
       if (dnsConfig?.provider === 'route53' && dnsConfig?.parentZone) {
         vars.enable_dns = true;
@@ -365,6 +370,13 @@ export class TerraformCloudRunner extends BaseProvisionerRunner {
     const pc = this.providerConfig;
     const nodesCfg = provisioner.nodes || {};
     const desiredNodes = nodesCfg.desired ?? 2;
+    const minNodes = nodesCfg.min ?? Math.max(1, desiredNodes - 1);
+
+    if (provisioner.enable_node_sleep_schedule && minNodes !== 0) {
+      throw new Error(
+        `enable_node_sleep_schedule requires spec.settings.nodes.min: 0 (got ${minNodes})`
+      );
+    }
 
     return {
       owner: provisioner.owner || process.env.CLUSTER_OWNER,
@@ -376,13 +388,17 @@ export class TerraformCloudRunner extends BaseProvisionerRunner {
       clusterCount: this.clusters.length,
       desiredNodes,
       nodeType: nodesCfg.type || pc.defaultNodeType,
-      minNodes: nodesCfg.min ?? Math.max(1, desiredNodes - 1),
+      minNodes,
       maxNodes: nodesCfg.max ?? desiredNodes + 2,
       privateNodes: nodesCfg.private,
       kubernetesVersion:
         provisioner.kubernetes_version || process.env.KUBERNETES_VERSION || undefined,
       enableDns64: provisioner.enable_dns64,
       enableBastion: provisioner.enable_bastion,
+      enableNodeSleepSchedule: provisioner.enable_node_sleep_schedule,
+      nodeSleepCron: provisioner.node_sleep_cron,
+      nodeWakeCron: provisioner.node_wake_cron,
+      nodeSleepTimezone: provisioner.node_sleep_timezone,
       gkeProject:
         provisioner.project || (this.providerType === 'gke' ? process.env.GCP_PROJECT : undefined),
       aksServicePrincipal:
