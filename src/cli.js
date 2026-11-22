@@ -12,7 +12,7 @@ import { ProfileManager } from './lib/profiles.js';
 import { UseCaseManager } from './lib/usecase.js';
 import { WalkthroughManager } from './lib/walkthroughs.js';
 import { runWalkthrough, cleanWalkthrough } from './lib/walkthrough-runner.js';
-import { AddonInstaller } from './lib/addons.js';
+import { AddonInstaller, PROFILE_ADDONS } from './lib/addons.js';
 import { CLI_VERSION, CLI_DESCRIPTION } from './lib/version.js';
 import { InfraManager } from './lib/infra-manager.js';
 import { InfraStateManager } from './lib/infra-state.js';
@@ -859,20 +859,33 @@ base
         return;
       }
 
+      let gatewayServiceAddons = [];
       if (options.addons) {
-        if (profileName) {
-          Logger.info(`Cleaning up addons from profile '${profileName}'...`);
-          await AddonInstaller.cleanupAddons(profileData?.addons || [], { deleteNamespace: true });
-        } else {
-          Logger.info('Cleaning up all addons...');
-          await AddonInstaller.cleanupAllAddons({ deleteNamespace: true });
-        }
+        const addonList = profileName ? profileData?.addons || [] : PROFILE_ADDONS;
+        const { before, after } = AddonInstaller.splitForGatewayTeardown(addonList);
+        gatewayServiceAddons = after;
+
+        Logger.info(
+          profileName
+            ? `Cleaning up addons from profile '${profileName}'...`
+            : 'Cleaning up all addons...'
+        );
+        await AddonInstaller.cleanupAddons(before, { deleteNamespace: true });
       }
 
       await AgentGatewayManager.uninstall({
         deleteNamespace: options.addons,
         profile: profileData,
       });
+
+      if (gatewayServiceAddons.length > 0) {
+        await AddonInstaller.cleanupAddons(gatewayServiceAddons, { deleteNamespace: true });
+      }
+
+      if (options.addons && !profileName) {
+        Logger.success('All addons cleaned up');
+      }
+
       Logger.success('Cleanup completed');
     } catch (error) {
       Logger.error(`Failed to cleanup: ${error.message}`);
