@@ -81,7 +81,7 @@ function buildWalkthrough(overrides = {}) {
 }
 
 let originalFeatures, originalGatewayRef, originalDefaultNamespace, originalFetch;
-let originalEnsureNamespace, originalApplyYaml, originalWaitForConditionTrue;
+let originalEnsureNamespace, originalApplyYaml, originalWaitForConditionTrue, originalKubectl;
 let appliedYamlDocs;
 
 beforeEach(() => {
@@ -107,6 +107,13 @@ beforeEach(() => {
   KubernetesHelper.applyYaml = async yamlContent => {
     appliedYamlDocs.push(yamlContent);
   };
+  // PolicyRegistry.commit() also reads back any live object's contributor-deployments
+  // annotation via a raw kubectl get (ignoreError: true) before applying - a real cluster
+  // dependency these tests don't have either. Unmocked, this hangs past bun's test timeout
+  // trying to reach a cluster that doesn't exist, and the killed dangling process's late
+  // rejection corrupts whichever test runs next.
+  originalKubectl = KubernetesHelper.kubectl;
+  KubernetesHelper.kubectl = async () => ({ stdout: '', stderr: '', exitCode: 1 });
   // PolicyRegistry.commit() polls this after every non-dry-run apply to wait for the data
   // plane to actually attach the policy - a real cluster dependency these tests don't have.
   originalWaitForConditionTrue = KubernetesHelper.waitForConditionTrue;
@@ -120,6 +127,7 @@ afterEach(() => {
   globalThis.fetch = originalFetch;
   KubernetesHelper.ensureNamespace = originalEnsureNamespace;
   KubernetesHelper.applyYaml = originalApplyYaml;
+  KubernetesHelper.kubectl = originalKubectl;
   KubernetesHelper.waitForConditionTrue = originalWaitForConditionTrue;
   PolicyRegistry.clear();
   PolicyRegistry.disable();
