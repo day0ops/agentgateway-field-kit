@@ -40,7 +40,7 @@ const PROTECTED_NAMESPACES = new Set([
   'agentgateway-system',
 ]);
 
-const PROFILE_ADDONS = [
+export const PROFILE_ADDONS = [
   { name: 'aws-load-balancer-controller', namespace: 'kube-system' },
   { name: 'telemetry', namespace: 'telemetry' },
   { name: 'solo-ui', namespace: 'agentgateway-system' },
@@ -168,6 +168,23 @@ export class AddonInstaller {
     const rest = addons.filter(a => !DEFERRED_ORDER.includes(a.name));
     const deferred = DEFERRED_ORDER.flatMap(name => addons.filter(a => a.name === name));
     return [...rest, ...deferred];
+  }
+
+  /**
+   * external-dns and aws-load-balancer-controller also reconcile the Gateway's own
+   * auto-provisioned LoadBalancer Service (DNS record / cloud LB + its
+   * service.k8s.aws/resources finalizer - see installProxy() in agentgateway.js). That
+   * Service is only deleted when AgentGatewayManager.uninstall() tears down the
+   * agentgateway-system namespace, which the `clean` command runs after all addon cleanup -
+   * so those two addons must stay up past that call too, not just past the rest of the
+   * addon list the way orderForCleanup defers them. Callers that also uninstall agentgateway
+   * must clean up `before` first, run that uninstall, then clean up `after`.
+   */
+  static splitForGatewayTeardown(addons = []) {
+    const GATEWAY_SERVICE_ADDONS = ['external-dns', 'aws-load-balancer-controller'];
+    const before = addons.filter(a => !GATEWAY_SERVICE_ADDONS.includes(a.name));
+    const after = GATEWAY_SERVICE_ADDONS.flatMap(name => addons.filter(a => a.name === name));
+    return { before, after };
   }
 
   static async cleanupAddons(addons = [], opts = {}) {
