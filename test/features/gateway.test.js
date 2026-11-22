@@ -4,6 +4,13 @@ import '../../features/index.js';
 import { FeatureManager } from '../../src/lib/feature.js';
 import { KubernetesHelper } from '../../src/lib/common.js';
 
+// Every gateway feature deploy calls FeatureManager.setGatewayRef(), a static, process-wide
+// field - reset it after each test so this file's non-default names/namespaces don't leak
+// into whichever test file bun runs next in this process.
+afterEach(() => {
+  FeatureManager.gatewayRef = null;
+});
+
 describe('GatewayFeature edition-aware defaults', () => {
   test('enterprise (default) uses agentgateway-gw and the enterprise GatewayClass', async () => {
     const docs = await FeatureManager.deploy('gateway', {}, { dryRun: true });
