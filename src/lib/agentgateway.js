@@ -1380,9 +1380,9 @@ export class AgentGatewayManager {
         Logger.info('agentgateway helm release not found, skipping uninstall');
       }
 
-      await this.clearInstallState();
-
       if (deleteNamespace) {
+        await this.clearInstallState();
+
         const { gatewayApiVersion, crdsVersion, crdsOciRegistry, crdsChartName, crdsHelmValues } =
           this.resolveVersionAndRegistry(profile);
         if (!profile) {
