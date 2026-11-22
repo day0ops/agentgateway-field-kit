@@ -1,8 +1,16 @@
-import { test, expect, describe } from 'bun:test';
+import { test, expect, describe, beforeEach } from 'bun:test';
 import yaml from 'js-yaml';
 import '../../features/index.js';
 import { FeatureManager } from '../../src/lib/feature.js';
 import { AgentgatewayModelFeature } from '../../features/agentgateway-model/index.js';
+
+// FeatureManager.gatewayRef is a static, process-wide field other test files mutate via
+// setGatewayRef() without resetting - reset it here so this file's expectations don't
+// depend on which other test files already ran in this process (same pattern as
+// test/features/agentgateway-demo-wizard.test.js).
+beforeEach(() => {
+  FeatureManager.gatewayRef = null;
+});
 
 describe('AgentgatewayModelFeature provider support', () => {
   test('openai concrete model emits provider: OpenAI and an openai-secret auth ref', async () => {
