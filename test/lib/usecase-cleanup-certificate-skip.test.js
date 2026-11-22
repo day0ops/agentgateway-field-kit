@@ -15,6 +15,11 @@ class RecordingFeature extends Feature {
   }
 }
 RecordingFeature.cleanedUp = [];
+// FeatureManager.features is a static, process-wide Map - registering over the real
+// 'certificate' entry here without restoring it corrupts every other test file that
+// imports features/index.js afterward (that import is cached and never re-runs, so the
+// real CertificateFeature registration never comes back on its own).
+const originalFeatures = new Map(FeatureManager.features);
 FeatureManager.register('certificate', RecordingFeature);
 FeatureManager.register('__test-uc-cert-skip-other', RecordingFeature);
 
@@ -33,6 +38,7 @@ describe('UseCaseManager.cleanup certificate skip/force', () => {
   let tmpRoot, originalResolveActive, originalLoad, originalKubectl, originalGatewayRef;
 
   afterAll(async () => {
+    FeatureManager.features = originalFeatures;
     if (tmpRoot) await rm(tmpRoot, { recursive: true, force: true });
   });
 
