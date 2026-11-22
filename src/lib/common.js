@@ -592,18 +592,23 @@ export class KubernetesHelper {
    * Bounds both kubectl's own request and the child process itself, so an unreachable
    * API server (dead VPN, stale kubeconfig, dropped packets) fails fast instead of hanging
    * indefinitely with no output.
+   * @param {SpinnerLogger} [externalSpinner] - reuse a caller's already-active spinner
+   *   instead of starting a second one (ora warns/corrupts output on concurrent spinners).
    */
-  static async isClusterAccessible(contextFlag = '') {
+  static async isClusterAccessible(contextFlag = '', externalSpinner = null) {
     const args = contextFlag
       ? [contextFlag, 'cluster-info', '--request-timeout=10s']
       : ['cluster-info', '--request-timeout=10s'];
-    const spinner = new SpinnerLogger().start('Checking cluster accessibility...');
+    const spinner =
+      externalSpinner || new SpinnerLogger().start('Checking cluster accessibility...');
     const result = await this.kubectl(args, { ignoreError: true, timeout: 15000 });
     const accessible = result?.exitCode === 0;
-    if (accessible) {
-      spinner.stop();
-    } else {
-      spinner.fail('Cluster is not accessible');
+    if (!externalSpinner) {
+      if (accessible) {
+        spinner.stop();
+      } else {
+        spinner.fail('Cluster is not accessible');
+      }
     }
     return accessible;
   }

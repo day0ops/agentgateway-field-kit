@@ -5,14 +5,12 @@ const BUMPED = [
   'agentgateway-with-keycloak',
   'eks-enterprise-agentgateway-complete',
   'eks-enterprise-agentgateway-minimal',
+  'eks-enterprise-agentgateway-lts-complete',
+  'eks-enterprise-agentgateway-lts-minimal',
   'local-single-cluster',
 ];
 
-const UNCHANGED = [
-  ['agentgateway-custom-version', '2.1.1'],
-  ['eks-enterprise-agentgateway-lts-complete', 'v2026.7.1-patch.3'],
-  ['eks-enterprise-agentgateway-lts-minimal', 'v2026.7.1-patch.3'],
-];
+const UNCHANGED = [['agentgateway-custom-version', '2.1.1']];
 
 describe('agentgateway version bump scope', () => {
   for (const name of BUMPED) {
