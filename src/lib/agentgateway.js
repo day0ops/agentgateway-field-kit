@@ -77,6 +77,27 @@ export class AgentGatewayManager {
     spinner.start(`Installing Gateway API CRDs ${gatewayApiVersion} (${resolvedChannel})...`);
 
     try {
+      if (resolvedChannel === 'experimental') {
+        // Standard -> experimental is a safe, strict-superset upgrade, but the
+        // safe-upgrades ValidatingAdmissionPolicy (bundled with both channel manifests)
+        // blocks it on a cluster that still has standard-channel CRDs from a prior
+        // install. Clearing it first is upstream's documented remedy; --ignore-not-found
+        // makes this a no-op on a cluster with no prior Gateway API CRDs at all.
+        // https://gateway-api.sigs.k8s.io/concepts/versioning/#upgrading-from-standard-to-experimental-channel
+        await KubernetesHelper.kubectl([
+          'delete',
+          'validatingadmissionpolicybinding',
+          'safe-upgrades.gateway.networking.k8s.io',
+          '--ignore-not-found',
+        ]);
+        await KubernetesHelper.kubectl([
+          'delete',
+          'validatingadmissionpolicy',
+          'safe-upgrades.gateway.networking.k8s.io',
+          '--ignore-not-found',
+        ]);
+      }
+
       await KubernetesHelper.kubectl([
         'apply',
         '--server-side',
@@ -91,33 +112,81 @@ export class AgentGatewayManager {
   }
 
   /**
-   * Remove the Gateway API CRDs by deleting the same upstream release manifest used to
-   * install them. Best-effort: other controllers on the cluster may also depend on these
-   * cluster-scoped CRDs, so failures are logged rather than thrown.
+   * Remove the Gateway API CRDs actually present on the cluster, discovered live rather
+   * than by replaying a specific version/channel manifest: a stale version resolved during
+   * cleanup (e.g. an install that errored before recording its profile) must not silently
+   * miss CRDs added by a newer release that was actually installed. Every Gateway API CRD
+   * carries the `gateway.networking.k8s.io/bundle-version` annotation regardless of channel
+   * or version, which is used here to identify them. Best-effort: other controllers on the
+   * cluster may also depend on these cluster-scoped CRDs, so failures are logged rather than
+   * thrown.
    */
-  static async cleanupGatewayAPICRDs(
-    gatewayApiVersion = GATEWAY_API_VERSION,
-    channel = 'standard'
-  ) {
+  static async cleanupGatewayAPICRDs() {
     const spinner = new SpinnerLogger();
-    const resolvedChannel = channel === 'experimental' ? 'experimental' : 'standard';
-    spinner.start(`Removing Gateway API CRDs ${gatewayApiVersion} (${resolvedChannel})...`);
+    spinner.start('Removing Gateway API CRDs...');
+    let hadError = false;
 
-    const result = await KubernetesHelper.kubectl(
+    // Ships bundled with every channel manifest but isn't a CRD - must be cleared
+    // independently of CRD discovery below.
+    await KubernetesHelper.kubectl(
       [
         'delete',
+        'validatingadmissionpolicybinding',
+        'safe-upgrades.gateway.networking.k8s.io',
         '--ignore-not-found',
-        '-f',
-        `https://github.com/kubernetes-sigs/gateway-api/releases/download/${gatewayApiVersion}/${resolvedChannel}-install.yaml`,
+      ],
+      { ignoreError: true }
+    );
+    await KubernetesHelper.kubectl(
+      [
+        'delete',
+        'validatingadmissionpolicy',
+        'safe-upgrades.gateway.networking.k8s.io',
+        '--ignore-not-found',
       ],
       { ignoreError: true }
     );
 
-    if (result?.exitCode === 0) {
-      spinner.succeed(`Gateway API CRDs ${gatewayApiVersion} (${resolvedChannel}) removed`);
+    const listResult = await KubernetesHelper.kubectl(['get', 'crd', '-o', 'json'], {
+      ignoreError: true,
+    });
+
+    let crdNames = [];
+    if (listResult?.exitCode === 0) {
+      try {
+        const { items = [] } = JSON.parse(listResult.stdout || '{}');
+        crdNames = items
+          .filter(crd => crd?.metadata?.annotations?.['gateway.networking.k8s.io/bundle-version'])
+          .map(crd => crd.metadata.name);
+      } catch (error) {
+        hadError = true;
+        Logger.warn(`Could not parse CRD list: ${error.message}`);
+      }
     } else {
+      hadError = true;
+      Logger.warn(`Could not list CRDs: ${(listResult?.stderr || 'unknown error').trim()}`);
+    }
+
+    if (crdNames.length > 0) {
+      const deleteResult = await KubernetesHelper.kubectl(
+        ['delete', 'crd', ...crdNames, '--ignore-not-found'],
+        { ignoreError: true }
+      );
+      if (deleteResult?.exitCode !== 0) {
+        hadError = true;
+        Logger.warn(`kubectl delete failed: ${(deleteResult?.stderr || 'unknown error').trim()}`);
+      }
+    }
+
+    if (hadError) {
       spinner.fail('Failed to remove Gateway API CRDs');
       Logger.warn('Continuing cleanup; Gateway API CRDs may need to be removed manually');
+    } else {
+      spinner.succeed(
+        crdNames.length > 0
+          ? `Gateway API CRDs removed (${crdNames.length})`
+          : 'No Gateway API CRDs found'
+      );
     }
   }
 
@@ -125,20 +194,64 @@ export class AgentGatewayManager {
    * Remove the agentgateway CRDs chart's CRD objects, and its Helm release if one is still
    * tracked. The chart defines its CRDs as regular templated resources (not via Helm's
    * special crds/ directory) carrying `helm.sh/resource-policy: keep`, so `helm uninstall`
-   * deliberately skips them. `helm show crds` only surfaces crds/-directory content, which
-   * this chart has none of, so CRD manifests are rendered via `helm template` instead and
-   * filtered down to just the CustomResourceDefinition documents. CRD-object deletion always
-   * runs, independent of whether a release is still found: a prior partial cleanup (e.g. one
-   * run before this fix existed) can leave the release gone but the CRD objects still
-   * orphaned, and there would otherwise be no way to recover them.
+   * deliberately skips them.
+   *
+   * Discovered live by Helm's own ownership annotation (`meta.helm.sh/release-name`) rather
+   * than reconstructed from a resolved chart version: every CRD this chart creates carries
+   * that annotation regardless of which chart version (or helm values) created it, and
+   * regardless of whether that release's own Helm record still exists - the keep policy only
+   * protects the CRD objects from `helm uninstall`, not this metadata. A profile/version
+   * resolved wrong or stale during cleanup (e.g. no install profile tracked) can no longer
+   * cause CRDs to be silently skipped. `helm template` at the resolved version is used only
+   * as a last-resort fallback for CRDs with no such annotation at all (e.g. applied via
+   * Helm's special crds/ directory feature, which this chart doesn't use, but a future one
+   * might).
    */
   static async cleanupAgentGatewayCRDs({ version, ociRegistry, chartName, helmValues } = {}) {
     const spinner = new SpinnerLogger();
-    spinner.start(`Removing agentgateway CRDs (${ociRegistry}/${chartName}@${version})...`);
+    spinner.start('Removing agentgateway CRDs...');
     let hadError = false;
     let tempValuesFile = null;
 
-    if (version && ociRegistry && chartName) {
+    const candidateReleaseNames = [
+      process.env.AGENTGATEWAY_CRDS_RELEASE,
+      ...Object.values(EDITION_BASE_NAME).map(baseName => `${baseName}-crds`),
+    ].filter(Boolean);
+
+    const listResult = await KubernetesHelper.kubectl(['get', 'crd', '-o', 'json'], {
+      ignoreError: true,
+    });
+
+    let crdNames = [];
+    if (listResult?.exitCode === 0) {
+      try {
+        const { items = [] } = JSON.parse(listResult.stdout || '{}');
+        crdNames = items
+          .filter(crd =>
+            candidateReleaseNames.includes(
+              crd?.metadata?.annotations?.['meta.helm.sh/release-name']
+            )
+          )
+          .map(crd => crd.metadata.name);
+      } catch (error) {
+        hadError = true;
+        Logger.warn(`Could not parse CRD list: ${error.message}`);
+      }
+    } else {
+      hadError = true;
+      Logger.warn(`Could not list CRDs: ${(listResult?.stderr || 'unknown error').trim()}`);
+    }
+
+    if (crdNames.length > 0) {
+      const deleteResult = await KubernetesHelper.kubectl(
+        ['delete', 'crd', ...crdNames, '--ignore-not-found'],
+        { ignoreError: true }
+      );
+      if (deleteResult?.exitCode !== 0) {
+        hadError = true;
+        Logger.warn(`kubectl delete failed: ${(deleteResult?.stderr || 'unknown error').trim()}`);
+      }
+    } else if (version && ociRegistry && chartName) {
       try {
         const templateArgs = [
           'template',
@@ -197,11 +310,6 @@ export class AgentGatewayManager {
           }
         }
       }
-    } else {
-      hadError = true;
-      Logger.warn(
-        'No chart version/registry resolved; CRD objects may need to be removed manually'
-      );
     }
 
     const crdsReleaseName = await this.detectInstalledCrdsRelease(spinner);
@@ -1385,11 +1493,11 @@ export class AgentGatewayManager {
       if (deleteNamespace) {
         await this.clearInstallState();
 
-        const { gatewayApiVersion, crdsVersion, crdsOciRegistry, crdsChartName, crdsHelmValues } =
+        const { crdsVersion, crdsOciRegistry, crdsChartName, crdsHelmValues } =
           this.resolveVersionAndRegistry(profile);
         if (!profile) {
           Logger.warn(
-            'No install profile resolved; CRD cleanup will use default chart versions and may miss CRDs installed by a non-default profile'
+            'No install profile resolved; agentgateway CRD cleanup falls back to default chart versions for any CRD missing Helm ownership metadata'
           );
         }
 
@@ -1400,11 +1508,9 @@ export class AgentGatewayManager {
           helmValues: crdsHelmValues,
         });
 
-        // Cleanup always targets the experimental channel regardless of what the profile
-        // requested: it's a strict superset of standard, so this removes any
-        // experimental-only CRDs too (ListenerSet, TCPRoute, TLSRoute, UDPRoute,
-        // XBackendTrafficPolicy, etc.) without depending on profile resolution succeeding.
-        await this.cleanupGatewayAPICRDs(gatewayApiVersion, 'experimental');
+        // Discovers and removes whatever Gateway API CRDs are actually on the cluster, so
+        // it isn't affected by profile resolution and needs no version/channel arguments.
+        await this.cleanupGatewayAPICRDs();
 
         const nsResult = await KubernetesHelper.kubectl(
           ['get', 'namespace', AGENTGATEWAY_NAMESPACE, '-o', 'name'],

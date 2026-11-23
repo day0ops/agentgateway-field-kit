@@ -598,9 +598,9 @@ base
         AgentGatewayManager.checkLicenseKey();
       }
 
-      // Addons (e.g. telemetry, solo-ui) target the Gateway by name in their own policy
-      // YAML - set this before any addon installs so it resolves to the right edition's
-      // Gateway object name, whether or not that addon runs before installProxy() creates it.
+      // Addons (e.g. telemetry) target the Gateway by name in their own policy YAML - set
+      // this before any addon installs so it resolves to the right edition's Gateway object
+      // name, whether or not that addon runs before installProxy() creates it.
       FeatureManager.setGatewayRef({ name: EDITION_GATEWAY_NAME[resolvedProfileEdition] });
 
       // Resolve infra: explicit --context flag > explicit --infra flag > profile binding >
@@ -729,9 +729,9 @@ base
         AgentGatewayManager.checkLicenseKey();
       }
 
-      // Addons (e.g. telemetry, solo-ui) target the Gateway by name in their own policy
-      // YAML - set this before any addon installs so it resolves to the right edition's
-      // Gateway object name, whether or not that addon runs before installProxy() creates it.
+      // Addons (e.g. telemetry) target the Gateway by name in their own policy YAML - set
+      // this before any addon installs so it resolves to the right edition's Gateway object
+      // name, whether or not that addon runs before installProxy() creates it.
       FeatureManager.setGatewayRef({ name: EDITION_GATEWAY_NAME[resolvedProfileEdition] });
 
       // Resolve infra: explicit flag > profile binding > kubectl context > sole provisioned
