@@ -43,7 +43,6 @@ const PROTECTED_NAMESPACES = new Set([
 export const PROFILE_ADDONS = [
   { name: 'aws-load-balancer-controller', namespace: 'kube-system' },
   { name: 'telemetry', namespace: 'telemetry' },
-  { name: 'solo-ui', namespace: 'agentgateway-system' },
   { name: 'cert-manager', namespace: 'cert-manager' },
   { name: 'keycloak', namespace: 'keycloak' },
   { name: 'external-dns', namespace: 'external-dns' },
@@ -54,8 +53,7 @@ export const PROFILE_ADDONS = [
 export class AddonInstaller {
   /**
    * Split a profile's addons into those that must install before the core agentgateway
-   * proxy exists, and those whose deploy() requires it already be running (e.g. solo-ui,
-   * which programs its own Gateway on the shared GatewayClass).
+   * proxy exists, and those whose deploy() requires it already be running.
    * @param {Array} addons
    * @returns {{ preGateway: Array, postGateway: Array }}
    */
