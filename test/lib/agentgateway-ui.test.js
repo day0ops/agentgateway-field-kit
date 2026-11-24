@@ -12,12 +12,12 @@ describe('AgentGatewayManager.buildUiHelmArgs', () => {
       enabled: true,
       oidc: {
         enabled: true,
-        issuerUrl: 'https://keycloak.example.com/realms/solo-ui',
+        issuerUrl: 'https://keycloak.example.com/realms/agw-ui',
         backendClientSecret: 'shh',
       },
     });
     expect(args).toContain('--set-string');
-    expect(args).toContain('ui.oidc.issuer=https://keycloak.example.com/realms/solo-ui');
+    expect(args).toContain('ui.oidc.issuer=https://keycloak.example.com/realms/agw-ui');
     expect(args).toContain('ui.backend.oidc.secret=shh');
   });
 
@@ -97,7 +97,7 @@ describe('AgentGatewayManager.validateUIConfig', () => {
     expect(() =>
       AgentGatewayManager.validateUIConfig({
         enabled: true,
-        oidc: { enabled: true, issuerUrl: 'https://keycloak.example.com/realms/solo-ui' },
+        oidc: { enabled: true, issuerUrl: 'https://keycloak.example.com/realms/agw-ui' },
       })
     ).toThrow(/backendClientSecret/);
   });

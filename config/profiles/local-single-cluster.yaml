@@ -4,7 +4,7 @@ metadata:
   name: local-single-cluster
   description: |
     Single bring-your-own Kubernetes cluster
-    - Solo UI and full observability
+    - AGW UI and full observability
     - Keycloak OIDC login
     - OpenFGA ReBAC authorization
 spec:
@@ -32,7 +32,7 @@ spec:
     oidc:
       enabled: true
       issuerUrl: 'https://{{env.domains.core.keycloak}}/realms/agw-dev'
-      backendClientSecret: solo-ui-backend-secret
+      backendClientSecret: agw-ui-backend-secret
     features:
       costManagement:
         enabled: true
@@ -113,7 +113,7 @@ spec:
         proxied: false
 
     - name: keycloak
-      description: Keycloak OIDC provider for Solo UI login
+      description: Keycloak OIDC provider for AGW UI login
       phase: post
       namespace: keycloak
       config:
@@ -188,8 +188,8 @@ spec:
                 lastName: User
                 email: user1@acme-corp.demo
                 # Temporary: testing whether global.Reader is sufficient for a tenant
-                # user to view/approve their own pending elicitation in Solo UI.
-                soloUiGroup: readers
+                # user to view/approve their own pending elicitation in AGW UI.
+                agwUiGroup: readers
                 attributes:
                   org_id: acme-corp
                   team_id: team-alpha
@@ -228,12 +228,12 @@ spec:
                 email: alice@acme-corp.demo
                 attributes:
                   org_id: acme
-        soloUiClients:
+        agwUiClients:
           enabled: true
           realm: agw-dev
           hostname: 'https://{{env.domains.core.agentgatewayUi}}'
           backendClientId: enterprise-agentgateway-ui-backend
-          backendClientSecret: solo-ui-backend-secret
+          backendClientSecret: agw-ui-backend-secret
           frontendClientId: enterprise-agentgateway-ui
 
     - name: openfga

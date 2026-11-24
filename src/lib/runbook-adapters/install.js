@@ -183,14 +183,14 @@ export const InstallAdapter = {
     }
     sections.push('```');
 
-    // Solo UI (enterprise-agentgateway-ui subchart, folded into the main chart's own release)
+    // AGW UI (enterprise-agentgateway-ui subchart, folded into the main chart's own release)
     const ui = profileData?.ui;
     if (ui?.enabled) {
       sections.push('');
-      sections.push('### Install Solo UI');
+      sections.push('### Install AGW UI');
       sections.push('');
       sections.push(
-        'Solo UI installs as the `enterprise-agentgateway-ui` subchart of the main chart above (`ui.enabled=true`) - these flags belong on the *same* `helm upgrade` invocation shown above. Shown here as a complete, standalone command for convenience:'
+        'AGW UI installs as the `enterprise-agentgateway-ui` subchart of the main chart above (`ui.enabled=true`) - these flags belong on the *same* `helm upgrade` invocation shown above. Shown here as a complete, standalone command for convenience:'
       );
       sections.push('');
       sections.push('```bash');
@@ -242,7 +242,7 @@ export const InstallAdapter = {
       if (ui.hostname && ui.tls?.enabled) {
         sections.push('');
         sections.push(
-          `A Certificate, Gateway (\`solo-enterprise-ui-https\`), and HTTPRoute (\`solo-enterprise-ui\`) are also created for \`https://${ui.hostname}\`, pointed at the chart's \`enterprise-agentgateway-ui\` Service on port 80.`
+          `A Certificate, Gateway (\`agw-enterprise-ui-https\`), and HTTPRoute (\`agw-enterprise-ui\`) are also created for \`https://${ui.hostname}\`, pointed at the chart's \`enterprise-agentgateway-ui\` Service on port 80.`
         );
       }
     }

@@ -73,13 +73,13 @@ const KEYCLOAK_PROFILE_CONFIG = {
       k8sSecretNamespace: 'agentgateway-system',
     },
   ],
-  soloUiClients: {
+  agwUiClients: {
     enabled: true,
-    realm: 'solo-ui',
-    hostname: 'http://soloui.demo.kasunt.apac.fe.solo.io',
-    backendClientId: 'solo-ui-backend',
-    backendClientSecret: 'solo-ui-backend-secret',
-    frontendClientId: 'solo-ui-frontend',
+    realm: 'agw-ui',
+    hostname: 'http://agwui.demo.kasunt.apac.fe.solo.io',
+    backendClientId: 'agw-ui-backend',
+    backendClientSecret: 'agw-ui-backend-secret',
+    frontendClientId: 'agw-ui-frontend',
   },
 };
 
@@ -182,16 +182,16 @@ describe('AddonAdapter', () => {
     expect(section).toContain('--from-literal=clientSecret=caller-agent-secret');
   });
 
-  test('generate(keycloak) with soloUiClients generates solo-ui realm and clients', async () => {
+  test('generate(keycloak) with agwUiClients generates agw-ui realm and clients', async () => {
     const section = await AddonAdapter.generate(
       'keycloak',
       0,
       KEYCLOAK_PROFILE_CONFIG,
       PROJECT_ROOT
     );
-    expect(section).toContain('solo-ui');
-    expect(section).toContain('solo-ui-backend');
-    expect(section).toContain('solo-ui-frontend');
+    expect(section).toContain('agw-ui');
+    expect(section).toContain('agw-ui-backend');
+    expect(section).toContain('agw-ui-frontend');
   });
 
   test('generate(keycloak) does not reference config/profiles file paths', async () => {

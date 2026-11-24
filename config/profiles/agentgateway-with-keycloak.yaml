@@ -82,8 +82,8 @@ spec:
       port: 4317
     oidc:
       enabled: true
-      issuerUrl: https://{{env.domains.core.keycloak}}/realms/solo-ui
-      backendClientSecret: solo-ui-backend-secret
+      issuerUrl: https://{{env.domains.core.keycloak}}/realms/agw-ui
+      backendClientSecret: agw-ui-backend-secret
 
   addons:
     - name: cert-manager
@@ -416,12 +416,12 @@ spec:
                 attributes:
                   partner_tier: bronze
                   partner_id: acme-partner
-        soloUiClients:
+        agwUiClients:
           enabled: true
-          realm: solo-ui
+          realm: agw-ui
           hostname: https://{{env.domains.core.agentgatewayUi}}
           backendClientId: enterprise-agentgateway-ui-backend
-          backendClientSecret: solo-ui-backend-secret
+          backendClientSecret: agw-ui-backend-secret
           frontendClientId: enterprise-agentgateway-ui
         workloadClients:
           - clientId: caller-agent

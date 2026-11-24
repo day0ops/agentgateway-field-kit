@@ -7,7 +7,7 @@ metadata:
     - Keycloak integration
     - Full observability
     - OpenFGA integration for ReBAC
-    - Solo UI and full stack observability
+    - AGW UI and full stack observability
     - TLS via cert-manager, and DNS via Route53
 spec:
   environment: aws-dev
@@ -102,12 +102,12 @@ spec:
     sourceRanges: '{{env.security.vpnSourceRanges}}'
     tls:
       enabled: true
-      secretName: solo-ui-tls
+      secretName: agw-ui-tls
       issuer: '{{env.tls.issuer}}'
     oidc:
       enabled: true
-      issuerUrl: https://{{env.domains.core.keycloak}}/realms/solo-ui
-      backendClientSecret: solo-ui-backend-secret
+      issuerUrl: https://{{env.domains.core.keycloak}}/realms/agw-ui
+      backendClientSecret: agw-ui-backend-secret
     applyGatewayTracingPolicy: false
     features:
       costManagement:
@@ -172,12 +172,12 @@ spec:
           enabled: true
           secretName: keycloak-tls
           createCertificate: true
-        soloUiClients:
+        agwUiClients:
           enabled: true
-          realm: solo-ui
+          realm: agw-ui
           hostname: https://{{env.domains.core.agentgatewayUi}}
           backendClientId: enterprise-agentgateway-ui-backend
-          backendClientSecret: solo-ui-backend-secret
+          backendClientSecret: agw-ui-backend-secret
           frontendClientId: enterprise-agentgateway-ui
         realms:
           - realm: agw-dev

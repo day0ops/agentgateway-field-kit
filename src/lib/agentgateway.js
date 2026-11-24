@@ -26,7 +26,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const PROJECT_ROOT = join(__dirname, '../..');
 const DEFAULT_GATEWAY_YAML = join(PROJECT_ROOT, 'config', 'gateway', 'default-gateway.yaml');
-const UI_CONFIG_DIR = join(__dirname, 'config', 'solo-ui');
+const UI_CONFIG_DIR = join(__dirname, 'config', 'agw-ui');
 
 const INSTALL_STATE_CONFIGMAP = 'agentgateway-install-state';
 const AGENTGATEWAY_NAMESPACE = process.env.AGENTGATEWAY_NAMESPACE || 'agentgateway-system';
@@ -1138,7 +1138,7 @@ export class AgentGatewayManager {
   }
 
   /**
-   * Apply one of the UI's static YAML templates (src/lib/config/solo-ui/), deep-merging
+   * Apply one of the UI's static YAML templates (src/lib/config/agw-ui/), deep-merging
    * an override object the same way installProxy() does for the default Gateway.
    */
   static async applyUiYamlFile(fileName, overrides, spinner) {
@@ -1193,10 +1193,10 @@ export class AgentGatewayManager {
     const spinner = new SpinnerLogger();
 
     if (ui.hostname && ui.tls?.enabled) {
-      const secretName = ui.tls.secretName || 'solo-ui-tls';
+      const secretName = ui.tls.secretName || 'agw-ui-tls';
       const issuerName = ui.tls.issuer || 'letsencrypt-dns';
 
-      spinner.start(`Configuring HTTPS for Solo UI at https://${ui.hostname}...`);
+      spinner.start(`Configuring HTTPS for AGW UI at https://${ui.hostname}...`);
 
       await this.applyUiYamlFile(
         'certificate.yaml',
@@ -1267,7 +1267,7 @@ export class AgentGatewayManager {
       }
     }
 
-    spinner.start('Waiting for Solo UI to be ready...');
+    spinner.start('Waiting for AGW UI to be ready...');
     try {
       await KubernetesHelper.waitForDeployment(
         AGENTGATEWAY_NAMESPACE,
@@ -1275,7 +1275,7 @@ export class AgentGatewayManager {
         300,
         spinner
       );
-      spinner.succeed('Solo UI is ready');
+      spinner.succeed('AGW UI is ready');
     } catch (error) {
       spinner.warn(`enterprise-agentgateway-ui may still be starting: ${error.message}`);
     }
@@ -1298,7 +1298,7 @@ export class AgentGatewayManager {
           ...(backendRef ? { frontend: { tracing: { backendRef } } } : {}),
         },
       });
-      Logger.info('Gateway tracing policy applied for Solo UI');
+      Logger.info('Gateway tracing policy applied for AGW UI');
     }
 
     if (ui.hostname && ui.tls?.enabled) {
@@ -1308,7 +1308,7 @@ export class AgentGatewayManager {
       );
     }
 
-    Logger.success('Solo UI installed successfully');
+    Logger.success('AGW UI installed successfully');
   }
 
   /**
@@ -1319,12 +1319,12 @@ export class AgentGatewayManager {
    */
   static async cleanupUI() {
     const kinds = [
-      ['httproute', 'solo-enterprise-ui'],
-      ['gateway', 'solo-enterprise-ui-https'],
-      ['certificate', 'solo-ui-tls'],
-      ['secret', 'solo-ui-tls'],
-      ['enterpriseagentgatewaypolicy', 'tracing-solo-ui'],
-      ['enterpriseagentgatewaypolicy', 'solo-ui-no-trace'],
+      ['httproute', 'agw-enterprise-ui'],
+      ['gateway', 'agw-enterprise-ui-https'],
+      ['certificate', 'agw-ui-tls'],
+      ['secret', 'agw-ui-tls'],
+      ['enterpriseagentgatewaypolicy', 'tracing-agw-ui'],
+      ['enterpriseagentgatewaypolicy', 'agw-ui-no-trace'],
     ];
     for (const [kind, name] of kinds) {
       await KubernetesHelper.kubectl(
@@ -1518,12 +1518,20 @@ export class AgentGatewayManager {
         );
 
         if (nsResult?.exitCode === 0 && nsResult?.stdout?.includes(AGENTGATEWAY_NAMESPACE)) {
-          Logger.info(`Deleting namespace ${AGENTGATEWAY_NAMESPACE}...`);
-          await KubernetesHelper.kubectl(
-            ['delete', 'namespace', AGENTGATEWAY_NAMESPACE, '--wait=false'],
-            { ignoreError: true }
+          Logger.info(
+            `Deleting namespace ${AGENTGATEWAY_NAMESPACE} (waiting for LoadBalancer Services to finish reconciling)...`
           );
-          Logger.success('Namespace deletion initiated');
+          // Blocks (no --wait=false) so LoadBalancer Services inside the namespace lose their
+          // cloud-controller finalizer before callers tear down aws-load-balancer-controller/
+          // external-dns - otherwise those addons get removed mid-reconciliation and the
+          // Services (and namespace) are stuck in Terminating forever.
+          await KubernetesHelper.kubectl([
+            'delete',
+            'namespace',
+            AGENTGATEWAY_NAMESPACE,
+            '--timeout=300s',
+          ]);
+          Logger.success(`Namespace ${AGENTGATEWAY_NAMESPACE} deleted`);
         }
       }
     } catch (error) {

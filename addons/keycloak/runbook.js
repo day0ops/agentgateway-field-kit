@@ -162,11 +162,11 @@ export function envVarsFor(cfg) {
       description: 'Postgres superuser password',
     },
   ];
-  if (cfg?.soloUiClients?.enabled) {
+  if (cfg?.agwUiClients?.enabled) {
     vars.push({
-      name: 'SOLO_UI_DEFAULT_PASSWORD',
+      name: 'AGW_UI_DEFAULT_PASSWORD',
       required: true,
-      description: 'Solo UI demo bootstrap password (solo-admin/solo-reader/solo-writer)',
+      description: 'AGW UI demo bootstrap password (agw-admin/agw-reader/agw-writer)',
     });
   }
   if ((cfg?.realms || []).some(r => r.realm === 'grafana')) {
@@ -309,45 +309,45 @@ export async function generate(_subIndex, profileAddonConfig) {
     }
   }
 
-  const soloUiClients = cfg.soloUiClients;
-  if (soloUiClients?.enabled) {
-    const suiRealm = soloUiClients.realm || 'solo-ui';
+  const agwUiClients = cfg.agwUiClients;
+  if (agwUiClients?.enabled) {
+    const agwUiRealmName = agwUiClients.realm || 'agw-ui';
     lines.push('');
-    lines.push(`# Create Solo UI realm: ${suiRealm}`);
+    lines.push(`# Create AGW UI realm: ${agwUiRealmName}`);
     lines.push(`curl -sk -X POST "\${KEYCLOAK_SCHEME}://\${KEYCLOAK_HOST}/admin/realms" \\`);
     lines.push(`  -H "Authorization: Bearer $KEYCLOAK_TOKEN" \\`);
     lines.push(`  -H "Content-Type: application/json" \\`);
-    lines.push(`  -d '{"realm":"${suiRealm}","enabled":true}'`);
+    lines.push(`  -d '{"realm":"${agwUiRealmName}","enabled":true}'`);
 
-    if (soloUiClients.backendClientId) {
+    if (agwUiClients.backendClientId) {
       const backendPayload = {
-        clientId: soloUiClients.backendClientId,
-        secret: soloUiClients.backendClientSecret,
+        clientId: agwUiClients.backendClientId,
+        secret: agwUiClients.backendClientSecret,
         publicClient: false,
         serviceAccountsEnabled: false,
         standardFlowEnabled: true,
       };
       lines.push('');
-      lines.push(`# Backend client (confidential): ${soloUiClients.backendClientId}`);
+      lines.push(`# Backend client (confidential): ${agwUiClients.backendClientId}`);
       lines.push(
-        `curl -sk -X POST "\${KEYCLOAK_SCHEME}://\${KEYCLOAK_HOST}/admin/realms/${suiRealm}/clients" \\`
+        `curl -sk -X POST "\${KEYCLOAK_SCHEME}://\${KEYCLOAK_HOST}/admin/realms/${agwUiRealmName}/clients" \\`
       );
       lines.push(`  -H "Authorization: Bearer $KEYCLOAK_TOKEN" \\`);
       lines.push(`  -H "Content-Type: application/json" \\`);
       lines.push(`  -d '${JSON.stringify(backendPayload)}'`);
     }
 
-    if (soloUiClients.frontendClientId) {
+    if (agwUiClients.frontendClientId) {
       const frontendPayload = {
-        clientId: soloUiClients.frontendClientId,
+        clientId: agwUiClients.frontendClientId,
         publicClient: true,
         serviceAccountsEnabled: false,
         standardFlowEnabled: true,
       };
       lines.push('');
-      lines.push(`# Frontend client (public): ${soloUiClients.frontendClientId}`);
+      lines.push(`# Frontend client (public): ${agwUiClients.frontendClientId}`);
       lines.push(
-        `curl -sk -X POST "\${KEYCLOAK_SCHEME}://\${KEYCLOAK_HOST}/admin/realms/${suiRealm}/clients" \\`
+        `curl -sk -X POST "\${KEYCLOAK_SCHEME}://\${KEYCLOAK_HOST}/admin/realms/${agwUiRealmName}/clients" \\`
       );
       lines.push(`  -H "Authorization: Bearer $KEYCLOAK_TOKEN" \\`);
       lines.push(`  -H "Content-Type: application/json" \\`);

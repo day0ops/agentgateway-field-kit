@@ -95,12 +95,12 @@ spec:
     sourceRanges: '{{env.security.vpnSourceRanges}}'
     tls:
       enabled: true
-      secretName: solo-ui-tls
+      secretName: agw-ui-tls
       issuer: '{{env.tls.issuer}}'
     oidc:
       enabled: true
       issuerUrl: https://{{env.domains.core.keycloak}}/realms/agw-dev
-      backendClientSecret: solo-ui-backend-secret
+      backendClientSecret: agw-ui-backend-secret
 
   addons:
     - name: aws-load-balancer-controller
@@ -161,12 +161,12 @@ spec:
           enabled: true
           secretName: keycloak-tls
           createCertificate: true
-        soloUiClients:
+        agwUiClients:
           enabled: true
           realm: agw-dev
           hostname: https://{{env.domains.core.agentgatewayUi}}
           backendClientId: enterprise-agentgateway-ui-backend
-          backendClientSecret: solo-ui-backend-secret
+          backendClientSecret: agw-ui-backend-secret
           frontendClientId: enterprise-agentgateway-ui
         realms:
           - realm: agw-dev
@@ -235,8 +235,8 @@ spec:
                 lastName: User
                 email: user1@acme-corp.demo
                 # Temporary: testing whether global.Reader is sufficient for a tenant
-                # user to view/approve their own pending elicitation in Solo UI.
-                soloUiGroup: readers
+                # user to view/approve their own pending elicitation in AGW UI.
+                agwUiGroup: readers
                 attributes:
                   org_id: acme-corp
                   team_id: team-alpha

@@ -1,16 +1,16 @@
 import { test, expect, describe } from 'bun:test';
 import { ProfileManager } from '../../src/lib/profiles.js';
 
-describe('agentgateway-with-solo-ui real DNS wiring', () => {
+describe('agentgateway-with-agw-ui real DNS wiring', () => {
   test('resolves cert-manager, external-dns, ui, telemetry hostnames', async () => {
     const profile = await ProfileManager.load(
-      `${ProfileManager.PROFILES_DIR}/agentgateway-with-solo-ui.yaml`
+      `${ProfileManager.PROFILES_DIR}/agentgateway-with-agw-ui.yaml`
     );
     const byName = name => profile.addons.find(a => a.name === name);
 
     expect(byName('cert-manager').config.letsencrypt.provider).toBe('cloudflare');
     expect(byName('external-dns').config.domainFilter).toBe('day0ops.com');
-    expect(profile.addons.find(a => a.name === 'solo-ui')).toBeUndefined();
+    expect(profile.addons.find(a => a.name === 'agw-ui')).toBeUndefined();
     expect(profile.ui.enabled).toBe(true);
     expect(profile.ui.hostname).toBe('agw-ui.agw.lab.day0ops.com');
     expect(profile.ui.tls.enabled).toBe(true);

@@ -1,7 +1,7 @@
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
-  name: solo-enterprise-ui-https
+  name: agw-enterprise-ui-https
   namespace: agentgateway-system
 spec:
   gatewayClassName: enterprise-agentgateway
@@ -13,7 +13,7 @@ spec:
       tls:
         mode: Terminate
         certificateRefs:
-          - name: solo-ui-tls
+          - name: agw-ui-tls
             kind: Secret
       allowedRoutes:
         namespaces:

@@ -1,10 +1,10 @@
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
-  name: solo-ui-tls
+  name: agw-ui-tls
   namespace: agentgateway-system
 spec:
-  secretName: solo-ui-tls
+  secretName: agw-ui-tls
   issuerRef:
     name: letsencrypt-dns
     kind: ClusterIssuer

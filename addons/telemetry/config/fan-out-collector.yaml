@@ -1,5 +1,5 @@
 # Fan-out OTEL Collector Deployment
-# Routes traces to both Solo UI (ClickHouse) and Grafana (Tempo)
+# Routes traces to both AGW UI (ClickHouse) and Grafana (Tempo)
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -21,7 +21,7 @@ data:
             endpoint: 0.0.0.0:4318
 
     exporters:
-      otlp/solo-ui:
+      otlp/agw-ui:
         endpoint: solo-enterprise-telemetry-collector.agentgateway-system:4317
         tls:
           insecure: true
@@ -51,7 +51,7 @@ data:
         traces:
           receivers: [otlp]
           processors: [memory_limiter, batch]
-          exporters: [otlp/solo-ui, otlp/tempo]
+          exporters: [otlp/agw-ui, otlp/tempo]
 ---
 apiVersion: apps/v1
 kind: Deployment
