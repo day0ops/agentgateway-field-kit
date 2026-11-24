@@ -1028,6 +1028,8 @@ export class KeycloakFeature extends Feature {
   async kcApi(method, url, token, body) {
     const args = [
       '-sSfk',
+      '--max-time',
+      '10',
       ...(this.curlResolveArgs || []),
       '-X',
       method,
@@ -1060,8 +1062,15 @@ export class KeycloakFeature extends Feature {
 
     for (let i = 0; i < 30; i++) {
       try {
+        // Refresh on every attempt: the NLB hostname's backing IP can rotate (hence its
+        // short DNS TTL), so a --resolve pin taken once at the top of configureKeycloak()
+        // can go stale mid-retry and hang every subsequent attempt against a dead IP.
+        this.curlResolveArgs = await this.resolveCurlArgs();
+
         const curlArgs = [
           '-sSfk',
+          '--max-time',
+          '10',
           ...(this.curlResolveArgs || []),
           '-X',
           'POST',

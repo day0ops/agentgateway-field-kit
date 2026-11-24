@@ -528,12 +528,19 @@ export class PolicyRegistry {
         await KubernetesHelper.applyYaml(yamlContent, spinner);
         // Wait for the data plane to actually attach this policy before the caller's first
         // request fires - status.ancestors[].conditions flips Attached=True as soon as the
-        // control plane accepts it, which can briefly race ahead of enforcement.
+        // control plane accepts it, which can briefly race ahead of enforcement. A policy
+        // whose only targetRefs are a Service (backend-targeting, e.g. a backend TLS policy)
+        // attaches via a slower, indirect path than one targeting a Gateway/HTTPRoute
+        // directly, and routinely needs longer than the default timeout to report True.
+        const targetsServiceOnly = (cleanPolicy.spec?.targetRefs || []).every(
+          ref => ref.kind === 'Service'
+        );
         await KubernetesHelper.waitForConditionTrue(
           cleanPolicy.kind,
           policyName,
           cleanPolicy.metadata.namespace,
-          '{.status.ancestors[0].conditions[?(@.type=="Attached")].status}'
+          '{.status.ancestors[0].conditions[?(@.type=="Attached")].status}',
+          targetsServiceOnly ? 45 : undefined
         );
       }
     }
