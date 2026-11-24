@@ -47,21 +47,21 @@ Copy and edit environment files under `config/environments/` to match your AWS a
 
 ## Installation Profiles
 
-| Profile                                    | Description                                                                                                                 |
-| ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
-| `agentgateway-standard`                    | Standard installation                                                                                                       |
+| Profile                                    | Description                                                                                                                |
+| ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------- |
+| `agentgateway-standard`                    | Standard installation                                                                                                      |
 | `agentgateway-with-observability`          | Full observability stack (AGW UI, Prometheus, Grafana, Loki, Tempo)                                                        |
-| `agentgateway-with-agw-ui`                | Observability with AGW UI stack                                                                                            |
-| `agentgateway-with-keycloak`               | Includes Keycloak integration with the full observability stack                                                             |
-| `agentgateway-with-opa`                    | OPA (Open Policy Agent) authorization server for Rego-based model access control demos                                      |
-| `agentgateway-with-openfga`                | OpenFGA (ReBAC) authorization server for fine-grained model access control demos                                            |
+| `agentgateway-with-agw-ui`                 | Observability with AGW UI stack                                                                                            |
+| `agentgateway-with-keycloak`               | Includes Keycloak integration with the full observability stack                                                            |
+| `agentgateway-with-opa`                    | OPA (Open Policy Agent) authorization server for Rego-based model access control demos                                     |
+| `agentgateway-with-openfga`                | OpenFGA (ReBAC) authorization server for fine-grained model access control demos                                           |
 | `eks-enterprise-agentgateway-complete`     | Complete enterprise demo for EKS: Keycloak, ReBAC (OpenFGA), AGW UI, full observability (gp3, worker nodes, LoadBalancers) |
-| `eks-enterprise-agentgateway-lts-complete` | Complete enterprise agentgateway LTS demo on EKS: Keycloak integration                                                      |
-| `eks-enterprise-agentgateway-lts-minimal`  | Minimal enterprise agentgateway LTS demo on EKS: Keycloak integration                                                       |
-| `eks-enterprise-agentgateway-minimal`      | Minimal enterprise agentgateway (bleeding edge version) demo on EKS: Keycloak integration                                   |
-| `eks-opensource-agentgateway`              | Open-source agentgateway.dev with Keycloak, on EKS (no license required)                                                    |
-| `agentgateway-custom-config`               | Custom configuration                                                                                                        |
-| `agentgateway-custom-version`              | Custom version, OCI registry, and controller extraEnv                                                                       |
+| `eks-enterprise-agentgateway-lts-complete` | Complete enterprise agentgateway LTS demo on EKS: Keycloak integration                                                     |
+| `eks-enterprise-agentgateway-lts-minimal`  | Minimal enterprise agentgateway LTS demo on EKS: Keycloak integration                                                      |
+| `eks-enterprise-agentgateway-minimal`      | Minimal enterprise agentgateway (bleeding edge version) demo on EKS: Keycloak integration                                  |
+| `eks-opensource-agentgateway`              | Open-source agentgateway.dev with Keycloak, on EKS (no license required)                                                   |
+| `agentgateway-custom-config`               | Custom configuration                                                                                                       |
+| `agentgateway-custom-version`              | Custom version, OCI registry, and controller extraEnv                                                                      |
 
 List profiles at any time with `agw profile list`.
 
@@ -124,7 +124,7 @@ Every feature declares which edition(s) it supports (`Feature.SUPPORTED_EDITIONS
 | `KEYCLOAK_ADMIN_PASSWORD`                                                                     | Yes (keycloak addon)                                   | No default                                                                            |
 | `KEYCLOAK_POSTGRES_USER`                                                                      | Yes (keycloak addon)                                   | No default                                                                            |
 | `KEYCLOAK_POSTGRES_PASSWORD`                                                                  | Yes (keycloak addon)                                   | No default                                                                            |
-| `AGW_UI_DEFAULT_PASSWORD`                                                                    | Yes, when `agwUiClients.enabled`                      | No default                                                                            |
+| `AGW_UI_DEFAULT_PASSWORD`                                                                     | Yes, when `agwUiClients.enabled`                       | No default                                                                            |
 | `GRAFANA_REALM_ADMIN_USERNAME`                                                                | No (default: `grafana-admin`)                          | Only used when a `grafana` realm is configured                                        |
 | `GRAFANA_REALM_ADMIN_PASSWORD`                                                                | Yes, when a `grafana` realm is configured              | No default                                                                            |
 | `GRAFANA_ADMIN_USERNAME`                                                                      | Yes (telemetry addon)                                  | No default                                                                            |
