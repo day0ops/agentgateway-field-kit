@@ -20,7 +20,7 @@ const HELM_REPO_URL = 'https://comet-ml.github.io/opik/';
  * Opik's OTLP ingestion is HTTP-only - "if you use the GRPC exporter you will face
  * errors" (Opik's own words). This is why the fan-out collector change wired up
  * alongside this addon uses an `otlphttp` exporter, not the `otlp` (gRPC) exporter
- * used for the Tempo/Solo UI backends already in that pipeline. The endpoint is
+ * used for the Tempo/AGW UI backends already in that pipeline. The endpoint is
  * served through the opik-frontend Service (port 5173), not a dedicated ingestion
  * service - there isn't one.
  *

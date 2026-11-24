@@ -19,7 +19,7 @@ config:
           endpoint: 0.0.0.0:4318
 
   exporters:
-    otlp/solo-ui:
+    otlp/agw-ui:
       endpoint: solo-enterprise-telemetry-collector.agentgateway-system:4317
       tls:
         insecure: true
@@ -54,4 +54,4 @@ config:
       traces:
         receivers: [otlp]
         processors: [memory_limiter, batch]
-        exporters: [otlp/solo-ui, otlp/tempo, otlphttp/opik]
+        exporters: [otlp/agw-ui, otlp/tempo, otlphttp/opik]

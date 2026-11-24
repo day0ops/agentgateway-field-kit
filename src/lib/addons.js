@@ -139,10 +139,14 @@ export class AddonInstaller {
         );
         if (nsResult?.exitCode === 0 && nsResult?.stdout?.includes(namespace)) {
           Logger.info(`Deleting namespace ${namespace}...`);
-          await KubernetesHelper.kubectl(['delete', 'namespace', namespace, '--wait=false'], {
+          // Blocks (no --wait=false): aws-load-balancer-controller is cleaned up last in
+          // orderForCleanup(), so any LoadBalancer Service in this namespace needs to finish
+          // losing its service.k8s.aws/resources finalizer before that controller is removed -
+          // otherwise the Service (and namespace) is stuck in Terminating forever.
+          await KubernetesHelper.kubectl(['delete', 'namespace', namespace, '--timeout=300s'], {
             ignoreError: true,
           });
-          Logger.success(`Namespace ${namespace} deletion initiated`);
+          Logger.success(`Namespace ${namespace} deleted`);
         }
       }
     } catch (error) {

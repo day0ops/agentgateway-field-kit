@@ -15,7 +15,7 @@ spec:
       participant Agent
       participant AGW as agentgateway
       participant STS as STS :7777
-      participant UI as Solo UI
+      participant UI as AGW UI
       participant GitHub as External OAuth (GitHub)
       participant API as External API
       Agent->>AGW: Request to /api/user (needs GitHub token)
@@ -24,7 +24,7 @@ spec:
       AGW-->>Agent: 202 + elicitation_url (PENDING)
       Note over Agent: Agent pauses, waits for user
       Agent->>UI: Notify user: "Authorization needed"
-      Note over UI: User opens Solo UI
+      Note over UI: User opens AGW UI
       UI->>GitHub: OAuth authorize redirect
       Note over UI,GitHub: User authenticates with GitHub
       GitHub-->>UI: Authorization code
@@ -75,7 +75,7 @@ spec:
 
     - title: Configure elicitation backend
       description: |
-        Create an AgentgatewayBackend for the external API (GitHub API) and configure an EnterpriseAgentgatewayPolicy with backend.entElicitation. When requests arrive without an upstream token: 1. STS returns an elicitation URL with PENDING status 2. User completes OAuth in Solo UI 3. STS stores the token with COMPLETED status 4. Subsequent requests have the token injected automatically (Authorization header)
+        Create an AgentgatewayBackend for the external API (GitHub API) and configure an EnterpriseAgentgatewayPolicy with backend.entElicitation. When requests arrive without an upstream token: 1. STS returns an elicitation URL with PENDING status 2. User completes OAuth in AGW UI 3. STS stores the token with COMPLETED status 4. Subsequent requests have the token injected automatically (Authorization header)
       features:
         - name: elicitation-backend
           config:
@@ -131,7 +131,7 @@ spec:
             contains: '"url"'
 
     - name: test-elicitation-visible-in-ui
-      description: Verify pending elicitation is visible in Solo UI (manual verification)
+      description: Verify pending elicitation is visible in AGW UI (manual verification)
       manual: true
       steps:
         - action: note
@@ -147,6 +147,6 @@ spec:
       steps:
         - action: note
           text: >
-            After completing OAuth in Solo UI, retry the API request.
+            After completing OAuth in AGW UI, retry the API request.
             The token should be automatically injected.
             Response should contain GitHub user data.

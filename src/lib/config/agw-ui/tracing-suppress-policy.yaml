@@ -1,16 +1,16 @@
 apiVersion: enterpriseagentgateway.solo.io/v1alpha1
 kind: EnterpriseAgentgatewayPolicy
 metadata:
-  name: solo-ui-no-trace
+  name: agw-ui-no-trace
   namespace: agentgateway-system
   labels:
     app.kubernetes.io/managed-by: agentgateway-demo
-    agentgateway.dev/feature: solo-ui
+    agentgateway.dev/feature: agw-ui
 spec:
   targetRefs:
     - group: gateway.networking.k8s.io
       kind: Gateway
-      name: solo-enterprise-ui-https
+      name: agw-enterprise-ui-https
   frontend:
     tracing:
       backendRef:

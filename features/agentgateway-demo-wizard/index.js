@@ -16,7 +16,7 @@ const DEFAULT_IMAGE =
  * RBAC matching exactly what the wizard's own README documents it needs, a Secret
  * for its container env, and (optionally) its own dedicated HTTPS Gateway +
  * cert-manager Certificate + HTTPRoute, VPN-locked via sourceRanges - the same
- * shape addons/solo-ui uses for its own public exposure.
+ * shape addons/agw-ui uses for its own public exposure.
  *
  * Also bundles the 'routing-dynamic' HTTPRoute the wizard's dynamic-tier routing
  * step expects to find (X-Model-Tier header match against two pre-provisioned

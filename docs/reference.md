@@ -50,12 +50,12 @@ Copy and edit environment files under `config/environments/` to match your AWS a
 | Profile                                    | Description                                                                                                                 |
 | ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
 | `agentgateway-standard`                    | Standard installation                                                                                                       |
-| `agentgateway-with-observability`          | Full observability stack (Solo UI, Prometheus, Grafana, Loki, Tempo)                                                        |
-| `agentgateway-with-solo-ui`                | Observability with Solo UI stack                                                                                            |
+| `agentgateway-with-observability`          | Full observability stack (AGW UI, Prometheus, Grafana, Loki, Tempo)                                                        |
+| `agentgateway-with-agw-ui`                | Observability with AGW UI stack                                                                                            |
 | `agentgateway-with-keycloak`               | Includes Keycloak integration with the full observability stack                                                             |
 | `agentgateway-with-opa`                    | OPA (Open Policy Agent) authorization server for Rego-based model access control demos                                      |
 | `agentgateway-with-openfga`                | OpenFGA (ReBAC) authorization server for fine-grained model access control demos                                            |
-| `eks-enterprise-agentgateway-complete`     | Complete enterprise demo for EKS: Keycloak, ReBAC (OpenFGA), Solo UI, full observability (gp3, worker nodes, LoadBalancers) |
+| `eks-enterprise-agentgateway-complete`     | Complete enterprise demo for EKS: Keycloak, ReBAC (OpenFGA), AGW UI, full observability (gp3, worker nodes, LoadBalancers) |
 | `eks-enterprise-agentgateway-lts-complete` | Complete enterprise agentgateway LTS demo on EKS: Keycloak integration                                                      |
 | `eks-enterprise-agentgateway-lts-minimal`  | Minimal enterprise agentgateway LTS demo on EKS: Keycloak integration                                                       |
 | `eks-enterprise-agentgateway-minimal`      | Minimal enterprise agentgateway (bleeding edge version) demo on EKS: Keycloak integration                                   |
@@ -124,7 +124,7 @@ Every feature declares which edition(s) it supports (`Feature.SUPPORTED_EDITIONS
 | `KEYCLOAK_ADMIN_PASSWORD`                                                                     | Yes (keycloak addon)                                   | No default                                                                            |
 | `KEYCLOAK_POSTGRES_USER`                                                                      | Yes (keycloak addon)                                   | No default                                                                            |
 | `KEYCLOAK_POSTGRES_PASSWORD`                                                                  | Yes (keycloak addon)                                   | No default                                                                            |
-| `SOLO_UI_DEFAULT_PASSWORD`                                                                    | Yes, when `soloUIClients.enabled`                      | No default                                                                            |
+| `AGW_UI_DEFAULT_PASSWORD`                                                                    | Yes, when `agwUiClients.enabled`                      | No default                                                                            |
 | `GRAFANA_REALM_ADMIN_USERNAME`                                                                | No (default: `grafana-admin`)                          | Only used when a `grafana` realm is configured                                        |
 | `GRAFANA_REALM_ADMIN_PASSWORD`                                                                | Yes, when a `grafana` realm is configured              | No default                                                                            |
 | `GRAFANA_ADMIN_USERNAME`                                                                      | Yes (telemetry addon)                                  | No default                                                                            |
@@ -150,7 +150,7 @@ Vertex AI access tokens expire in ~1 hour - regenerate before each deploy.
 │   ├── opa/
 │   ├── openfga/
 │   ├── opik/
-│   ├── solo-ui/
+│   ├── agw-ui/
 │   └── telemetry/
 ├── config/
 │   ├── infra/                  # InfraProfile YAMLs - where clusters run
@@ -248,7 +248,7 @@ agw runbook generate [-o|--output <file>] [-t|--title <title>]
 Generates a self-contained Markdown runbook from this repo's profiles, addons, providers, and use cases. The interactive prompt configures:
 
 - **Title** — runbook document heading
-- **Addons** — optional components to install (telemetry, cert-manager, keycloak, solo-ui, opa, openfga, opik, ...)
+- **Addons** — optional components to install (telemetry, cert-manager, keycloak, agw-ui, opa, openfga, opik, ...)
 - **Providers** — LLM backends to demo (openai, bedrock, vertex, etc.)
 - **Labs** — use-case or feature labs to include after the providers lab
 - **Profile** — pin component versions and configuration (optional)

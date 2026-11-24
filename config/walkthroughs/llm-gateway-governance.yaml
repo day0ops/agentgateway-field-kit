@@ -143,7 +143,7 @@ spec:
     - name: budget-and-spend-limits
       title: Budget and Spend Limits
       narration: |
-        Virtual API keys carry their own identity and token budget - no JWT required. Usage is recorded after a request completes, so the first request always goes through; bob's 1-token budget then blocks every request after with 429, while alice's only audits the overage. Budgets stack into tiers without cascading - every matching budget is charged independently, so the same traffic counts against bob/alice, team-ci, and the org ceiling at once. team-ci's 25-token budget fills after a couple of requests - watch it reach 100% in the Solo UI while the 10M-token org wildcard barely moves. Uses X-Api-Key, not Authorization, so screen 1's JWT check doesn't misparse it.
+        Virtual API keys carry their own identity and token budget - no JWT required. Usage is recorded after a request completes, so the first request always goes through; bob's 1-token budget then blocks every request after with 429, while alice's only audits the overage. Budgets stack into tiers without cascading - every matching budget is charged independently, so the same traffic counts against bob/alice, team-ci, and the org ceiling at once. team-ci's 25-token budget fills after a couple of requests - watch it reach 100% in the AGW UI while the 10M-token org wildcard barely moves. Uses X-Api-Key, not Authorization, so screen 1's JWT check doesn't misparse it.
       setup:
         - name: providers
           config:
@@ -260,7 +260,7 @@ spec:
           body: '{"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "Hello"}]}'
           expectStatus: 200
         - kind: http
-          label: 'POST /gov-cost (team-ci, request 2 fills the team tier - check the Solo UI)'
+          label: 'POST /gov-cost (team-ci, request 2 fills the team tier - check the AGW UI)'
           description: A second request pushes team-ci's cumulative usage past its 25-token budget. The Audit action lets it through regardless.
           method: POST
           url: 'https://{{env.domains.app.walkthrough}}/gov-cost'

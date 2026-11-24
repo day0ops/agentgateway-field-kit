@@ -134,7 +134,7 @@ describe('GatewayFeature registerWithTelemetry', () => {
     policies = {
       'logging-policy': { spec: { targetRefs: [] } },
       'tracing-policy': { spec: { targetRefs: [] } },
-      'tracing-solo-ui': { spec: { targetRefs: [] } },
+      'tracing-agw-ui': { spec: { targetRefs: [] } },
     };
     originalKubectl = KubernetesHelper.kubectl;
     KubernetesHelper.kubectl = async args => {
@@ -156,7 +156,7 @@ describe('GatewayFeature registerWithTelemetry', () => {
     KubernetesHelper.kubectl = originalKubectl;
   });
 
-  test('appends the new Gateway to logging-policy/tracing-policy/tracing-solo-ui targetRefs', async () => {
+  test('appends the new Gateway to logging-policy/tracing-policy/tracing-agw-ui targetRefs', async () => {
     await FeatureManager.deploy('gateway', { name: 'governance-gateway' }, { dryRun: false });
 
     const patchCalls = calls.filter(args => args[0] === 'patch');
@@ -184,10 +184,10 @@ describe('GatewayFeature registerWithTelemetry', () => {
     ];
     await FeatureManager.deploy('gateway', { name: 'governance-gateway' }, { dryRun: false });
 
-    // Only tracing-policy and tracing-solo-ui (not yet registered) get patched.
+    // Only tracing-policy and tracing-agw-ui (not yet registered) get patched.
     const patchCalls = calls.filter(args => args[0] === 'patch');
     expect(patchCalls).toHaveLength(2);
-    expect(patchCalls.map(args => args[2]).sort()).toEqual(['tracing-policy', 'tracing-solo-ui']);
+    expect(patchCalls.map(args => args[2]).sort()).toEqual(['tracing-agw-ui', 'tracing-policy']);
   });
 
   test('skips entirely for a Gateway outside agentgateway-system (targetRefs cannot cross namespaces)', async () => {

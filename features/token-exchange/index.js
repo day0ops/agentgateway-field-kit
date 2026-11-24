@@ -64,7 +64,7 @@ const ENTERPRISE_AGENTGATEWAY_LICENSE = process.env.ENTERPRISE_AGENTGATEWAY_LICE
  *     validatorType: string,  // Default: 'k8s'
  *   },
  *   apiValidator: {
- *     validatorType: string,  // Default: 'remote' — validates Solo UI calls to elicitation CRUD
+ *     validatorType: string,  // Default: 'remote' — validates AGW UI calls to elicitation CRUD
  *     remoteConfig: {
  *       url: string,          // Keycloak JWKS URL (defaults to same as subjectValidator)
  *     },
@@ -85,7 +85,7 @@ const ENTERPRISE_AGENTGATEWAY_LICENSE = process.env.ENTERPRISE_AGENTGATEWAY_LICE
  *                              // (downstream_server/gateway_config/par_config - see
  *                              // https://docs.solo.io/agentgateway/latest/mcp/token-exchange/auth-only/setup/)
  *   callbackUrl: string,       // controller.extraEnv.CALLBACK_URL - the URL the proxy returns to
- *                              // the client when an elicitation is required (e.g. the Solo UI's
+ *                              // the client when an elicitation is required (e.g. the AGW UI's
  *                              // elicitations path). Must match the OAuth app's redirect_uri.
  *                              // Defaults to the controller's own placeholder if unset.
  * }

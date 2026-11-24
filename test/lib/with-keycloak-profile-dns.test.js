@@ -27,19 +27,19 @@ describe('agentgateway-with-keycloak real DNS wiring', () => {
     expect(keycloak.config.hostname).toBe('keycloak.agw.lab.day0ops.com');
   });
 
-  test('soloUiClients redirect hostname uses https', async () => {
+  test('agwUiClients redirect hostname uses https', async () => {
     const profile = await ProfileManager.load(PROFILE_PATH);
     const keycloak = profile.addons.find(a => a.name === 'keycloak');
-    expect(keycloak.config.soloUiClients.hostname).toBe('https://agw-ui.agw.lab.day0ops.com');
+    expect(keycloak.config.agwUiClients.hostname).toBe('https://agw-ui.agw.lab.day0ops.com');
   });
 
   test('ui config has no addons entry anymore, lives at the top level', async () => {
     const profile = await ProfileManager.load(PROFILE_PATH);
-    expect(profile.addons.find(a => a.name === 'solo-ui')).toBeUndefined();
+    expect(profile.addons.find(a => a.name === 'agw-ui')).toBeUndefined();
     expect(profile.ui.enabled).toBe(true);
     expect(profile.ui.serviceType).toBe('LoadBalancer');
-    expect(profile.ui.oidc.issuerUrl).toBe('https://keycloak.agw.lab.day0ops.com/realms/solo-ui');
-    expect(profile.ui.oidc.backendClientSecret).toBe('solo-ui-backend-secret');
+    expect(profile.ui.oidc.issuerUrl).toBe('https://keycloak.agw.lab.day0ops.com/realms/agw-ui');
+    expect(profile.ui.oidc.backendClientSecret).toBe('agw-ui-backend-secret');
     expect(profile.ui.tracingBackend).toEqual({
       name: 'fan-out-collector',
       namespace: 'telemetry',

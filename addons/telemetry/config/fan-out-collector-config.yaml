@@ -1,6 +1,6 @@
 # OpenTelemetry Collector configuration for fan-out to multiple backends
 # Receives traces from agentgateway and forwards to both:
-# - solo-enterprise-telemetry-collector (ClickHouse/Solo UI)
+# - solo-enterprise-telemetry-collector (ClickHouse/AGW UI)
 # - tempo-distributor (Grafana Tempo)
 
 receivers:
@@ -12,8 +12,8 @@ receivers:
         endpoint: 0.0.0.0:4318
 
 exporters:
-  # Forward to Solo UI's telemetry collector (ClickHouse)
-  otlp/solo-ui:
+  # Forward to AGW UI's telemetry collector (ClickHouse)
+  otlp/agw-ui:
     endpoint: solo-enterprise-telemetry-collector.agentgateway-system:4317
     tls:
       insecure: true
@@ -53,4 +53,4 @@ service:
     traces:
       receivers: [otlp]
       processors: [memory_limiter, batch]
-      exporters: [otlp/solo-ui, otlp/tempo, otlphttp/opik]
+      exporters: [otlp/agw-ui, otlp/tempo, otlphttp/opik]

@@ -28,7 +28,7 @@ const PROVIDER_DEFAULTS = {
  * Flow:
  * 1. Agent makes request to backend requiring external API access
  * 2. STS checks for upstream token; if missing, returns elicitation URL (PENDING)
- * 3. User opens URL in Solo UI, completes OAuth with external provider
+ * 3. User opens URL in AGW UI, completes OAuth with external provider
  * 4. STS stores token (COMPLETED)
  * 5. Agent retries; token is injected into upstream request's Authorization header
  *

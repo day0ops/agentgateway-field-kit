@@ -40,8 +40,8 @@ const POSTGRES_VERSION = '18.6-alpine';
  *                                   There is no in-repo default - realm config no longer
  *                                   accepts a plaintext `defaultPassword` field at all, so
  *                                   this is the only source.
- *   SOLO_UI_DEFAULT_PASSWORD      - solo-admin/solo-reader/solo-writer bootstrap password
- *                                   (only required when soloUiClients.enabled is true)
+ *   AGW_UI_DEFAULT_PASSWORD      - agw-admin/agw-reader/agw-writer bootstrap password
+ *                                   (only required when agwUiClients.enabled is true)
  *   GRAFANA_REALM_ADMIN_USERNAME  - Grafana OIDC demo admin username (default: 'grafana-admin';
  *                                   only used when a 'grafana' realm is configured)
  *   GRAFANA_REALM_ADMIN_PASSWORD  - Grafana OIDC demo admin password (only required when a
@@ -74,20 +74,20 @@ export class KeycloakFeature extends Feature {
     this.createCertificate = config.tls?.createCertificate !== false;
     this.workloadClients = config.workloadClients || [];
     this.postgres = config.postgres || null;
-    this.soloUiClients = config.soloUiClients || null;
-    this.soloUiRealm = config.soloUiClients?.realm || 'solo-ui';
+    this.agwUiClients = config.agwUiClients || null;
+    this.agwUiRealm = config.agwUiClients?.realm || 'agw-ui';
     this.loginTheme = config.loginTheme || null;
     this.adminUsername = process.env.KEYCLOAK_ADMIN_USERNAME || '';
     this.adminPassword = process.env.KEYCLOAK_ADMIN_PASSWORD || '';
     this.postgresUser = process.env.KEYCLOAK_POSTGRES_USER || '';
     this.postgresPassword = process.env.KEYCLOAK_POSTGRES_PASSWORD || '';
     this.defaultPassword = process.env.KEYCLOAK_DEFAULT_PASSWORD || '';
-    // Populated by setupStandardRealm() for any user with a `soloUiGroup` field,
-    // then applied once createSoloUIClients() has created the admins/readers/writers
+    // Populated by setupStandardRealm() for any user with a `agwUiGroup` field,
+    // then applied once createAgwUIClients() has created the admins/readers/writers
     // groups - group assignment has to happen after those groups exist, but standard
-    // realm users are created before createSoloUIClients() runs.
-    this.pendingSoloUiGroupAssignments = [];
-    this.soloUiDefaultPassword = process.env.SOLO_UI_DEFAULT_PASSWORD || '';
+    // realm users are created before createAgwUIClients() runs.
+    this.pendingAgwUiGroupAssignments = [];
+    this.agwUiDefaultPassword = process.env.AGW_UI_DEFAULT_PASSWORD || '';
     this.grafanaAdminUsername = process.env.GRAFANA_REALM_ADMIN_USERNAME || 'grafana-admin';
     this.grafanaAdminPassword = process.env.GRAFANA_REALM_ADMIN_PASSWORD || '';
     this.hasGrafanaRealm = (config.realms || []).some(r => r.realm === 'grafana');
@@ -100,7 +100,7 @@ export class KeycloakFeature extends Feature {
       !this.postgresUser && 'KEYCLOAK_POSTGRES_USER',
       !this.postgresPassword && 'KEYCLOAK_POSTGRES_PASSWORD',
       !this.defaultPassword && 'KEYCLOAK_DEFAULT_PASSWORD',
-      this.soloUiClients?.enabled && !this.soloUiDefaultPassword && 'SOLO_UI_DEFAULT_PASSWORD',
+      this.agwUiClients?.enabled && !this.agwUiDefaultPassword && 'AGW_UI_DEFAULT_PASSWORD',
       this.hasGrafanaRealm && !this.grafanaAdminPassword && 'GRAFANA_REALM_ADMIN_PASSWORD',
     ].filter(Boolean);
     if (missing.length > 0) {
@@ -112,7 +112,7 @@ export class KeycloakFeature extends Feature {
           '  export KEYCLOAK_POSTGRES_USER="postgres"\n' +
           '  export KEYCLOAK_POSTGRES_PASSWORD="<your-password>"\n' +
           '  export KEYCLOAK_DEFAULT_PASSWORD="<your-password>"\n' +
-          '  export SOLO_UI_DEFAULT_PASSWORD="<your-password>"\n' +
+          '  export AGW_UI_DEFAULT_PASSWORD="<your-password>"\n' +
           '  export GRAFANA_REALM_ADMIN_PASSWORD="<your-password>"'
       );
     }
@@ -469,8 +469,8 @@ export class KeycloakFeature extends Feature {
       await this.configureWorkloadClients(baseUrl, token);
     }
 
-    if (this.soloUiClients?.enabled) {
-      await this.createSoloUIClients(baseUrl, token);
+    if (this.agwUiClients?.enabled) {
+      await this.createAgwUIClients(baseUrl, token);
     }
 
     this.log('Keycloak configuration complete', 'info');
@@ -741,16 +741,16 @@ export class KeycloakFeature extends Feature {
   }
 
   // ---------------------------------------------------------------------------
-  // Solo UI Clients and Groups
+  // AGW UI Clients and Groups
   // ---------------------------------------------------------------------------
 
-  async createSoloUIRealm(baseUrl, token) {
-    if (await this.realmExists(baseUrl, token, this.soloUiRealm)) {
-      this.log(`Realm '${this.soloUiRealm}' already exists, skipping creation`, 'info');
+  async createAgwUIRealm(baseUrl, token) {
+    if (await this.realmExists(baseUrl, token, this.agwUiRealm)) {
+      this.log(`Realm '${this.agwUiRealm}' already exists, skipping creation`, 'info');
     } else {
-      this.log(`Creating Solo UI realm '${this.soloUiRealm}'...`, 'info');
+      this.log(`Creating AGW UI realm '${this.agwUiRealm}'...`, 'info');
       await this.kcApi('POST', `${baseUrl}/admin/realms`, token, {
-        realm: this.soloUiRealm,
+        realm: this.agwUiRealm,
         enabled: true,
         displayName: 'Solo Enterprise UI',
         loginWithEmailAllowed: true,
@@ -760,36 +760,36 @@ export class KeycloakFeature extends Feature {
         bruteForceProtected: false,
       });
     }
-    await this.ensureRealmLoginTheme(baseUrl, token, this.soloUiRealm);
+    await this.ensureRealmLoginTheme(baseUrl, token, this.agwUiRealm);
   }
 
-  async createSoloUIClients(baseUrl, token) {
+  async createAgwUIClients(baseUrl, token) {
     // This runs last, after every config-driven realm - confirmed live: the token
     // obtained at the start of configureKeycloak() can be stale by now on a long run.
     token = await this.getAdminToken(baseUrl);
     const refreshToken = async () => {
       token = await this.getAdminToken(baseUrl);
     };
-    const { hostname, backendClientId, backendClientSecret, frontendClientId } = this.soloUiClients;
-    const realm = this.soloUiRealm;
+    const { hostname, backendClientId, backendClientSecret, frontendClientId } = this.agwUiClients;
+    const realm = this.agwUiRealm;
     const redirectUri = `${hostname}/callback`;
     const postLogoutUri = `${hostname}/logout`;
 
     const realmReady = await this.createAndVerify(
-      `Solo UI realm '${realm}'`,
-      () => this.createSoloUIRealm(baseUrl, token),
+      `AGW UI realm '${realm}'`,
+      () => this.createAgwUIRealm(baseUrl, token),
       () => this.realmExists(baseUrl, token, realm),
       { refreshFn: refreshToken }
     );
     if (!realmReady) {
       this.log(
-        `Solo UI realm '${realm}' could not be created — aborting Solo UI client setup`,
+        `AGW UI realm '${realm}' could not be created — aborting AGW UI client setup`,
         'error'
       );
       return;
     }
 
-    this.log(`Creating Solo UI backend client '${backendClientId}'...`, 'info');
+    this.log(`Creating AGW UI backend client '${backendClientId}'...`, 'info');
 
     const backendPayload = {
       clientId: backendClientId,
@@ -817,7 +817,7 @@ export class KeycloakFeature extends Feature {
       await this.addGroupsClaimMapper(baseUrl, token, backendId, realm);
     }
 
-    this.log(`Creating Solo UI frontend client '${frontendClientId}'...`, 'info');
+    this.log(`Creating AGW UI frontend client '${frontendClientId}'...`, 'info');
 
     const frontendPayload = {
       clientId: frontendClientId,
@@ -845,33 +845,33 @@ export class KeycloakFeature extends Feature {
       await this.addGroupsClaimMapper(baseUrl, token, frontendId, realm);
     }
 
-    const groupIds = await this.createSoloUIGroups(baseUrl, token);
-    await this.createSoloUIUsers(baseUrl, token, groupIds);
-    await this.assignPendingSoloUiGroups(baseUrl, token, groupIds);
+    const groupIds = await this.createAgwUIGroups(baseUrl, token);
+    await this.createAgwUIUsers(baseUrl, token, groupIds);
+    await this.assignPendingAgwUiGroups(baseUrl, token, groupIds);
 
-    this.log('Solo UI clients, groups, and users created', 'success');
+    this.log('AGW UI clients, groups, and users created', 'success');
   }
 
-  // Assigns standard-realm users (e.g. user1) a Solo UI group, requested via their
-  // `soloUiGroup` config field and queued by setupStandardRealm(). Only applies to
-  // users in this.soloUiRealm - the groups don't exist anywhere else.
-  async assignPendingSoloUiGroups(baseUrl, token, groupIds) {
-    for (const { username, realm, group } of this.pendingSoloUiGroupAssignments) {
-      if (realm !== this.soloUiRealm) {
+  // Assigns standard-realm users (e.g. user1) a AGW UI group, requested via their
+  // `agwUiGroup` config field and queued by setupStandardRealm(). Only applies to
+  // users in this.agwUiRealm - the groups don't exist anywhere else.
+  async assignPendingAgwUiGroups(baseUrl, token, groupIds) {
+    for (const { username, realm, group } of this.pendingAgwUiGroupAssignments) {
+      if (realm !== this.agwUiRealm) {
         this.log(
-          `Skipping Solo UI group '${group}' for '${username}': realm '${realm}' is not the Solo UI realm '${this.soloUiRealm}'`,
+          `Skipping AGW UI group '${group}' for '${username}': realm '${realm}' is not the AGW UI realm '${this.agwUiRealm}'`,
           'warn'
         );
         continue;
       }
       const groupId = groupIds[group];
       if (!groupId) {
-        this.log(`Skipping Solo UI group assignment: unknown group '${group}'`, 'warn');
+        this.log(`Skipping AGW UI group assignment: unknown group '${group}'`, 'warn');
         continue;
       }
       const userId = await this.lookupUserId(baseUrl, token, username, realm);
       if (!userId) {
-        this.log(`Skipping Solo UI group '${group}' for '${username}': user not found`, 'warn');
+        this.log(`Skipping AGW UI group '${group}' for '${username}': user not found`, 'warn');
         continue;
       }
       await this.kcApi(
@@ -879,12 +879,12 @@ export class KeycloakFeature extends Feature {
         `${baseUrl}/admin/realms/${realm}/users/${userId}/groups/${groupId}`,
         token
       );
-      this.log(`Added '${username}' to Solo UI group '${group}'`, 'info');
+      this.log(`Added '${username}' to AGW UI group '${group}'`, 'info');
     }
   }
 
-  async createSoloUIGroups(baseUrl, token) {
-    const realm = this.soloUiRealm;
+  async createAgwUIGroups(baseUrl, token) {
+    const realm = this.agwUiRealm;
     const groupNames = ['admins', 'readers', 'writers'];
     const groupsUrl = `${baseUrl}/admin/realms/${realm}/groups`;
 
@@ -908,35 +908,35 @@ export class KeycloakFeature extends Feature {
     return groupIds;
   }
 
-  async createSoloUIUsers(baseUrl, token, groupIds) {
-    const realm = this.soloUiRealm;
+  async createAgwUIUsers(baseUrl, token, groupIds) {
+    const realm = this.agwUiRealm;
     const users = [
       {
-        username: 'solo-admin',
-        email: 'solo-admin@solo.io',
-        firstName: 'Solo',
+        username: 'agw-admin',
+        email: 'agw-admin@solo.io',
+        firstName: 'AGW',
         lastName: 'Admin',
         group: 'admins',
       },
       {
-        username: 'solo-reader',
-        email: 'solo-reader@solo.io',
-        firstName: 'Solo',
+        username: 'agw-reader',
+        email: 'agw-reader@solo.io',
+        firstName: 'AGW',
         lastName: 'Reader',
         group: 'readers',
       },
       {
-        username: 'solo-writer',
-        email: 'solo-writer@solo.io',
-        firstName: 'Solo',
+        username: 'agw-writer',
+        email: 'agw-writer@solo.io',
+        firstName: 'AGW',
         lastName: 'Writer',
         group: 'writers',
       },
     ];
 
-    const password = this.soloUiDefaultPassword;
+    const password = this.agwUiDefaultPassword;
     for (const user of users) {
-      this.log(`Creating Solo UI user '${user.username}'...`, 'info');
+      this.log(`Creating AGW UI user '${user.username}'...`, 'info');
       await this.createOrUpdateUserWithPassword(
         baseUrl,
         token,
@@ -1678,11 +1678,11 @@ export class KeycloakFeature extends Feature {
         { refreshFn: refreshToken }
       );
       if (!userId) realmOk = false;
-      if (userId && user.soloUiGroup) {
-        this.pendingSoloUiGroupAssignments.push({
+      if (userId && user.agwUiGroup) {
+        this.pendingAgwUiGroupAssignments.push({
           username,
           realm: realm.realm,
-          group: user.soloUiGroup,
+          group: user.agwUiGroup,
         });
       }
     }

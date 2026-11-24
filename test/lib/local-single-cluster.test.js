@@ -17,15 +17,15 @@ describe('local-single-cluster profile', () => {
     expect(externalDns.config.domainFilter).toBe('day0ops.com');
   });
 
-  test('keycloak provisions the agw-dev realm for both demo-wizard OAuth clients and Solo UI access', async () => {
+  test('keycloak provisions the agw-dev realm for both demo-wizard OAuth clients and AGW UI access', async () => {
     const profile = await ProfileManager.load(PROFILE_PATH);
     const keycloak = profile.addons.find(a => a.name === 'keycloak');
     expect(keycloak.config.workloadClients).toBeUndefined();
-    expect(keycloak.config.soloUiClients.enabled).toBe(true);
+    expect(keycloak.config.agwUiClients.enabled).toBe(true);
     // Must match the realm that issues the wizard's "real login" tokens
-    // (agw-dev below), or the Solo STS can't correlate a Solo UI login with
+    // (agw-dev below), or the Solo STS can't correlate a AGW UI login with
     // the identity that triggered a pending elicitation.
-    expect(keycloak.config.soloUiClients.realm).toBe('agw-dev');
+    expect(keycloak.config.agwUiClients.realm).toBe('agw-dev');
 
     const agwDev = keycloak.config.realms.find(r => r.realm === 'agw-dev');
     expect(agwDev).toBeDefined();
@@ -49,16 +49,16 @@ describe('local-single-cluster profile', () => {
     ]);
 
     const user1 = agwDev.users.find(u => u.username === 'user1');
-    expect(user1.soloUiGroup).toBe('readers');
+    expect(user1.agwUiGroup).toBe('readers');
   });
 
   test('ui is OIDC-protected against the real keycloak hostname, configured at the top level', async () => {
     const profile = await ProfileManager.load(PROFILE_PATH);
-    expect(profile.addons.find(a => a.name === 'solo-ui')).toBeUndefined();
+    expect(profile.addons.find(a => a.name === 'agw-ui')).toBeUndefined();
     expect(profile.ui.enabled).toBe(true);
     expect(profile.ui.oidc.enabled).toBe(true);
     expect(profile.ui.oidc.issuerUrl).toBe('https://keycloak.agw.lab.day0ops.com/realms/agw-dev');
-    expect(profile.ui.oidc.backendClientSecret).toBe('solo-ui-backend-secret');
+    expect(profile.ui.oidc.backendClientSecret).toBe('agw-ui-backend-secret');
   });
 
   test('telemetry exposes a real grafana hostname', async () => {

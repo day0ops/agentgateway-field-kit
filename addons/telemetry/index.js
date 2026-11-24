@@ -220,7 +220,7 @@ export class TelemetryFeature extends Feature {
       await this.applyYamlFile('reference-grant-logs.yaml');
     }
     if (this.enableTraces) {
-      // Deploy fan-out collector to route traces to both Solo UI (ClickHouse) and Tempo (Grafana)
+      // Deploy fan-out collector to route traces to both AGW UI (ClickHouse) and Tempo (Grafana)
       await this.installFanOutCollector();
       // Apply gateway tracing policy (routes traces from agentgateway to fan-out-collector)
       await this.applyYamlFile('tracing-policy.yaml', {
@@ -240,7 +240,7 @@ export class TelemetryFeature extends Feature {
    * Install fan-out OTEL collector for routing traces to multiple backends
    * Routes to both solo-enterprise-telemetry-collector (ClickHouse) and tempo-distributor (Grafana)
    *
-   * To enable fan-out, configure solo-ui addon with:
+   * To enable fan-out, configure agw-ui addon with:
    *   tracingBackend: { name: 'fan-out-collector', namespace: 'telemetry', port: 4317 }
    */
   async installFanOutCollector() {
@@ -283,7 +283,7 @@ export class TelemetryFeature extends Feature {
 
     this.log('Fan-out collector installed', 'info');
     this.log(
-      'Configure solo-ui with tracingBackend: { name: "fan-out-collector", namespace: "telemetry" }',
+      'Configure agw-ui with tracingBackend: { name: "fan-out-collector", namespace: "telemetry" }',
       'info'
     );
   }

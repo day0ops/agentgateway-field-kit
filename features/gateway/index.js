@@ -124,7 +124,7 @@ export class GatewayFeature extends Feature {
   // Three independent subsystems each build a Gateway-targeting EnterpriseAgentgatewayPolicy
   // once, at `agw base install` time, against whatever Gateway was "current" then (the shared
   // default) - the telemetry addon's logging-policy/tracing-policy (-> fan-out-collector ->
-  // Loki/Tempo/Grafana) and AgentGatewayManager's own tracing-solo-ui (-> the Solo UI's
+  // Loki/Tempo/Grafana) and AgentGatewayManager's own tracing-agw-ui (-> the AGW UI's
   // dedicated telemetry-collector, which its own "Tracing" page reads from - a completely
   // separate pipeline from Tempo/Grafana). A dedicated Gateway this feature creates afterward
   // is otherwise never covered by any of them. Best-effort: a targetRef here has no namespace
@@ -136,13 +136,13 @@ export class GatewayFeature extends Feature {
     if (gatewayNamespace !== TELEMETRY_POLICY_NAMESPACE) {
       this.log(
         `Gateway '${gatewayName}' is in namespace '${gatewayNamespace}', not '${TELEMETRY_POLICY_NAMESPACE}' - ` +
-          "can't be added to telemetry's/Solo UI's tracing policies (their targetRefs only resolve same-namespace)",
+          "can't be added to telemetry's/AGW UI's tracing policies (their targetRefs only resolve same-namespace)",
         'debug'
       );
       return;
     }
 
-    for (const policyName of ['logging-policy', 'tracing-policy', 'tracing-solo-ui']) {
+    for (const policyName of ['logging-policy', 'tracing-policy', 'tracing-agw-ui']) {
       try {
         const result = await KubernetesHelper.kubectl(
           [
