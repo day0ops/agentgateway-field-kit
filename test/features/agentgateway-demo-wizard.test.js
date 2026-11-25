@@ -29,7 +29,7 @@ describe('AgentgatewayDemoWizardFeature', () => {
       {
         OPENAI_API_KEY: 'sk-test',
         OAUTH_TOKEN_EXCHANGE_CLIENT_SECRET: 'secret',
-        DEMO_USER_PASSWORD: 'Password1!',
+        AGW_DEMO_WIZARD_USER_PASSWORD: 'Password1!',
       },
       async () => {
         const docs = await FeatureManager.deploy(
@@ -75,7 +75,7 @@ describe('AgentgatewayDemoWizardFeature', () => {
       {
         OPENAI_API_KEY: 'sk-test',
         OAUTH_TOKEN_EXCHANGE_CLIENT_SECRET: 'secret',
-        DEMO_USER_PASSWORD: 'Password1!',
+        AGW_DEMO_WIZARD_USER_PASSWORD: 'Password1!',
       },
       async () => {
         const docs = await FeatureManager.deploy(
@@ -107,18 +107,18 @@ describe('AgentgatewayDemoWizardFeature', () => {
 
         const secret = findDoc(docs, 'Secret', 'agentgateway-demo-wizard-env');
         expect(secret.stringData.OPENAI_API_KEY).toBe('<set OPENAI_API_KEY>');
-        expect(secret.stringData.DEMO_USER_PASSWORD).toBe('Password1!');
+        expect(secret.stringData.AGW_DEMO_WIZARD_USER_PASSWORD).toBe('Password1!');
 
         expect(findDoc(docs, 'Service', 'agentgateway-demo-wizard')).toBeTruthy();
       }
     ));
 
-  test('DEMO_USER_PASSWORD defaults to Password1! when unset', () =>
+  test('AGW_DEMO_WIZARD_USER_PASSWORD defaults to Password1! when unset', () =>
     withEnv(
       {
         OPENAI_API_KEY: 'sk-test',
         OAUTH_TOKEN_EXCHANGE_CLIENT_SECRET: 'secret',
-        DEMO_USER_PASSWORD: '',
+        AGW_DEMO_WIZARD_USER_PASSWORD: '',
       },
       async () => {
         const docs = await FeatureManager.deploy(
@@ -127,7 +127,7 @@ describe('AgentgatewayDemoWizardFeature', () => {
           { dryRun: true }
         );
         const secret = findDoc(docs, 'Secret', 'agentgateway-demo-wizard-env');
-        expect(secret.stringData.DEMO_USER_PASSWORD).toBe('Password1!');
+        expect(secret.stringData.AGW_DEMO_WIZARD_USER_PASSWORD).toBe('Password1!');
       }
     ));
 
@@ -148,7 +148,7 @@ describe('AgentgatewayDemoWizardFeature', () => {
       {
         OPENAI_API_KEY: 'sk-test',
         OAUTH_TOKEN_EXCHANGE_CLIENT_SECRET: 'secret',
-        DEMO_USER_PASSWORD: 'Password1!',
+        AGW_DEMO_WIZARD_USER_PASSWORD: 'Password1!',
       },
       async () => {
         const docs = await FeatureManager.deploy(
@@ -171,7 +171,7 @@ describe('AgentgatewayDemoWizardFeature', () => {
       {
         OPENAI_API_KEY: 'sk-test',
         OAUTH_TOKEN_EXCHANGE_CLIENT_SECRET: 'secret',
-        DEMO_USER_PASSWORD: 'Password1!',
+        AGW_DEMO_WIZARD_USER_PASSWORD: 'Password1!',
       },
       async () => {
         const docs = await FeatureManager.deploy(
@@ -215,7 +215,7 @@ describe('AgentgatewayDemoWizardFeature', () => {
       {
         OPENAI_API_KEY: 'sk-test',
         OAUTH_TOKEN_EXCHANGE_CLIENT_SECRET: 'secret',
-        DEMO_USER_PASSWORD: 'Password1!',
+        AGW_DEMO_WIZARD_USER_PASSWORD: 'Password1!',
       },
       async () => {
         const docs = await FeatureManager.deploy(

@@ -43,8 +43,8 @@ const DEFAULT_IMAGE =
  * }
  *
  * Required environment variables (validated in validate()): OPENAI_API_KEY,
- * OAUTH_TOKEN_EXCHANGE_CLIENT_SECRET. DEMO_USER_PASSWORD defaults to 'Password1!'
- * (the literal baked into every profile's agw-dev realm config) when unset.
+ * OAUTH_TOKEN_EXCHANGE_CLIENT_SECRET. AGW_DEMO_WIZARD_USER_PASSWORD defaults to
+ * 'Password1!' (the literal baked into every profile's agw-dev realm config) when unset.
  */
 export class AgentgatewayDemoWizardFeature extends Feature {
   static REQUIRES_GATEWAY = true;
@@ -115,7 +115,7 @@ export class AgentgatewayDemoWizardFeature extends Feature {
         OAUTH_TOKEN_EXCHANGE_CLIENT_SECRET: this.dryRun
           ? '<set OAUTH_TOKEN_EXCHANGE_CLIENT_SECRET>'
           : process.env.OAUTH_TOKEN_EXCHANGE_CLIENT_SECRET,
-        DEMO_USER_PASSWORD: process.env.DEMO_USER_PASSWORD || 'Password1!',
+        AGW_DEMO_WIZARD_USER_PASSWORD: process.env.AGW_DEMO_WIZARD_USER_PASSWORD || 'Password1!',
       },
     });
   }
