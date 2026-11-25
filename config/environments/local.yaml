@@ -40,7 +40,7 @@ spec:
   images:
     common:
       stock-server-mcp: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/stock-server-mcp:0.1.1
-      currency-server-mcp: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/currency-server-mcp:0.1.1
+      currency-server-mcp: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/currency-server-mcp:0.1.2
       random-server-mcp: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/random-server-mcp:latest
       mcp-graph-me-tool: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/mcp-graph-me-tool:0.1.0
     agentChaining:
