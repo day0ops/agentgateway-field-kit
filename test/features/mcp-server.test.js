@@ -84,6 +84,31 @@ describe('McpServerFeature multiplexed targets', () => {
   });
 });
 
+describe('McpServerFeature createRoute', () => {
+  test('an HTTPRoute with no pathPrefix is created by default', async () => {
+    const docs = await FeatureManager.deploy(
+      'mcp-server',
+      { namespace: 'agentgateway-system', deployServer: false },
+      { dryRun: true }
+    );
+    expect(findDoc(docs, 'HTTPRoute', 'mcp')).toBeTruthy();
+  });
+
+  test('createRoute: false skips the HTTPRoute entirely', async () => {
+    // Regression guard: a backend reached only through another feature's own route
+    // (e.g. federated MCP workloads behind a shared chat route) must not get a
+    // route with no pathPrefix of its own - that matches every path on the Gateway
+    // and silently swallows unrelated traffic as an MCP request.
+    const docs = await FeatureManager.deploy(
+      'mcp-server',
+      { namespace: 'agentgateway-system', deployServer: false, createRoute: false },
+      { dryRun: true }
+    );
+    expect(findDoc(docs, 'HTTPRoute', 'mcp')).toBeUndefined();
+    expect(findDoc(docs, 'EnterpriseAgentgatewayBackend', 'mcp-backend')).toBeTruthy();
+  });
+});
+
 describe('McpServerFeature CORS', () => {
   test('no CORS filter on the HTTPRoute by default', async () => {
     const docs = await FeatureManager.deploy(

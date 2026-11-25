@@ -79,6 +79,10 @@ import {
  *     env: Object,                 //   Container env vars as key-value pairs
  *   }>,
  *   routeName: string,             // HTTPRoute name (default: 'mcp')
+ *   createRoute: boolean,          // Default: true. Set false to skip the HTTPRoute entirely -
+ *                                  //   for a backend reached only through another feature's own
+ *                                  //   route, since a route with no pathPrefix matches every path
+ *                                  //   on the Gateway and silently swallows unrelated traffic.
  *   pathPrefix: string,            // Route path prefix (default: none — matches all paths)
  *   pathRewrite: string | null,   // Replace path prefix with this before forwarding (e.g. '/'); null = no rewrite
  *   sessionRouting: string,        // 'Stateful' (default) | 'Stateless' — MCP session affinity across replicas.
@@ -133,6 +137,7 @@ export class McpServerFeature extends Feature {
     this.servers = config.servers || null;
 
     this.routeName = config.routeName || 'mcp';
+    this.createRoute = config.createRoute !== false;
     this.pathPrefix = config.pathPrefix || null;
     this.pathRewrite = config.pathRewrite !== undefined ? config.pathRewrite : null;
     this.sessionRouting = config.sessionRouting || null;
@@ -285,7 +290,9 @@ export class McpServerFeature extends Feature {
     if (this.tls) {
       await this.deployBackendTlsPolicy();
     }
-    await this.deployHTTPRoute();
+    if (this.createRoute) {
+      await this.deployHTTPRoute();
+    }
   }
 
   async createTargetSecret({ name, envVar, key = 'Authorization' }) {
@@ -714,7 +721,9 @@ export class McpServerFeature extends Feature {
   async cleanup() {
     this.log('Cleaning up MCP server feature...', 'info');
 
-    await this.deleteResource('HTTPRoute', this.routeName);
+    if (this.createRoute) {
+      await this.deleteResource('HTTPRoute', this.routeName);
+    }
     if (this.tls) {
       await this.deleteResource(POLICY_KIND[this.edition], this.tlsPolicyName);
     }
