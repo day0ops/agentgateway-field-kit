@@ -7,7 +7,7 @@ metadata:
 
     - Routing pillar: pre-provisions the model-by-name, dynamic-tier, and fallback backends it displays
     - Banking auth pillar: real ADK agents and MCP infrastructure demonstrating Impersonation, MCP tool-level RBAC, Delegation (nested act chain), and Elicitation (Stripe sandbox, Interactive + Brokered)
-    - Tool-modes pillar: federates Core Banking + stock + currency MCP servers under four toolMode routes (Standard/Search/Code/CodeSearch) so the wizard's savings scoreboard measures a real gateway, not a mock
+    - Tool-modes pillar: federates Core Banking + stock + currency MCP servers under Standard/Search toolMode routes so the wizard's savings scoreboard measures a real gateway, not a mock - Code/CodeSearch are omitted since the model's generated code isn't deterministic enough for a repeatable demo
   docs: https://docs.solo.io/agentgateway/latest/mcp/token-exchange/
 spec:
   steps:
@@ -268,52 +268,6 @@ spec:
             routeName: mcp-modes-search
             pathPrefix: /mcp-modes/search
             toolMode: Search
-            targets:
-              - name: core-banking
-                matchLabels:
-                  app: core-banking
-              - name: stock-server-mcp
-                matchLabels:
-                  app: stock-server-mcp
-              - name: currency-server-mcp
-                matchLabels:
-                  app: currency-server-mcp
-
-    - title: Federate the tool-mode catalog with toolMode Code
-      description: |
-        Same federated catalog, collapsed into a single run_code tool for the wizard's Code mode.
-      features:
-        - name: mcp-enterprise
-          config:
-            backendName: mcp-modes-code-backend
-            routeName: mcp-modes-code
-            pathPrefix: /mcp-modes/code
-            toolMode: Code
-            codeMode:
-              timeout: 7s
-            targets:
-              - name: core-banking
-                matchLabels:
-                  app: core-banking
-              - name: stock-server-mcp
-                matchLabels:
-                  app: stock-server-mcp
-              - name: currency-server-mcp
-                matchLabels:
-                  app: currency-server-mcp
-
-    - title: Federate the tool-mode catalog with toolMode CodeSearch
-      description: |
-        Same federated catalog, exposing get_tool/run_code meta-tools for the wizard's CodeSearch mode.
-      features:
-        - name: mcp-enterprise
-          config:
-            backendName: mcp-modes-codesearch-backend
-            routeName: mcp-modes-codesearch
-            pathPrefix: /mcp-modes/codesearch
-            toolMode: CodeSearch
-            codeMode:
-              timeout: 7s
             targets:
               - name: core-banking
                 matchLabels:
