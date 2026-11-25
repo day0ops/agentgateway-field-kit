@@ -18,8 +18,8 @@ spec:
     parentZone:
       domain: kasunt.apac.fe.solo.io
       hostedZoneId: Z08818701HDZ6PBD6LPXU
-    childZone: demo
-    txtOwnerId: agentgateway-demo
+    childZone: agw
+    txtOwnerId: agw
 
   tls:
     issuer: letsencrypt-dns
@@ -77,7 +77,7 @@ spec:
   images:
     common:
       stock-server-mcp: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/stock-server-mcp:0.1.1
-      currency-server-mcp: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/currency-server-mcp:0.1.1
+      currency-server-mcp: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/currency-server-mcp:0.1.2
       random-server-mcp: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/random-server-mcp:0.1.1
       mcp-graph-me-tool: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/mcp-graph-me-tool:0.1.0
     agentChaining:
@@ -138,11 +138,11 @@ spec:
   # Domain mappings - auto-generated pattern: <service>.<childZone>.<parentDomain>
   domains:
     core:
-      keycloak: keycloak.demo.kasunt.apac.fe.solo.io
-      grafana: grafana.demo.kasunt.apac.fe.solo.io
-      agentgatewayUi: agw-ui.demo.kasunt.apac.fe.solo.io
-      agentgateway: agentgateway.demo.kasunt.apac.fe.solo.io
+      keycloak: keycloak.agw.kasunt.apac.fe.solo.io
+      grafana: grafana.agw.kasunt.apac.fe.solo.io
+      agentgatewayUi: agw-ui.agw.kasunt.apac.fe.solo.io
+      agentgateway: agentgateway.agw.kasunt.apac.fe.solo.io
     app:
-      quotaManagement: quota-management.demo.kasunt.apac.fe.solo.io
-      wizard: wizard.demo.kasunt.apac.fe.solo.io
-      walkthrough: walkthrough.demo.kasunt.apac.fe.solo.io
+      quotaManagement: quota-management.agw.kasunt.apac.fe.solo.io
+      wizard: wizard.agw.kasunt.apac.fe.solo.io
+      walkthrough: walkthrough.agw.kasunt.apac.fe.solo.io
