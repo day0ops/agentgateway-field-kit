@@ -197,6 +197,18 @@ spec:
                 kind: HTTPRoute
                 name: core-banking-delegation
 
+    - title: Pre-provision the tool-modes comparison's own chat backend
+      description: |
+        Creates a dedicated chat backend for the wizard's tool-modes savings comparison, independent of the Agents pillar's own /agent-chat route - that route only exists after a presenter clicks Apply on Agents step 1, and is removed by Revert/Reset.
+      features:
+        - name: providers
+          config:
+            providers:
+              - name: mcp-modes-chat
+                providerName: openai
+                pathPrefix: /mcp-modes/chat
+                model: gpt-4o-mini
+
     - title: Deploy the stock and currency MCP server workloads for tool-mode federation
       description: |
         Deploys the stock and currency MCP servers the four tool-mode backends below federate alongside Core Banking. This step's own AgentgatewayBackend/HTTPRoute are not used by this demo - each mcp-enterprise backend federates the same underlying Services via label selectors.
@@ -205,6 +217,7 @@ spec:
           config:
             backendName: mcp-modes-workloads-backend
             routeName: mcp-modes-workloads
+            createRoute: false
             protocol: StreamableHTTP
             mcpPath: /mcp
             servers:
