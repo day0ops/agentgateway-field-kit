@@ -19,6 +19,7 @@ const ENTERPRISE_ONLY_FEATURES = [
   'mcp-enterprise',
   'mcp-guardrails',
   'traffic-policy',
+  'f5-guardrail',
 ];
 
 describe('Enterprise-only feature tagging', () => {
