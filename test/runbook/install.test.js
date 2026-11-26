@@ -118,6 +118,28 @@ describe('InstallAdapter', () => {
     expect(section).toContain('ui.clickhouse.resources.requests.memory=4Gi');
   });
 
+  test('generate() with ui.enabled and no hostname shows port-forward access instructions', async () => {
+    const section = await InstallAdapter.generate({
+      labNum: 0,
+      profileData: { ui: { enabled: true, serviceType: 'ClusterIP' } },
+    });
+    expect(section).toContain('kubectl port-forward');
+    expect(section).toContain('svc/enterprise-agentgateway-ui 8080:80');
+    expect(section).not.toContain('Certificate, Gateway');
+  });
+
+  test('generate() with ui.hostname and ui.tls.enabled shows HTTPS access instructions, not port-forward', async () => {
+    const section = await InstallAdapter.generate({
+      labNum: 0,
+      profileData: {
+        ui: { enabled: true, hostname: 'agw-ui.example.com', tls: { enabled: true } },
+      },
+    });
+    expect(section).toContain('Certificate, Gateway');
+    expect(section).toContain('https://agw-ui.example.com');
+    expect(section).not.toContain('kubectl port-forward');
+  });
+
   test('generate() with helmValues puts --set licenseKey before --values heredoc', async () => {
     const profileData = {
       helmValues: { controller: { extraEnv: { FOO: 'bar' } } },
