@@ -29,6 +29,8 @@ import { policyApiVersion, POLICY_KIND } from '../../src/lib/editions.js';
  *   },
  *   request: boolean,           // Enable pre-hook webhook guard (default: true)
  *   response: boolean,          // Enable post-hook webhook guard (default: true)
+ *   failureMode: string,        // 'FailClosed' (default, rejects traffic) or 'FailOpen'
+ *                                  (allows traffic) when the webhook itself is unreachable
  *   targetRefs: [...]           // Auto-injected from providers; or set manually
  * }
  */
@@ -58,6 +60,7 @@ export class F5GuardrailFeature extends Feature {
       request: enableRequest = true,
       response: enableResponse = true,
       targetRefs = null,
+      failureMode = 'FailClosed',
     } = this.config;
 
     const { serviceName, port } = this.webhookConfig;
@@ -88,6 +91,7 @@ export class F5GuardrailFeature extends Feature {
           kind: 'Service',
           port,
         },
+        failureMode,
         forwardHeaderMatches: [{ name: 'traceparent', type: 'RegularExpression', value: '.*' }],
       },
     };

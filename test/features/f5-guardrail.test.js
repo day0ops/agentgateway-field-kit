@@ -94,4 +94,22 @@ describe('F5GuardrailFeature', () => {
     expect(policy.spec.backend.ai.promptGuard.response).toBeDefined();
     expect(policy.spec.backend.ai.promptGuard.request).toBeUndefined();
   });
+
+  test('defaults failureMode to FailClosed on both webhook entries', async () => {
+    const docs = await FeatureManager.deploy('f5-guardrail', config, { dryRun: true });
+    const policy = policyDoc(docs);
+    expect(policy.spec.backend.ai.promptGuard.request[0].webhook.failureMode).toBe('FailClosed');
+    expect(policy.spec.backend.ai.promptGuard.response[0].webhook.failureMode).toBe('FailClosed');
+  });
+
+  test('failureMode: FailOpen overrides the default on both webhook entries', async () => {
+    const docs = await FeatureManager.deploy(
+      'f5-guardrail',
+      { ...config, failureMode: 'FailOpen' },
+      { dryRun: true }
+    );
+    const policy = policyDoc(docs);
+    expect(policy.spec.backend.ai.promptGuard.request[0].webhook.failureMode).toBe('FailOpen');
+    expect(policy.spec.backend.ai.promptGuard.response[0].webhook.failureMode).toBe('FailOpen');
+  });
 });
