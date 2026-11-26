@@ -1,0 +1,40 @@
+apiVersion: agentgateway.demo/v1
+kind: Profile
+metadata:
+  name: eks-enterprise-agentgateway-lts-bare
+  description: Bare enterprise agentgateway LTS demo on EKS - no addons, UI via port-forward
+spec:
+  environment: local
+  infra: eks-single-cluster
+
+  agentgateway:
+    version: v2026.11.1
+    ociRegistry: oci://us-docker.pkg.dev/solo-public/enterprise-agentgateway/charts
+
+  agentgateway-crds:
+    version: v2026.11.1
+    ociRegistry: oci://us-docker.pkg.dev/solo-public/enterprise-agentgateway/charts
+    helmValues:
+      installAgentgatewayModelCRD: true
+
+  gatewayApi:
+    version: v1.6.3
+    channel: stable
+
+  helmValues:
+    controller:
+      extraEnv:
+        KGW_ENABLE_GATEWAY_API_EXPERIMENTAL_FEATURES: 'true'
+    agentgatewayModels:
+      enabled: true
+
+  resources:
+    - eks-enterprise-agentgateway-lts-bare/enterprise-agentgateway-sharedext-params.yaml
+    - eks-enterprise-agentgateway-lts-bare/enterprise-agentgateway-gatewayclass.yaml
+
+  # No hostname/ingress configured, so access the UI via `kubectl port-forward` instead.
+  ui:
+    enabled: true
+    serviceType: ClusterIP
+
+  addons: []
