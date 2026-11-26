@@ -240,4 +240,40 @@ describe('UseCaseAdapter', () => {
     expect(section).toContain('```mermaid');
     expect(section).toContain('sequenceDiagram');
   });
+
+  test('generate(f5-guardrail) renders spec.tests as a Test It section (no companion .md)', async () => {
+    const section = await UseCaseAdapter.generate({
+      name: 'enterprise/guardrail/f5-guardrail',
+      labNum: 1,
+      deployedProviders: ['openai'],
+    });
+    expect(section).toContain('### Test It');
+    expect(section).toContain('#### Allow Safe Request');
+    expect(section).toContain('Send `POST /openai` with prompt: "What is your favorite poem?"');
+    expect(section).toContain('Expect: status=success');
+    expect(section).toContain('#### Block Banned Phrase');
+    expect(section).toContain('Expect: status=blocked, reason="keyword-scanner"');
+  });
+
+  test('generate(timeouts-and-retries) renders setup/teardown steps in Test It', async () => {
+    const section = await UseCaseAdapter.generate({
+      name: 'timeouts-and-retries',
+      labNum: 1,
+      deployedProviders: [],
+    });
+    expect(section).toContain('### Test It');
+    expect(section).toContain('**Setup:** `scale-deployment`: name=mock-openai, replicas=0');
+    expect(section).toContain('**Teardown:** `scale-deployment`: name=mock-openai, replicas=1');
+  });
+
+  test('generate(agent-workload-identity) still prefers the companion .md Running section over spec.tests', async () => {
+    const section = await UseCaseAdapter.generate({
+      name: 'agent-workload-identity',
+      labNum: 1,
+      deployedProviders: [],
+    });
+    expect(section).toContain('### Test It');
+    // The companion .md's hand-written curl walkthrough, not the generic renderer.
+    expect(section).toContain('caller-agent/run');
+  });
 });

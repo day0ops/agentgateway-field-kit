@@ -89,8 +89,9 @@ export const UseCaseAdapter = {
       }
     }
 
-    // Test It — from companion .md "## Running" section
-    const testSection = await _extractTestSection(ucMeta.file);
+    // Test It — from a companion .md "## Running" section, falling back to
+    // rendering spec.tests directly for the usecases with no companion doc.
+    const testSection = (await _extractTestSection(ucMeta.file)) || _renderTestsSection(spec.tests);
     if (testSection) {
       lines.push('### Test It');
       lines.push('');
@@ -153,4 +154,82 @@ async function _extractTestSection(yamlFilePath) {
 
 function _formatTitle(name) {
   return name.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+
+/**
+ * Render a usecase's spec.tests array as readable prose: one subsection per
+ * test, its setup/steps/teardown described in order. Used as the "Test It"
+ * fallback when no companion .md "## Running" section exists.
+ * @param {Array<object>|undefined} tests
+ * @returns {string|null}
+ */
+function _renderTestsSection(tests) {
+  if (!Array.isArray(tests) || tests.length === 0) return null;
+
+  const lines = [];
+  for (const test of tests) {
+    lines.push(`#### ${_formatTitle(test.name || 'test')}`);
+    lines.push('');
+    if (test.description) {
+      lines.push(test.description.trim());
+      lines.push('');
+    }
+    if (test.setup?.length > 0) {
+      lines.push(`**Setup:** ${test.setup.map(_describeTestStep).join('; ')}`);
+      lines.push('');
+    }
+    const steps = (test.steps || []).map(_describeTestStep);
+    steps.forEach((desc, i) => lines.push(`${i + 1}. ${desc}`));
+    if (steps.length > 0) lines.push('');
+    if (test.teardown?.length > 0) {
+      lines.push(`**Teardown:** ${test.teardown.map(_describeTestStep).join('; ')}`);
+      lines.push('');
+    }
+  }
+  return lines.join('\n');
+}
+
+/**
+ * Describe one test step in prose. send-request and verify (the two steps
+ * every usecase test uses) get dedicated phrasing; every other action
+ * (scale-deployment, set-budget, get-token, ...) falls back to a generic
+ * `action`: key=value list so no step type is silently dropped.
+ * @param {object} step
+ * @returns {string}
+ */
+function _describeTestStep(step) {
+  switch (step.action) {
+    case 'send-request': {
+      const target = step.endpoint ? `\`POST ${step.endpoint}\`` : 'the gateway';
+      if (step.prompt) return `Send ${target} with prompt: "${step.prompt}"`;
+      if (step.body) return `Send ${target} with body: \`${JSON.stringify(step.body)}\``;
+      return `Send a request to ${target}`;
+    }
+    case 'verify':
+      return `Expect: ${_describeExpect(step.expect || {})}`;
+    default: {
+      const fields = Object.entries(step)
+        .filter(([key]) => key !== 'action')
+        .map(
+          ([key, value]) => `${key}=${typeof value === 'object' ? JSON.stringify(value) : value}`
+        )
+        .join(', ');
+      return fields ? `\`${step.action}\`: ${fields}` : `\`${step.action}\``;
+    }
+  }
+}
+
+/** Describe a verify step's expect block as a compact key=value list. */
+function _describeExpect(expect) {
+  const parts = [];
+  if (expect.status !== undefined) parts.push(`status=${expect.status}`);
+  if (expect.statusCode !== undefined) parts.push(`statusCode=${expect.statusCode}`);
+  if (expect.reason) parts.push(`reason="${expect.reason}"`);
+  if (expect.contains) parts.push(`contains=${JSON.stringify(expect.contains)}`);
+  if (expect.notContains) parts.push(`notContains=${JSON.stringify(expect.notContains)}`);
+  if (expect.piiRedacted) parts.push('piiRedacted=true');
+  if (expect.connectionError) parts.push('connectionError=true');
+  if (expect.mcpResult) parts.push(`mcpResult=${JSON.stringify(expect.mcpResult)}`);
+  if (expect.headers) parts.push(`headers=${JSON.stringify(expect.headers)}`);
+  return parts.join(', ') || '(no assertions)';
 }
