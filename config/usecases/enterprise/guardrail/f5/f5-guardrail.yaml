@@ -1,0 +1,96 @@
+apiVersion: agentgateway.demo/v1
+kind: UseCase
+metadata:
+  name: f5-guardrail
+  description: |
+    Content filtering via F5 AI Guardrails (formerly CalypsoAI), routed through an out-of-band webhook adapter.
+
+    - Pre/post-hook webhooks send every request and response to F5's Scan API
+    - Prompts matching a configured scanner can be blocked or redacted; responses can only be redacted, never blocked
+    - Requires a pre-existing F5 AI Guardrails project with scanners already enabled - agw only deploys the adapter and wires up credentials, it does not provision F5-side scanner policy. See features/f5-guardrail/SETUP.md for how to get an account, create a project, and enable scanners before deploying this usecase.
+  docs: https://docs.solo.io/agentgateway/latest/llm/guardrails/overview/
+
+spec:
+  diagram: |
+    sequenceDiagram
+      participant Client
+      participant AGW as agentgateway
+      participant WH as F5 Guardrail Webhook
+      participant F5 as F5 AI Guardrails
+      participant LLM as OpenAI
+      Client->>AGW: request
+      AGW->>WH: pre-hook (check input)
+      WH->>F5: scan prompt
+      F5-->>WH: blocked (scanner match)
+      WH-->>AGW: blocked
+      AGW-->>Client: 403 blocked
+      F5-->>WH: allowed (redacted if matched)
+      WH-->>AGW: allowed
+      AGW->>LLM: forward request
+      LLM-->>AGW: response
+      AGW->>WH: post-hook (check output)
+      WH->>F5: scan response
+      F5-->>WH: allowed/redacted
+      WH-->>AGW: safe response
+      AGW-->>Client: safe response
+  steps:
+    - title: Add provider
+      description: Configure the LLM provider backend and route.
+      features:
+        - name: providers
+          config:
+            providers:
+              - name: openai
+                providerName: openai
+                pathPrefix: /openai
+                model: gpt-4o-mini
+
+    - title: Deploy F5 guardrail webhook
+      description: |
+        Deploy the F5 AI Guardrails webhook adapter and apply pre-hook (request) and post-hook (response) guardrail policies. Every prompt and response is sent to the configured F5 project's Scan API, which can block or redact prompts and redact (but never block) responses per that project's scanners.
+      features:
+        - name: f5-guardrail
+          description: F5 AI Guardrails webhook with request/response scanning
+          config:
+            webhook:
+              image: '{{env.images.guardrails.f5-guardrail-webhook}}'
+              port: 8000
+              serviceName: f5-guardrail-webhook
+
+            request: true
+            response: true
+
+  tests:
+    - name: allow-safe-request
+      description: Allow safe requests that pass all F5 scanner checks
+      steps:
+        - action: send-request
+          endpoint: /openai
+          prompt: 'What is your favorite poem?'
+        - action: verify
+          expect:
+            status: success
+
+    # Requires the scanners configured in features/f5-guardrail/SETUP.md.
+    - name: block-banned-phrase
+      description: Block requests matching a keyword scanner configured on the F5 project
+      steps:
+        - action: send-request
+          endpoint: /openai
+          prompt: 'This story promotes violence and should be stopped.'
+        - action: verify
+          expect:
+            status: blocked
+            reason: 'keyword-scanner'
+
+    # Requires the scanners configured in features/f5-guardrail/SETUP.md.
+    - name: mask-credit-card
+      description: Mask credit card numbers in prompts via an F5 redact-mode scanner
+      steps:
+        - action: send-request
+          endpoint: /openai
+          prompt: 'Repeat the following exactly: Here is my number: 4111 1111 1111 1111.'
+        - action: verify
+          expect:
+            status: success
+            notContains: ['4111 1111 1111 1111']

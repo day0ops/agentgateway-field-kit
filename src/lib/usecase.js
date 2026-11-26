@@ -887,7 +887,12 @@ export class UseCaseManager {
       };
     });
 
-    const policyFeatures = ['prompt-guards', 'prompt-enrichment', 'guardrail-webhook'];
+    const policyFeatures = [
+      'prompt-guards',
+      'prompt-enrichment',
+      'guardrail-webhook',
+      'f5-guardrail',
+    ];
     for (const feature of spec.features) {
       if (policyFeatures.includes(feature.name) && !feature.config?.targetRefs) {
         feature.config = feature.config || {};

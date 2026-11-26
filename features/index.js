@@ -14,6 +14,7 @@ import { ProvidersFeature } from './providers/index.js';
 import { PromptEnrichmentFeature } from './prompt-enrichment/index.js';
 import { PromptGuardsFeature } from './prompt-guards/index.js';
 import { GuardrailWebhookFeature } from './guardrail-webhook/index.js';
+import { F5GuardrailFeature } from './f5-guardrail/index.js';
 import { ModelFailoverFeature } from './model-failover/index.js';
 import { FunctionCallingFeature } from './function-calling/index.js';
 import { RateLimitFeature } from './rate-limit/index.js';
@@ -77,6 +78,7 @@ FeatureManager.register('providers', ProvidersFeature);
 FeatureManager.register('prompt-enrichment', PromptEnrichmentFeature);
 FeatureManager.register('prompt-guards', PromptGuardsFeature);
 FeatureManager.register('guardrail-webhook', GuardrailWebhookFeature);
+FeatureManager.register('f5-guardrail', F5GuardrailFeature);
 FeatureManager.register('model-failover', ModelFailoverFeature);
 FeatureManager.register('function-calling', FunctionCallingFeature);
 FeatureManager.register('rate-limit', RateLimitFeature);
@@ -144,6 +146,7 @@ export {
   PromptEnrichmentFeature,
   PromptGuardsFeature,
   GuardrailWebhookFeature,
+  F5GuardrailFeature,
   ModelFailoverFeature,
   FunctionCallingFeature,
   RateLimitFeature,
