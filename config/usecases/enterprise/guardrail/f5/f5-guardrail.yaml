@@ -3,15 +3,11 @@ kind: UseCase
 metadata:
   name: f5-guardrail
   description: |
-    Content filtering via F5 AI Guardrails (formerly CalypsoAI), routed through an
-    out-of-band webhook adapter.
+    Content filtering via F5 AI Guardrails (formerly CalypsoAI), routed through an out-of-band webhook adapter.
 
     - Pre/post-hook webhooks send every request and response to F5's Scan API
     - Prompts and responses matching a configured scanner are blocked or redacted
-    - Requires a pre-existing F5 AI Guardrails project with scanners already enabled -
-      agw only deploys the adapter and wires up credentials, it does not provision F5-side
-      scanner policy. See features/f5-guardrail/SETUP.md for how to get an account,
-      create a project, and enable scanners before deploying this usecase.
+    - Requires a pre-existing F5 AI Guardrails project with scanners already enabled - agw only deploys the adapter and wires up credentials, it does not provision F5-side scanner policy. See features/f5-guardrail/SETUP.md for how to get an account, create a project, and enable scanners before deploying this usecase.
   docs: https://docs.solo.io/agentgateway/latest/llm/guardrails/overview/
 
 spec:

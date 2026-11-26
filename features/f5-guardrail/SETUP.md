@@ -1,6 +1,6 @@
 # Setting up F5 AI Guardrails for this demo
 
-Before deploying the `enterprise/guardrail/f5/f5-guardrail` usecase you need three
+Before deploying the `enterprise/guardrail/f5-guardrail` usecase you need three
 values: `F5_AISEC_URL`, `F5_AISEC_TOKEN`, and `CAI_PROJECT`. This guide covers getting
 them.
 
