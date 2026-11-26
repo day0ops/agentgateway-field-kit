@@ -31,6 +31,10 @@ export const UseCaseAdapter = {
     const { metadata, spec } = ucData;
 
     const steps = UseCaseManager.getSteps(spec);
+    // Mirror the real deploy path (usecase.js deploy()) so auto-injected
+    // targetRefs (policyFeatures) land in the rendered YAML, not stale placeholders.
+    const allFeatures = steps.flatMap(s => s.features);
+    UseCaseManager.preprocessFeatures({ ...spec, features: allFeatures });
     const lines = [];
 
     // Lab heading
