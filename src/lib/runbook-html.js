@@ -383,7 +383,10 @@ function _renderChunks(chunks, marked) {
     }
 
     const { replaced, blocks } = _extractMermaidBlocks(body);
-    const html = _reinsertMermaidBlocks(marked.parse(replaced), blocks);
+    const bodyWithTestCaseMarkers = _markTestCases(replaced);
+    const html = _reinsertTestCaseMarkers(
+      _reinsertMermaidBlocks(marked.parse(bodyWithTestCaseMarkers), blocks)
+    );
 
     return `<details class="lab" id="${sectionId}" open>
 <summary>${_escapeHtml(title)}</summary>
@@ -428,6 +431,89 @@ function _buildMarked() {
       },
     },
   });
+}
+
+/**
+ * Mark each Test It subsection (a `#### <title>` block, as rendered by
+ * UseCaseAdapter's _renderTestsSection) with plain-text tokens around its
+ * identity (heading/description/setup), request (Send: + curl), and expected
+ * outcome (Expect: + teardown) spans, so marked still parses the nested
+ * markdown (headings, fenced code) normally - only the token lines themselves
+ * get swapped for real div tags afterward, by _reinsertTestCaseMarkers(). A
+ * local transformation on the HTML renderer's own copy of the body text; the
+ * markdown used for the plain .md output is never touched.
+ * @param {string} body
+ * @returns {string}
+ */
+function _markTestCases(body) {
+  const startIdx = body.indexOf('### Test It');
+  if (startIdx === -1) return body;
+
+  const before = body.slice(0, startIdx);
+  const lines = body.slice(startIdx).split('\n');
+  const out = [];
+  let state = null; // null | 'meta' | 'request' | 'expect'
+  let inTestCase = false;
+
+  const emit = token => out.push(token, '');
+
+  const closeState = () => {
+    if (state === 'meta') emit('@@/TEST_META@@');
+    else if (state === 'request') emit('@@/TEST_REQUEST@@');
+    else if (state === 'expect') emit('@@/TEST_EXPECT@@');
+    state = null;
+  };
+
+  for (const line of lines) {
+    if (/^#### /.test(line)) {
+      closeState();
+      if (inTestCase) emit('@@/TEST_CASE@@');
+      emit('@@TEST_CASE@@');
+      out.push(line, '');
+      emit('@@TEST_META@@');
+      state = 'meta';
+      inTestCase = true;
+      continue;
+    }
+    if (line.trim() === '**Send:**') {
+      closeState();
+      emit('@@TEST_REQUEST@@');
+      out.push(line);
+      state = 'request';
+      continue;
+    }
+    if (/^\*\*Expect:\*\*/.test(line)) {
+      closeState();
+      emit('@@TEST_EXPECT@@');
+      out.push(line);
+      state = 'expect';
+      continue;
+    }
+    out.push(line);
+  }
+  closeState();
+  if (inTestCase) emit('@@/TEST_CASE@@');
+
+  return before + out.join('\n');
+}
+
+const TEST_CASE_MARKER_TAGS = {
+  '@@TEST_CASE@@': '<div class="test-case">',
+  '@@/TEST_CASE@@': '</div>',
+  '@@TEST_META@@': '<div class="test-case-meta">',
+  '@@/TEST_META@@': '</div>',
+  '@@TEST_REQUEST@@': '<div class="test-case-request">',
+  '@@/TEST_REQUEST@@': '</div>',
+  '@@TEST_EXPECT@@': '<div class="test-case-expect">',
+  '@@/TEST_EXPECT@@': '</div>',
+};
+
+function _reinsertTestCaseMarkers(html) {
+  let out = html;
+  for (const [token, tag] of Object.entries(TEST_CASE_MARKER_TAGS)) {
+    out = out.replaceAll(`<p>${token}</p>`, tag);
+  }
+  return out;
 }
 
 function _extractMermaidBlocks(markdown) {
@@ -515,6 +601,27 @@ blockquote {
 }
 blockquote p { margin: 0; }
 blockquote p + p { margin-top: 0.5rem; }
+
+.test-case {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  margin: 1.25rem 0;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+.test-case > h4 {
+  margin: 0;
+  padding: 0.9rem 1.25rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  font-size: 1rem;
+}
+.test-case > div { padding: 1rem 1.25rem; }
+.test-case > div > *:first-child { margin-top: 0; }
+.test-case > div > *:last-child { margin-bottom: 0; }
+.test-case-meta { background: var(--surface); border-bottom: 1px solid var(--border); }
+.test-case-request { background: var(--accent-dim); }
+.test-case-expect { background: var(--surface); }
 
 .back-to-top {
   position: fixed;
@@ -732,22 +839,5 @@ details {
   white-space: nowrap;
 }
 .component-desc { margin: 0; font-size: 0.85rem; color: var(--text-dim); line-height: 1.5; }
-
-.test-card {
-  background: var(--accent-dim);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 0.1rem 1.25rem 1.25rem;
-  margin: 1rem 0;
-}
-.test-section-label {
-  font-size: 0.7rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--accent);
-  margin: 1.1rem 0 0.5rem;
-}
-.test-card pre { background: var(--code-bg); }
 `;
 }

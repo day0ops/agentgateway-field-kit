@@ -78,6 +78,64 @@ describe('HtmlRenderer', () => {
     expect(html).toContain('class="hero"');
     expect(html).toContain('Do a thing');
   });
+
+  test('render() wraps a Test It subsection in a bordered test-case box with meta/request/expect regions', () => {
+    const md = [
+      '# T',
+      '',
+      '## Lab 1: Something',
+      '',
+      '### Test It',
+      '',
+      '#### My Test',
+      '',
+      'A description.',
+      '',
+      '> **Setup:** `scale-deployment`: replicas=0',
+      '',
+      '**Send:**',
+      '',
+      '```bash',
+      'curl -s -X POST "http://example" -d \'{"a":1}\'',
+      '```',
+      '',
+      '**Expect:** status=success',
+      '',
+      '> **Teardown:** `scale-deployment`: replicas=1',
+      '',
+    ].join('\n');
+    const html = new HtmlRenderer().render(md, { title: 'T', usecases: [] });
+
+    expect(html).not.toContain('@@TEST_CASE@@');
+    expect(html).not.toContain('@@TEST_META@@');
+    expect(html).not.toContain('@@TEST_REQUEST@@');
+    expect(html).not.toContain('@@TEST_EXPECT@@');
+
+    expect(html).toContain('<div class="test-case">');
+    const caseIdx = html.indexOf('<div class="test-case">');
+    const headingIdx = html.indexOf('<h4 id="my-test">My Test</h4>');
+    const metaIdx = html.indexOf('<div class="test-case-meta">');
+    const requestIdx = html.indexOf('<div class="test-case-request">');
+    const codeIdx = html.indexOf('curl -s -X POST');
+    const expectIdx = html.indexOf('<div class="test-case-expect">');
+
+    expect(caseIdx).toBeGreaterThan(-1);
+    expect(headingIdx).toBeGreaterThan(caseIdx);
+    expect(metaIdx).toBeGreaterThan(headingIdx);
+    expect(requestIdx).toBeGreaterThan(metaIdx);
+    expect(codeIdx).toBeGreaterThan(requestIdx);
+    expect(expectIdx).toBeGreaterThan(codeIdx);
+
+    // Setup lands inside meta, teardown inside expect.
+    expect(html.indexOf('Setup:')).toBeGreaterThan(metaIdx);
+    expect(html.indexOf('Setup:')).toBeLessThan(requestIdx);
+    expect(html.indexOf('Teardown:')).toBeGreaterThan(expectIdx);
+  });
+
+  test('render() with no Test It section emits no test-case markup', () => {
+    const html = new HtmlRenderer().render(SAMPLE_MD, { title: 'T', usecases: [] });
+    expect(html).not.toContain('<div class="test-case">');
+  });
 });
 
 describe('RunbookBuilder.buildHtml', () => {
