@@ -124,7 +124,7 @@ describe('InstallAdapter', () => {
       profileData: { ui: { enabled: true, serviceType: 'ClusterIP' } },
     });
     expect(section).toContain('kubectl port-forward');
-    expect(section).toContain('svc/enterprise-agentgateway-ui 8080:80');
+    expect(section).toContain('svc/enterprise-agentgateway-ui 8081:80');
     expect(section).not.toContain('Certificate, Gateway');
   });
 
@@ -135,9 +135,10 @@ describe('InstallAdapter', () => {
         ui: { enabled: true, hostname: 'agw-ui.example.com', tls: { enabled: true } },
       },
     });
-    expect(section).toContain('Certificate, Gateway');
-    expect(section).toContain('https://agw-ui.example.com');
-    expect(section).not.toContain('kubectl port-forward');
+    const uiSection = section.slice(section.indexOf('### Install AGW UI'));
+    expect(uiSection).toContain('Certificate, Gateway');
+    expect(uiSection).toContain('https://agw-ui.example.com');
+    expect(uiSection).not.toContain('kubectl port-forward');
   });
 
   test('generate() with helmValues puts --set licenseKey before --values heredoc', async () => {
@@ -154,8 +155,12 @@ describe('InstallAdapter', () => {
 
   test('generate() without helmValues has no heredoc and includes --wait', async () => {
     const section = await InstallAdapter.generate({ labNum: 0 });
-    expect(section).not.toContain('<<EOF');
-    expect(section).toContain('--wait --timeout 5m');
+    const installSection = section.slice(
+      section.indexOf('### Install Agentgateway\n'),
+      section.indexOf('### Create the Default Gateway')
+    );
+    expect(installSection).not.toContain('<<EOF');
+    expect(installSection).toContain('--wait --timeout 5m');
   });
 
   test('generate() with resources renders apply section', async () => {
@@ -167,6 +172,55 @@ describe('InstallAdapter', () => {
     expect(section).toContain('kubectl apply -f - <<EOF');
     expect(section).not.toContain("kubectl apply -f - <<'EOF'");
     expect(section).toContain('EnterpriseAgentgatewayParameters');
+  });
+
+  test('generate() renders the default Gateway with access instructions', async () => {
+    const section = await InstallAdapter.generate({ labNum: 0 });
+    expect(section).toContain('### Create the Default Gateway');
+    expect(section).toContain('kind: Gateway');
+    expect(section).toContain('name: agentgateway-gw');
+    expect(section).toContain('gatewayClassName: enterprise-agentgateway');
+    expect(section).toContain(
+      "export AGW_GATEWAY_HOST=$(kubectl get svc agentgateway-gw -n ${AGW_NAMESPACE} -o jsonpath='{.status.loadBalancer.ingress[0].ip}{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null)"
+    );
+    expect(section).toContain('export AGW_GATEWAY_HOST=${AGW_GATEWAY_HOST:-localhost}');
+    expect(section).toContain('export AGW_GATEWAY_URL="http://${AGW_GATEWAY_HOST}:8080"');
+    expect(section).toContain(
+      'kubectl port-forward -n ${AGW_NAMESPACE} deployment/agentgateway-gw 8080:8080 &'
+    );
+  });
+
+  test('generate() picks up a custom GatewayClass name from profile resources', async () => {
+    // A name distinct from the edition default, so this only passes if the lookup
+    // actually ran - not coincidentally (the repo's own fixtures all happen to be
+    // named 'enterprise-agentgateway', same as the default).
+    const tmpRoot = mkdtempSync(join(tmpdir(), 'install-gatewayclass-'));
+    const profileDir = join(tmpRoot, 'config', 'profiles', 'test-profile');
+    await mkdir(profileDir, { recursive: true });
+    await writeFile(
+      join(profileDir, 'gatewayclass.yaml'),
+      'apiVersion: gateway.networking.k8s.io/v1\nkind: GatewayClass\nmetadata:\n  name: my-custom-class\nspec:\n  controllerName: example.com/controller\n'
+    );
+    try {
+      const section = await InstallAdapter.generate({
+        labNum: 0,
+        profileData: { resources: ['test-profile/gatewayclass.yaml'] },
+        projectRoot: tmpRoot,
+      });
+      const gatewaySection = section.slice(section.indexOf('### Create the Default Gateway'));
+      expect(gatewaySection).toContain('gatewayClassName: my-custom-class');
+    } finally {
+      await rm(tmpRoot, { recursive: true, force: true });
+    }
+  });
+
+  test('generate() adds an HTTPS listener when profile.gateway.mtls.enabled', async () => {
+    const profileData = { gateway: { mtls: { enabled: true, port: 8443 } } };
+    const section = await InstallAdapter.generate({ labNum: 0, profileData });
+    const gatewaySection = section.slice(section.indexOf('### Create the Default Gateway'));
+    expect(gatewaySection).toContain('name: https');
+    expect(gatewaySection).toContain('port: 8443');
+    expect(gatewaySection).toContain('gateway-mtls-server-tls');
   });
 
   test('generate() with missing resource outputs comment fallback', async () => {

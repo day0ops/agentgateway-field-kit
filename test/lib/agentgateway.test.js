@@ -66,6 +66,61 @@ describe('AgentGatewayManager.resolveVersionAndRegistry', () => {
   });
 });
 
+describe('AgentGatewayManager.buildDefaultGateway', () => {
+  test('null profile resolves to enterprise name/namespace/gatewayClassName defaults', async () => {
+    const gateway = await AgentGatewayManager.buildDefaultGateway(null, null);
+    expect(gateway.metadata.name).toBe('agentgateway-gw');
+    expect(gateway.metadata.namespace).toBe('agentgateway-system');
+    expect(gateway.spec.gatewayClassName).toBe('enterprise-agentgateway');
+    expect(gateway.spec.listeners).toHaveLength(1);
+  });
+
+  test('opensource edition resolves to its own Gateway name and GatewayClass default', async () => {
+    const gateway = await AgentGatewayManager.buildDefaultGateway({ edition: 'opensource' }, null);
+    expect(gateway.metadata.name).toBe('agentgateway-oss-gw');
+    expect(gateway.spec.gatewayClassName).toBe('agentgateway');
+  });
+
+  test('a GatewayClass among profile.resources overrides the default gatewayClassName', async () => {
+    const profile = {
+      resources: [{ kind: 'GatewayClass', metadata: { name: 'my-custom-class' } }],
+    };
+    const gateway = await AgentGatewayManager.buildDefaultGateway(profile, null);
+    expect(gateway.spec.gatewayClassName).toBe('my-custom-class');
+  });
+
+  test('profile.gateway.mtls.enabled adds an HTTPS listener and client-cert validation', async () => {
+    const profile = { gateway: { mtls: { enabled: true, port: 8443 } } };
+    const gateway = await AgentGatewayManager.buildDefaultGateway(profile, null);
+    const httpsListener = gateway.spec.listeners.find(l => l.name === 'https');
+    expect(httpsListener.port).toBe(8443);
+    expect(httpsListener.tls.certificateRefs[0].name).toBe('gateway-mtls-server-tls');
+    expect(gateway.spec.tls.frontend.default.validation.mode).toBe('AllowValidOnly');
+  });
+
+  test('profile.gateway.publicHttps.enabled adds a plain HTTPS listener with no client-cert requirement', async () => {
+    const profile = { gateway: { publicHttps: { enabled: true, port: 8444 } } };
+    const gateway = await AgentGatewayManager.buildDefaultGateway(profile, null);
+    const publicListener = gateway.spec.listeners.find(l => l.name === 'https-public');
+    expect(publicListener.port).toBe(8444);
+    expect(gateway.spec.tls.frontend.perPort).toEqual([{ port: 8444, tls: {} }]);
+  });
+
+  test('an EnterpriseAgentgatewayParameters resource without sharedExtensions wires infrastructure.parametersRef', async () => {
+    const profile = {
+      resources: [
+        { kind: 'EnterpriseAgentgatewayParameters', metadata: { name: 'gateway-params' } },
+      ],
+    };
+    const gateway = await AgentGatewayManager.buildDefaultGateway(profile, null);
+    expect(gateway.spec.infrastructure.parametersRef).toEqual({
+      name: 'gateway-params',
+      group: 'enterpriseagentgateway.solo.io',
+      kind: 'EnterpriseAgentgatewayParameters',
+    });
+  });
+});
+
 describe('AgentGatewayManager.installGatewayAPICRDs', () => {
   let originalKubectl, calls;
 

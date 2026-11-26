@@ -855,54 +855,39 @@ export class AgentGatewayManager {
     return null;
   }
 
-  static async installProxy(profileFile = null) {
-    const spinner = new SpinnerLogger();
-
-    const isInstalled = await this.verify();
-    if (!isInstalled) {
-      Logger.error('agentgateway is not installed. Run: agw base install first');
-      throw new Error('agentgateway not installed');
-    }
-
-    spinner.start('Creating agentgateway Gateway...');
-
-    let gatewayYaml = await readFile(DEFAULT_GATEWAY_YAML, 'utf8');
+  /**
+   * Build the default Gateway object (not yet applied/dumped) for a profile: namespace,
+   * name, gatewayClassName (from a profile GatewayClass resource or the edition default),
+   * and any mTLS/publicHttps listeners or infrastructure.parametersRef the profile
+   * configures. Pure - no cluster calls, no logging - so installProxy() can apply it and
+   * the runbook generator can render the identical YAML without duplicating this logic.
+   * @param {object|null} profile - parsed profile (or null for no profile / edition defaults)
+   * @param {string|null} profileDir - directory profile.resources paths resolve against
+   * @returns {Promise<object>} the Gateway object, ready for yaml.dump
+   */
+  static async buildDefaultGateway(profile, profileDir) {
+    const gatewayYaml = await readFile(DEFAULT_GATEWAY_YAML, 'utf8');
     const gateway = yaml.load(gatewayYaml);
 
-    // Ensure namespace matches AGENTGATEWAY_NAMESPACE
     if (gateway.metadata.namespace !== AGENTGATEWAY_NAMESPACE) {
       gateway.metadata.namespace = AGENTGATEWAY_NAMESPACE;
     }
 
-    // Wire parametersRef if profile has an EnterpriseAgentgatewayParameters resource
-    let profile = null;
-    let profileDir = null;
-    if (profileFile) {
-      profile = await this.loadProfile(profileFile);
-      profileDir = dirname(profileFile);
-    }
     const { edition } = this.resolveVersionAndRegistry(profile);
 
     // Use the resolved edition's own default Gateway name (byte-identical to the
     // hardcoded default in default-gateway.yaml for enterprise). Kept distinct from the
     // opensource release/chart name so the Gateway API controller's auto-provisioned
     // proxy Deployment/Service never collides with the controller's own resources.
-    const gatewayName = EDITION_GATEWAY_NAME[edition];
-    gateway.metadata.name = gatewayName;
+    gateway.metadata.name = EDITION_GATEWAY_NAME[edition];
 
     // Use custom GatewayClass from profile if defined; otherwise default to the
     // resolved edition's own default GatewayClass name (byte-identical to the
     // hardcoded default in default-gateway.yaml for enterprise).
     const profileGatewayClass = await this.findProfileGatewayClass(profile, profileDir);
-    if (profileGatewayClass) {
-      gateway.spec.gatewayClassName = profileGatewayClass.metadata.name;
-      spinner.info(`Using GatewayClass '${profileGatewayClass.metadata.name}' from profile`);
-    } else {
-      gateway.spec.gatewayClassName = EDITION_BASE_NAME[edition];
-    }
-
-    const gatewayHostname = profile?.gateway?.hostname;
-    const gatewaySourceRanges = profile?.gateway?.sourceRanges;
+    gateway.spec.gatewayClassName = profileGatewayClass
+      ? profileGatewayClass.metadata.name
+      : EDITION_BASE_NAME[edition];
 
     // Wire the HTTPS listener + client-cert validation the gateway-mtls addon's CA chain
     // and server cert support, so profiles that opt in get an mTLS-ready Gateway from
@@ -933,9 +918,6 @@ export class AgentGatewayManager {
           },
         },
       };
-      spinner.info(
-        `Enabling mTLS: HTTPS listener + client-cert validation added to Gateway on port ${mtlsPort}`
-      );
     }
 
     // Wire a second, plain HTTPS listener (real cert, no client-cert requirement) on the
@@ -963,25 +945,74 @@ export class AgentGatewayManager {
       gateway.spec.tls.frontend.default = gateway.spec.tls.frontend.default || {};
       gateway.spec.tls.frontend.perPort = gateway.spec.tls.frontend.perPort || [];
       gateway.spec.tls.frontend.perPort.push({ port, tls: {} });
-      spinner.info(`Enabling public HTTPS: listener added to Gateway on port ${port}`);
     }
 
     // Wire Gateway-level parameters (logging, etc.)
     const enterpriseParams = await this.findEnterpriseParameters(profile, profileDir);
     if (enterpriseParams) {
-      const paramsName = enterpriseParams.metadata?.name;
       gateway.spec = gateway.spec || {};
       gateway.spec.infrastructure = {
         parametersRef: {
-          name: paramsName,
+          name: enterpriseParams.metadata?.name,
           group: 'enterpriseagentgateway.solo.io',
           kind: 'EnterpriseAgentgatewayParameters',
         },
       };
-      spinner.info(`Attaching EnterpriseAgentgatewayParameters '${paramsName}' to Gateway`);
     }
 
-    gatewayYaml = yaml.dump(gateway, { lineWidth: -1, indent: 2 });
+    return gateway;
+  }
+
+  static async installProxy(profileFile = null) {
+    const spinner = new SpinnerLogger();
+
+    const isInstalled = await this.verify();
+    if (!isInstalled) {
+      Logger.error('agentgateway is not installed. Run: agw base install first');
+      throw new Error('agentgateway not installed');
+    }
+
+    spinner.start('Creating agentgateway Gateway...');
+
+    let profile = null;
+    let profileDir = null;
+    if (profileFile) {
+      profile = await this.loadProfile(profileFile);
+      profileDir = dirname(profileFile);
+    }
+
+    const gateway = await this.buildDefaultGateway(profile, profileDir);
+    const gatewayName = gateway.metadata.name;
+
+    const profileGatewayClass = await this.findProfileGatewayClass(profile, profileDir);
+    if (profileGatewayClass) {
+      spinner.info(`Using GatewayClass '${profileGatewayClass.metadata.name}' from profile`);
+    }
+
+    const gatewayHostname = profile?.gateway?.hostname;
+    const gatewaySourceRanges = profile?.gateway?.sourceRanges;
+
+    const mtls = profile?.gateway?.mtls;
+    if (mtls?.enabled) {
+      spinner.info(
+        `Enabling mTLS: HTTPS listener + client-cert validation added to Gateway on port ${mtls.port || 8443}`
+      );
+    }
+
+    const publicHttps = profile?.gateway?.publicHttps;
+    if (publicHttps?.enabled) {
+      spinner.info(
+        `Enabling public HTTPS: listener added to Gateway on port ${publicHttps.port || 443}`
+      );
+    }
+
+    if (gateway.spec.infrastructure?.parametersRef) {
+      spinner.info(
+        `Attaching EnterpriseAgentgatewayParameters '${gateway.spec.infrastructure.parametersRef.name}' to Gateway`
+      );
+    }
+
+    const gatewayYaml = yaml.dump(gateway, { lineWidth: -1, indent: 2 });
     await KubernetesHelper.applyYaml(gatewayYaml, spinner);
     spinner.succeed('agentgateway Gateway created');
 
