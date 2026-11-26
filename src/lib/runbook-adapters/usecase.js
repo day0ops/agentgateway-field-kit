@@ -4,6 +4,7 @@ import { existsSync } from 'fs';
 import { join } from 'path';
 import { UseCaseManager } from '../usecase.js';
 import { EnvironmentManager } from '../environment.js';
+import { UseCaseTestRunner } from '../usecase-tests.js';
 
 export const UseCaseAdapter = {
   /**
@@ -157,9 +158,10 @@ function _formatTitle(name) {
 }
 
 /**
- * Render a usecase's spec.tests array as readable prose: one subsection per
- * test, its setup/steps/teardown described in order. Used as the "Test It"
- * fallback when no companion .md "## Running" section exists.
+ * Render a usecase's spec.tests array as readable, runnable prose: one
+ * subsection per test, its setup/teardown as blockquotes and its steps as
+ * real curl commands with the expected outcome called out. Used as the
+ * "Test It" fallback when no companion .md "## Running" section exists.
  * @param {Array<object>|undefined} tests
  * @returns {string|null}
  */
@@ -175,14 +177,14 @@ function _renderTestsSection(tests) {
       lines.push('');
     }
     if (test.setup?.length > 0) {
-      lines.push(`**Setup:** ${test.setup.map(_describeTestStep).join('; ')}`);
+      lines.push(`> **Setup:** ${test.setup.map(_describeTestStep).join('; ')}`);
       lines.push('');
     }
-    const steps = (test.steps || []).map(_describeTestStep);
-    steps.forEach((desc, i) => lines.push(`${i + 1}. ${desc}`));
-    if (steps.length > 0) lines.push('');
+    for (const step of test.steps || []) {
+      lines.push(..._renderStepBlock(step));
+    }
     if (test.teardown?.length > 0) {
-      lines.push(`**Teardown:** ${test.teardown.map(_describeTestStep).join('; ')}`);
+      lines.push(`> **Teardown:** ${test.teardown.map(_describeTestStep).join('; ')}`);
       lines.push('');
     }
   }
@@ -190,33 +192,103 @@ function _renderTestsSection(tests) {
 }
 
 /**
- * Describe one test step in prose. send-request and verify (the two steps
- * every usecase test uses) get dedicated phrasing; every other action
- * (scale-deployment, set-budget, get-token, ...) falls back to a generic
- * `action`: key=value list so no step type is silently dropped.
+ * Render one test step as markdown lines: send-request becomes a runnable
+ * curl command against ${AGW_GATEWAY_URL} (set up in Lab 0's gateway access
+ * instructions), verify becomes a one-line "Expect:" summary, and every
+ * other action (scale-deployment, set-budget, get-token, ...) falls back to
+ * the same generic key=value description used for setup/teardown.
+ * @param {object} step
+ * @returns {string[]}
+ */
+function _renderStepBlock(step) {
+  if (step.action === 'send-request') {
+    const lines = ['**Send:**', ''];
+    if (step.tls) {
+      lines.push(
+        '_(this step requires a client certificate via `step.tls` - see the usecase YAML for the exact material; the command below omits it and will fail the TLS handshake as shown)_',
+        ''
+      );
+    }
+    lines.push('```bash', ..._buildCurlCommand(step), '```', '');
+    return lines;
+  }
+  if (step.action === 'verify') {
+    return [`**Expect:** ${_describeExpect(step.expect || {})}`, ''];
+  }
+  return [`- ${_describeTestStep(step)}`, ''];
+}
+
+/**
+ * Build a curl command for a send-request step, from the same
+ * UseCaseTestRunner.buildHttpRequestSpec() the real test runner uses - so the
+ * command actually matches what gets sent (headers, model/input/extraFields,
+ * scheme/port), not a hand-approximated subset of it. Adds -k for https steps
+ * (demo certs are typically self-signed, matching the real runner's own
+ * fallback when no CA was supplied), --connect-to for step.resolve (SNI
+ * pinning), and placeholder auth headers for step.auth (the real token/cookie
+ * comes from an earlier get-token/get-session-cookie step's live session
+ * state, which a static runbook can't reproduce) - all presentation-only,
+ * not part of what the real runner actually sends.
+ * @param {object} step
+ * @returns {string[]}
+ */
+function _buildCurlCommand(step) {
+  const { method, url, headers, body, methodAllowsBody, scheme, effectivePort } =
+    UseCaseTestRunner.buildHttpRequestSpec(step, { gateway: '${AGW_GATEWAY_HOST}' });
+
+  if (step.auth === 'bearer') {
+    headers.Authorization = 'Bearer <token from an earlier get-token step>';
+  } else if (step.auth === 'session') {
+    headers.Cookie = '<cookie from an earlier get-session-cookie step>';
+  }
+
+  const parts = [`curl -s -X ${method} "${url}"`];
+  if (scheme === 'https') parts.push('-k');
+  if (step.resolve) {
+    parts.push(
+      `--connect-to ${step.resolve.hostname}:${effectivePort}:\${AGW_GATEWAY_HOST}:${effectivePort}`
+    );
+  }
+  for (const [key, value] of Object.entries(headers)) {
+    parts.push(`-H ${_shellQuote(`${key}: ${value}`)}`);
+  }
+  if (methodAllowsBody) parts.push(`-d ${_shellQuote(body)}`);
+
+  return parts.map((part, i) => {
+    const isLast = i === parts.length - 1;
+    const prefix = i === 0 ? '' : '  ';
+    return `${prefix}${part}${isLast ? '' : ' \\'}`;
+  });
+}
+
+/**
+ * Quote a string for safe use as one POSIX shell word. Single-quotes by
+ * default (no expansion of any kind); switches to double-quotes when the
+ * value contains a literal ${VAR} placeholder (e.g. a usecase header value
+ * meant to pull from the reader's own environment, matching what
+ * UseCaseTestRunner.substituteEnvVarsInHeaders() does at live test-run time),
+ * so the reader's shell actually substitutes it on copy-paste.
+ */
+function _shellQuote(value) {
+  if (/\$\{\w+\}/.test(value)) {
+    const escaped = value.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/`/g, '\\`');
+    return `"${escaped}"`;
+  }
+  return `'${value.replaceAll("'", `'\\''`)}'`;
+}
+
+/**
+ * Describe one setup/teardown/fallback test step in prose as a generic
+ * `action`: key=value list, so no step type is silently dropped.
  * @param {object} step
  * @returns {string}
  */
 function _describeTestStep(step) {
-  switch (step.action) {
-    case 'send-request': {
-      const target = step.endpoint ? `\`POST ${step.endpoint}\`` : 'the gateway';
-      if (step.prompt) return `Send ${target} with prompt: "${step.prompt}"`;
-      if (step.body) return `Send ${target} with body: \`${JSON.stringify(step.body)}\``;
-      return `Send a request to ${target}`;
-    }
-    case 'verify':
-      return `Expect: ${_describeExpect(step.expect || {})}`;
-    default: {
-      const fields = Object.entries(step)
-        .filter(([key]) => key !== 'action')
-        .map(
-          ([key, value]) => `${key}=${typeof value === 'object' ? JSON.stringify(value) : value}`
-        )
-        .join(', ');
-      return fields ? `\`${step.action}\`: ${fields}` : `\`${step.action}\``;
-    }
-  }
+  const fields = Object.entries(step)
+    .filter(([key]) => key !== 'action')
+    .map(([key, value]) => `${key}=${typeof value === 'object' ? JSON.stringify(value) : value}`)
+    .join(', ');
+  return fields ? `\`${step.action}\`: ${fields}` : `\`${step.action}\``;
 }
 
 /** Describe a verify step's expect block as a compact key=value list. */

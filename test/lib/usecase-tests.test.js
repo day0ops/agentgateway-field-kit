@@ -68,6 +68,84 @@ describe('UseCaseTestRunner.sendHttpRequest', () => {
   });
 });
 
+describe('UseCaseTestRunner.buildHttpRequestSpec', () => {
+  test('defaults: prompt-only POST to /openai/v1/chat/completions with Content-Type', () => {
+    const spec = UseCaseTestRunner.buildHttpRequestSpec({ prompt: 'hi' }, { gateway: '127.0.0.1' });
+    expect(spec.method).toBe('POST');
+    expect(spec.url).toBe('http://127.0.0.1:8080/openai/v1/chat/completions');
+    expect(spec.headers['Content-Type']).toBe('application/json');
+    expect(JSON.parse(spec.body)).toEqual({ messages: [{ role: 'user', content: 'hi' }] });
+  });
+
+  test('no prompt and no body defaults the prompt to "Hello" (matches the live default)', () => {
+    const spec = UseCaseTestRunner.buildHttpRequestSpec({}, { gateway: '127.0.0.1' });
+    expect(JSON.parse(spec.body)).toEqual({ messages: [{ role: 'user', content: 'Hello' }] });
+  });
+
+  test('step.headers are forwarded, and an explicit Content-Type overrides the default', () => {
+    const spec = UseCaseTestRunner.buildHttpRequestSpec(
+      { prompt: 'hi', headers: { Authorization: 'Bearer tok', 'Content-Type': 'text/plain' } },
+      { gateway: '127.0.0.1' }
+    );
+    expect(spec.headers.Authorization).toBe('Bearer tok');
+    expect(spec.headers['Content-Type']).toBe('text/plain');
+  });
+
+  test('step.model is included in the prompt and input body shapes', () => {
+    const promptSpec = UseCaseTestRunner.buildHttpRequestSpec(
+      { prompt: 'hi', model: 'gpt-4o-mini' },
+      { gateway: '127.0.0.1' }
+    );
+    expect(JSON.parse(promptSpec.body).model).toBe('gpt-4o-mini');
+
+    const inputSpec = UseCaseTestRunner.buildHttpRequestSpec(
+      { input: 'hi', model: 'gpt-4o-mini' },
+      { gateway: '127.0.0.1' }
+    );
+    expect(JSON.parse(inputSpec.body)).toEqual({ model: 'gpt-4o-mini', input: 'hi' });
+  });
+
+  test('step.extraFields merges into the body regardless of which body shape is used', () => {
+    const spec = UseCaseTestRunner.buildHttpRequestSpec(
+      { prompt: 'hi', extraFields: { stream: true } },
+      { gateway: '127.0.0.1' }
+    );
+    expect(JSON.parse(spec.body).stream).toBe(true);
+  });
+
+  test('step.body as a string is sent as-is, ignoring extraFields merge into an object', () => {
+    const spec = UseCaseTestRunner.buildHttpRequestSpec(
+      { body: 'raw-body', extraFields: { stream: true } },
+      { gateway: '127.0.0.1' }
+    );
+    expect(spec.body).toBe('raw-body');
+  });
+
+  test('GET carries no body and no Content-Type header', () => {
+    const spec = UseCaseTestRunner.buildHttpRequestSpec(
+      { method: 'GET', endpoint: '/v1/models' },
+      { gateway: '127.0.0.1' }
+    );
+    expect(spec.methodAllowsBody).toBe(false);
+    expect(spec.body).toBeUndefined();
+    expect(spec.headers['Content-Type']).toBeUndefined();
+  });
+
+  test('scheme: https defaults to port 443 unless step.port overrides it', () => {
+    const defaultPort = UseCaseTestRunner.buildHttpRequestSpec(
+      { scheme: 'https', prompt: 'hi' },
+      { gateway: 'example.com' }
+    );
+    expect(defaultPort.url).toBe('https://example.com:443/openai/v1/chat/completions');
+
+    const overridden = UseCaseTestRunner.buildHttpRequestSpec(
+      { scheme: 'https', port: 8443, prompt: 'hi' },
+      { gateway: 'example.com' }
+    );
+    expect(overridden.url).toBe('https://example.com:8443/openai/v1/chat/completions');
+  });
+});
+
 describe('UseCaseTestRunner.resolveTlsMaterial', () => {
   test('passes through inline path strings unchanged', async () => {
     const { paths, tempFiles } = await UseCaseTestRunner.resolveTlsMaterial({

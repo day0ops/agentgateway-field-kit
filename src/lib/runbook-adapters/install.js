@@ -8,6 +8,7 @@ import {
   EDITION_OCI_REGISTRY,
   resolveEdition,
 } from '../editions.js';
+import { AgentGatewayManager } from '../agentgateway.js';
 
 // Defaults mirror src/lib/agentgateway.js constants
 const AGW_VERSION = process.env.AGENTGATEWAY_VERSION || '2.1.1';
@@ -183,6 +184,78 @@ export const InstallAdapter = {
     }
     sections.push('```');
 
+    // Additional resources (profile-specific) - applied for real inside AgentGatewayManager.install()
+    // (step 4, right after the Helm chart) before installProxy() reads them for the Gateway below.
+    if (profileData?.resources?.length > 0) {
+      sections.push('');
+      sections.push('### Apply Additional Resources');
+      sections.push('');
+      sections.push('Apply the following profile-specific resources:');
+      sections.push('');
+      for (const resource of profileData.resources) {
+        const resourcePath = join(projectRoot, 'config', 'profiles', resource);
+        let content;
+        try {
+          content = await readFile(resourcePath, 'utf8');
+        } catch {
+          sections.push(`# (resource not found: config/profiles/${resource})`);
+          continue;
+        }
+        const processedContent = content
+          .trimEnd()
+          .replaceAll('agentgateway-system', '${AGW_NAMESPACE}');
+        sections.push('```bash');
+        sections.push(`kubectl apply -f - <<EOF`);
+        sections.push(processedContent);
+        sections.push('EOF');
+        sections.push('```');
+      }
+    }
+
+    // Default Gateway (AgentGatewayManager.installProxy() - applied once per cluster;
+    // every usecase's HTTPRoute targets this object by name via parentRefs). Shares
+    // buildDefaultGateway() with the real install path so the two never drift apart.
+    const profileDir = join(projectRoot, 'config', 'profiles');
+    const gateway = await AgentGatewayManager.buildDefaultGateway(profileData, profileDir);
+    const gatewayName = gateway.metadata.name;
+    const gatewayYaml = yaml
+      .dump(gateway, { lineWidth: -1, indent: 2 })
+      .trimEnd()
+      .replaceAll('agentgateway-system', '${AGW_NAMESPACE}');
+
+    sections.push('');
+    sections.push('### Create the Default Gateway');
+    sections.push('');
+    sections.push(
+      "Every usecase's HTTPRoute targets this Gateway via `parentRefs` - create it once per cluster:"
+    );
+    sections.push('');
+    sections.push('```bash');
+    sections.push('kubectl apply -f - <<EOF');
+    sections.push(gatewayYaml);
+    sections.push('EOF');
+    sections.push('```');
+    sections.push('');
+    sections.push("Get the gateway's address and export it for the test commands below:");
+    sections.push('');
+    sections.push('```bash');
+    sections.push(
+      `export AGW_GATEWAY_HOST=$(kubectl get svc ${gatewayName} -n \${AGW_NAMESPACE} -o jsonpath='{.status.loadBalancer.ingress[0].ip}{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null)`
+    );
+    sections.push(`export AGW_GATEWAY_HOST=\${AGW_GATEWAY_HOST:-localhost}`);
+    sections.push(`export AGW_GATEWAY_URL="http://\${AGW_GATEWAY_HOST}:8080"`);
+    sections.push('```');
+    sections.push('');
+    sections.push(
+      'If no external address is assigned yet (bare/local clusters), port-forward instead - AGW_GATEWAY_HOST/AGW_GATEWAY_URL above already default to localhost:'
+    );
+    sections.push('');
+    sections.push('```bash');
+    sections.push(
+      `kubectl port-forward -n \${AGW_NAMESPACE} deployment/${gatewayName} 8080:8080 &`
+    );
+    sections.push('```');
+
     // AGW UI (enterprise-agentgateway-ui subchart, folded into the main chart's own release)
     const ui = profileData?.ui;
     if (ui?.enabled) {
@@ -246,42 +319,17 @@ export const InstallAdapter = {
         );
       } else {
         sections.push('');
-        sections.push('No hostname is configured, so reach the UI via port-forward instead:');
+        sections.push(
+          'No hostname is configured, so reach the UI via port-forward instead (a different local port than the gateway port-forward above, so both can run at once):'
+        );
         sections.push('');
         sections.push('```bash');
         sections.push(
-          `kubectl port-forward -n \${AGW_NAMESPACE} svc/enterprise-agentgateway-ui 8080:80`
+          `kubectl port-forward -n \${AGW_NAMESPACE} svc/enterprise-agentgateway-ui 8081:80`
         );
         sections.push('```');
         sections.push('');
-        sections.push('Then open http://localhost:8080.');
-      }
-    }
-
-    // Additional resources (profile-specific)
-    if (profileData?.resources?.length > 0) {
-      sections.push('');
-      sections.push('### Apply Additional Resources');
-      sections.push('');
-      sections.push('Apply the following profile-specific resources:');
-      sections.push('');
-      for (const resource of profileData.resources) {
-        const resourcePath = join(projectRoot, 'config', 'profiles', resource);
-        let content;
-        try {
-          content = await readFile(resourcePath, 'utf8');
-        } catch {
-          sections.push(`# (resource not found: config/profiles/${resource})`);
-          continue;
-        }
-        const processedContent = content
-          .trimEnd()
-          .replaceAll('agentgateway-system', '${AGW_NAMESPACE}');
-        sections.push('```bash');
-        sections.push(`kubectl apply -f - <<EOF`);
-        sections.push(processedContent);
-        sections.push('EOF');
-        sections.push('```');
+        sections.push('Then open http://localhost:8081.');
       }
     }
 

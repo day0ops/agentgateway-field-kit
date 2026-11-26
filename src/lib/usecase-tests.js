@@ -2263,22 +2263,32 @@ export class UseCaseTestRunner {
     }
   }
 
-  static async sendHttpRequest(gateway, step, spinner, timeout = 15000, port = 8080) {
+  /**
+   * Compute the method/url/headers/body a send-request step produces - the pure
+   * part of sendHttpRequest(), with no cluster/network/file calls. Shared with the
+   * runbook generator's curl-command renderer so the two can never drift on what a
+   * given step actually sends.
+   * @param {object} step
+   * @param {{ gateway: string, port?: number }} opts - gateway host/IP (or, for the
+   *   runbook generator, a placeholder like `${AGW_GATEWAY_HOST}`) and the
+   *   default HTTP port
+   * @returns {{ method: string, url: string, headers: Record<string,string>, body: string|undefined, methodAllowsBody: boolean, scheme: string, effectivePort: number }}
+   */
+  static buildHttpRequestSpec(step, { gateway, port = 8080 } = {}) {
     const endpoint = step.endpoint || '/openai/v1/chat/completions';
-    const method = step.method || 'POST';
-    const headers = step.headers || {};
+    const method = (step.method || 'POST').toUpperCase();
     const prompt = step.prompt || 'Hello';
     const model = step.model;
     const scheme = step.scheme === 'https' ? 'https' : 'http';
     // https defaults to 443 unless the step overrides the port explicitly.
     const effectivePort = step.port ?? (scheme === 'https' ? 443 : port);
     // step.resolve lets the URL/SNI use a hostname distinct from the gateway address
-    // (e.g. SNI-matching), while curl's --resolve maps it back to the real IP.
+    // (e.g. SNI-matching), while curl's --resolve/--connect-to maps it back to the real IP.
     const urlHost = step.resolve?.hostname || gateway;
 
     // GET/HEAD carry no request body — attaching one via curl's -d would force a body
     // curl doesn't send by default for these methods, breaking passthrough routes like /v1/models.
-    const methodAllowsBody = !['GET', 'HEAD'].includes(method.toUpperCase());
+    const methodAllowsBody = !['GET', 'HEAD'].includes(method);
 
     let body;
     if (methodAllowsBody) {
@@ -2302,12 +2312,24 @@ export class UseCaseTestRunner {
       }
     }
 
+    // Content-Type defaults first (matching curl -H flag order), then the step's own
+    // headers, so an explicit step.headers['Content-Type'] always wins.
+    const headers = {};
+    if (methodAllowsBody && !step.headers?.['Content-Type']) {
+      headers['Content-Type'] = 'application/json';
+    }
+    Object.assign(headers, step.headers || {});
+
     const url = `${scheme}://${urlHost}:${effectivePort}${endpoint}`;
 
+    return { method, url, headers, body, methodAllowsBody, scheme, effectivePort };
+  }
+
+  static async sendHttpRequest(gateway, step, spinner, timeout = 15000, port = 8080) {
+    const { method, url, headers, body, methodAllowsBody, scheme, effectivePort } =
+      this.buildHttpRequestSpec(step, { gateway, port });
+
     const headerArgs = [];
-    if (methodAllowsBody && !headers['Content-Type']) {
-      headerArgs.push('-H', 'Content-Type: application/json');
-    }
     for (const [k, v] of Object.entries(headers)) {
       headerArgs.push('-H', `${k}: ${v}`);
     }
