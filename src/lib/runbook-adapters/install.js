@@ -244,6 +244,17 @@ export const InstallAdapter = {
         sections.push(
           `A Certificate, Gateway (\`agw-enterprise-ui-https\`), and HTTPRoute (\`agw-enterprise-ui\`) are also created for \`https://${ui.hostname}\`, pointed at the chart's \`enterprise-agentgateway-ui\` Service on port 80.`
         );
+      } else {
+        sections.push('');
+        sections.push('No hostname is configured, so reach the UI via port-forward instead:');
+        sections.push('');
+        sections.push('```bash');
+        sections.push(
+          `kubectl port-forward -n \${AGW_NAMESPACE} svc/enterprise-agentgateway-ui 8080:80`
+        );
+        sections.push('```');
+        sections.push('');
+        sections.push('Then open http://localhost:8080.');
       }
     }
 
