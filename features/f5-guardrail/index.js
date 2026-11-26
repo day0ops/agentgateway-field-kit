@@ -5,22 +5,22 @@ import { policyApiVersion, POLICY_KIND } from '../../src/lib/editions.js';
 /**
  * F5 Guardrail Feature
  *
- * Deploys an F5 AI Security (CAI) guardrail webhook adapter and wires it into the
+ * Deploys an F5 AI Guardrails guardrail webhook adapter and wires it into the
  * promptGuard API's webhook variant (backend.ai.promptGuard.request/response[].webhook)
  * as pre-hook (request) and/or post-hook (response) guardrails. Enterprise-only: no
  * OSS agentgateway.dev CRD equivalent exists for promptGuard.
  *
- * Server source: companion f5-guardrail-webhook-adapter repo.
+ * Server source: companion day0ops/f5-guardrail-webhook repo.
  *
  * Unlike guardrail-webhook's optional Opik project name, F5_AISEC_URL and CAI_PROJECT
- * are required environment variables (not optional config) - the F5 AI Security backend
+ * are required environment variables (not optional config) - the F5 AI Guardrails backend
  * needs all three credentials (URL, project, token) to function at all, so deploy() fails
  * fast rather than deploying a webhook that can't actually reach F5.
  *
  * Configuration:
  * {
  *   webhook: {
- *     image: string,            // Container image (default: GAR f5-guardrail-webhook:latest)
+ *     image: string,            // Container image (default: GAR f5-guardrail-webhook:0.1.0)
  *     port: number,             // Container/service port (default: 8000)
  *     serviceName: string,      // Kubernetes service name (default: f5-guardrail-webhook)
  *   },
@@ -42,7 +42,7 @@ export class F5GuardrailFeature extends Feature {
   get webhookConfig() {
     const defaults = {
       image:
-        'australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/f5-guardrail-webhook:latest',
+        'australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/f5-guardrail-webhook:0.1.0',
       port: 8000,
       serviceName: 'f5-guardrail-webhook',
     };
@@ -106,6 +106,11 @@ export class F5GuardrailFeature extends Feature {
   async deployWebhookServer() {
     const { image, port, serviceName } = this.webhookConfig;
 
+    // Validate required env vars before creating any Kubernetes resource, so a
+    // misconfigured deploy fails fast instead of leaving a partial Secret behind.
+    const f5AisecUrl = this.requireEnv('F5_AISEC_URL');
+    const caiProject = this.f5Config.projectName || this.requireEnv('CAI_PROJECT');
+
     await this.applyResource({
       apiVersion: 'v1',
       kind: 'ServiceAccount',
@@ -123,8 +128,8 @@ export class F5GuardrailFeature extends Feature {
     await this.ensureF5Secret();
 
     const env = [
-      { name: 'F5_AISEC_URL', value: this.requireEnv('F5_AISEC_URL') },
-      { name: 'CAI_PROJECT', value: this.f5Config.projectName || this.requireEnv('CAI_PROJECT') },
+      { name: 'F5_AISEC_URL', value: f5AisecUrl },
+      { name: 'CAI_PROJECT', value: caiProject },
       {
         name: 'F5_AISEC_TOKEN',
         valueFrom: {

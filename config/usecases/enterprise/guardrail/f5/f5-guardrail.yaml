@@ -6,7 +6,7 @@ metadata:
     Content filtering via F5 AI Guardrails (formerly CalypsoAI), routed through an out-of-band webhook adapter.
 
     - Pre/post-hook webhooks send every request and response to F5's Scan API
-    - Prompts and responses matching a configured scanner are blocked or redacted
+    - Prompts matching a configured scanner can be blocked or redacted; responses can only be redacted, never blocked
     - Requires a pre-existing F5 AI Guardrails project with scanners already enabled - agw only deploys the adapter and wires up credentials, it does not provision F5-side scanner policy. See features/f5-guardrail/SETUP.md for how to get an account, create a project, and enable scanners before deploying this usecase.
   docs: https://docs.solo.io/agentgateway/latest/llm/guardrails/overview/
 
@@ -47,7 +47,7 @@ spec:
 
     - title: Deploy F5 guardrail webhook
       description: |
-        Deploy the F5 AI Guardrails webhook adapter and apply pre-hook (request) and post-hook (response) guardrail policies. Every prompt and response is sent to the configured F5 project's Scan API, which blocks or redacts content per that project's scanners.
+        Deploy the F5 AI Guardrails webhook adapter and apply pre-hook (request) and post-hook (response) guardrail policies. Every prompt and response is sent to the configured F5 project's Scan API, which can block or redact prompts and redact (but never block) responses per that project's scanners.
       features:
         - name: f5-guardrail
           description: F5 AI Guardrails webhook with request/response scanning
@@ -71,11 +71,7 @@ spec:
           expect:
             status: success
 
-    # Placeholder - must be confirmed against the real CAI_PROJECT's scanners before this
-    # test is trustworthy. The prompt assumes a keyword scanner configured per
-    # features/f5-guardrail/SETUP.md's example table, and `reason` is F5's scanner name
-    # (joined with ", " if more than one scanner trips) - adjust both to match whatever
-    # the target project actually has enabled.
+    # Requires the scanners configured in features/f5-guardrail/SETUP.md.
     - name: block-banned-phrase
       description: Block requests matching a keyword scanner configured on the F5 project
       steps:
@@ -87,10 +83,7 @@ spec:
             status: blocked
             reason: 'keyword-scanner'
 
-    # Placeholder - must be confirmed against the real CAI_PROJECT's scanners before this
-    # test is trustworthy. Matches guardrail-webhook's mask-credit-card prompt for
-    # consistency; assumes a redact-mode regex scanner for credit card numbers per
-    # features/f5-guardrail/SETUP.md's example table.
+    # Requires the scanners configured in features/f5-guardrail/SETUP.md.
     - name: mask-credit-card
       description: Mask credit card numbers in prompts via an F5 redact-mode scanner
       steps:

@@ -83,4 +83,15 @@ describe('F5GuardrailFeature', () => {
     expect(policy.spec.backend.ai.promptGuard.request).toBeDefined();
     expect(policy.spec.backend.ai.promptGuard.response).toBeUndefined();
   });
+
+  test('request: false omits the request webhook entry entirely', async () => {
+    const docs = await FeatureManager.deploy(
+      'f5-guardrail',
+      { ...config, request: false },
+      { dryRun: true }
+    );
+    const policy = policyDoc(docs);
+    expect(policy.spec.backend.ai.promptGuard.response).toBeDefined();
+    expect(policy.spec.backend.ai.promptGuard.request).toBeUndefined();
+  });
 });
