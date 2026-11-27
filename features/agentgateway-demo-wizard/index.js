@@ -116,6 +116,11 @@ export class AgentgatewayDemoWizardFeature extends Feature {
           ? '<set OAUTH_TOKEN_EXCHANGE_CLIENT_SECRET>'
           : process.env.OAUTH_TOKEN_EXCHANGE_CLIENT_SECRET,
         AGW_DEMO_WIZARD_USER_PASSWORD: process.env.AGW_DEMO_WIZARD_USER_PASSWORD || 'Password1!',
+        TENANT_ACME_CLIENT_SECRET: process.env.TENANT_ACME_CLIENT_SECRET || 'acme-team-eng-secret',
+        TENANT_GLOBEX_CLIENT_SECRET:
+          process.env.TENANT_GLOBEX_CLIENT_SECRET || 'globex-team-sales-secret',
+        TENANT_INITECH_CLIENT_SECRET:
+          process.env.TENANT_INITECH_CLIENT_SECRET || 'initech-team-dev-secret',
       },
     });
   }
