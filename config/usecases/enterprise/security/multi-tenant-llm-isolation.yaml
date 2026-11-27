@@ -4,6 +4,8 @@ metadata:
   name: multi-tenant-llm-isolation
   description: |
     Four org tenants share one LLM route behind a dedicated Gateway. multi-org-jwt-routing proves which tenant a token belongs to; this proves what each tenant can actually reach and spend on a shared model. A deny-by-default CEL rule entitles only acme and globex to the route - initech authenticates successfully but is denied the model outright. acme and globex each get an independent spend budget, so exhausting one tenant's budget never blocks the other's requests on the same route.
+
+    WARNING: this usecase and the agentgateway-demo-wizard usecase's multi-tenant isolation pillar collide on several agentgateway-system object names (the agentgateway-tenants Gateway, its openai route/backend, JWT policy, tenant-budgets, echo-backend, keycloak-jwks). Do not deploy both to the same cluster - whichever is applied last silently wins, and cleaning up either one can delete the other's Gateway.
   docs: https://docs.solo.io/agentgateway/latest/llm/rbac/
 
 spec:

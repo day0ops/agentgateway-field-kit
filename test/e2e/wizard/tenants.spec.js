@@ -1,9 +1,9 @@
 // test/e2e/wizard/tenants.spec.js
 //
-// Requires a live deployed cluster with the Task 1 usecase applied (the
-// dedicated "agentgateway-tenants" Gateway and its JWT/CEL/budget policies).
-// Not runnable in a sandboxed/local-only session - pending the first real
-// deploy, same constraint the design doc states for this pillar.
+// Requires a live deployed cluster with the agentgateway-demo-wizard usecase
+// applied (the dedicated "agentgateway-tenants" Gateway and its JWT/CEL/budget
+// policies). Not runnable in a sandboxed/local-only session - pending the
+// first real deploy.
 import { test, expect } from '@playwright/test';
 import { gotoPillar, nextStep, sendPreset } from './helpers.js';
 
@@ -42,6 +42,12 @@ test.describe('Tenants pillar', () => {
     await test.step("initech's forged header is overwritten on the unprotected echo route", async () => {
       const body = await sendPreset(page, "initech's forged header, overwritten (echo)");
       expect(body).toContain('200');
+      // Echo backend is httpbin's /headers, which title-cases header names in its
+      // JSON response. Match the field itself, not a bare substring - "acme asks
+      // (entitled)" is a preset title on the same page and would false-positive a
+      // plain toContain('acme') check.
+      expect(body).toMatch(/"X-Gw-Org-Id":\s*"initech"/i);
+      expect(body).not.toMatch(/"X-Gw-Org-Id":\s*"acme"/i);
     });
 
     await test.step('a request with no valid JWT never reaches the entitlement check', async () => {

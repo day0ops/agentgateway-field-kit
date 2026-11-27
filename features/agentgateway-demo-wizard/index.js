@@ -45,6 +45,9 @@ const DEFAULT_IMAGE =
  * Required environment variables (validated in validate()): OPENAI_API_KEY,
  * OAUTH_TOKEN_EXCHANGE_CLIENT_SECRET. AGW_DEMO_WIZARD_USER_PASSWORD defaults to
  * 'Password1!' (the literal baked into every profile's agw-dev realm config) when unset.
+ * TENANT_ACME_CLIENT_SECRET, TENANT_GLOBEX_CLIENT_SECRET, and
+ * TENANT_INITECH_CLIENT_SECRET default to 'acme-team-eng-secret',
+ * 'globex-team-sales-secret', and 'initech-team-dev-secret' respectively when unset.
  */
 export class AgentgatewayDemoWizardFeature extends Feature {
   static REQUIRES_GATEWAY = true;

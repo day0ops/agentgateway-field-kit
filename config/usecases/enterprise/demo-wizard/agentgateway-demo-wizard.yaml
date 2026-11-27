@@ -9,6 +9,8 @@ metadata:
     - Banking auth pillar: real ADK agents and MCP infrastructure demonstrating Impersonation, MCP tool-level RBAC, Delegation (nested act chain), and Elicitation (Stripe sandbox, Interactive + Brokered)
     - Tool-modes pillar: federates Core Banking + stock + currency MCP servers under Standard/Search toolMode routes so the wizard's savings scoreboard measures a real gateway, not a mock - Code/CodeSearch are omitted since the model's generated code isn't deterministic enough for a repeatable demo
     - Multi-tenant isolation pillar: deploys a dedicated agentgateway-tenants Gateway proving cross-tenant entitlement (deny-by-default CEL rule), header-forgery resistance, and independent per-tenant budgets across three Keycloak org realms (acme, globex, initech) on one shared model route - requires a profile with those realms seeded (eks-enterprise-agentgateway-complete, its -lts variant, or agentgateway-with-keycloak)
+
+    WARNING: this usecase's multi-tenant isolation pillar and the standalone multi-tenant-llm-isolation usecase collide on several agentgateway-system object names (the agentgateway-tenants Gateway, its openai route/backend, JWT policy, tenant-budgets, echo-backend, keycloak-jwks). Do not deploy both to the same cluster - whichever is applied last silently wins, and cleaning up either one can delete the other's Gateway.
   docs: https://docs.solo.io/agentgateway/latest/mcp/token-exchange/
 spec:
   steps:
@@ -468,6 +470,7 @@ spec:
                     from: All
 
     - title: Configure the shared tenant model route
+      description: One /tenants/chat route in front of a single model, shared by every tenant.
       features:
         - name: providers
           config:
@@ -478,6 +481,7 @@ spec:
                 model: gpt-4o-mini
 
     - title: Validate tenant identity
+      description: Three org realms authenticate against the dedicated Gateway.
       features:
         - name: multi-org-jwt-auth
           config:
@@ -490,6 +494,8 @@ spec:
               - { realm: org-initech, orgId: initech }
 
     - title: Gate the shared model by tenant entitlement
+      description: |
+        Deny-by-default CEL rule: only acme and globex are entitled to this model. initech authenticates successfully but is denied the route itself, not just mislabeled.
       features:
         - name: cel-based-rbac
           config:
@@ -504,6 +510,8 @@ spec:
                 }
 
     - title: Cap spend per tenant
+      description: |
+        Independent budgets per org_id on the same route. globex's budget is deliberately tiny so it's exhausted before the first request is forwarded, proving acme's own budget and access are unaffected.
       features:
         - name: budget-limits
           config:
