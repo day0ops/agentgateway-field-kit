@@ -81,3 +81,5 @@ spec:
             expression: 'default(coalesce(apiKey.user, apiKey.name, apiKey.owner, jwt.sub, jwt.email, source.identity.namespace + "/" + source.identity.serviceAccount, source.subjectCn), "")'
           - name: virtual_key
             expression: 'default(apiKey.id, "")'
+          - name: guardrails
+            expression: 'default(toJson(guardrails), "[]")'
