@@ -1,0 +1,858 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [],
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 5002,
+      "panels": [],
+      "title": "Identity & Access",
+      "type": "row"
+    },
+    {
+      "gridPos": {
+        "h": 3,
+        "w": 24,
+        "x": 0,
+        "y": 1
+      },
+      "id": 5003,
+      "options": {
+        "content": "**Every request already carries its actor and tenant attribution**: `user`, `group`, `virtual_key`, `jwt.org_id`/`jwt.team_id`, plus HTTP method/path/status. Org/team attribution is populated by usecases such as `multi-org-jwt-routing` (projects `x-gw-org-id`/`x-gw-team-id` headers) and `tiered-cost-control` (org/team/user budget subjects). This row answers *who did what, as which tenant, and was it let through*.",
+        "mode": "markdown"
+      },
+      "title": "",
+      "type": "text"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 0,
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 4
+      },
+      "id": 5004,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "title": "Requests (24h)",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "sum(increase(agentgateway_requests_total{namespace=~\"$namespace\"}[24h]))",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "description": "Requests rejected before any identity could be established.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 0,
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "blue",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 4
+      },
+      "id": 5005,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "title": "Authentication Denials - 401 (24h)",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "sum(count_over_time({namespace=~\"$namespace\"} | logfmt | http_status_code=\"401\" [24h]))",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "description": "Requests with a valid identity, denied by RBAC/ReBAC policy.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 0,
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 4
+      },
+      "id": 5006,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "title": "Authorization Denials - 403 (24h)",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "sum(count_over_time({namespace=~\"$namespace\"} | logfmt | http_status_code=\"403\" [24h]))",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "description": "Requests denied by a budget or rate-limit policy. See the Budget Enforcement row below for detail.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 0,
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 4
+      },
+      "id": 5007,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "title": "Budget/Rate Denials - 429 (24h)",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "sum(count_over_time({namespace=~\"$namespace\"} | logfmt | http_status_code=\"429\" [24h]))",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisPlacement": "auto",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1,
+            "pointSize": 5,
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "id": 5008,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "title": "Access Denials Over Time (401 / 403 / 429)",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum(rate({namespace=~\"$namespace\"} | logfmt | http_status_code=\"401\" [$__interval]))",
+          "legendFormat": "401 unauthenticated",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate({namespace=~\"$namespace\"} | logfmt | http_status_code=\"403\" [$__interval]))",
+          "legendFormat": "403 forbidden",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(rate({namespace=~\"$namespace\"} | logfmt | http_status_code=\"429\" [$__interval]))",
+          "legendFormat": "429 budget/rate-limit",
+          "refId": "C"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "description": "Requires a usecase that populates jwt.org_id, e.g. multi-org-jwt-routing or tiered-cost-control.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisPlacement": "auto",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1,
+            "pointSize": 5,
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "id": 5009,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "title": "Allowed Requests by Org (24h)",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum by (jwt_org_id) (rate({namespace=~\"$namespace\"} | logfmt | user=~\"$user\" | jwt_org_id=~\"$org_id\" | jwt_team_id=~\"$team_id\" | http_status_code=\"200\" [$__interval]))",
+          "legendFormat": "{{jwt_org_id}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          }
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 16
+      },
+      "id": 5010,
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true
+      },
+      "title": "Denials by User / Org / Team (24h)",
+      "type": "table",
+      "targets": [
+        {
+          "expr": "topk(50, sum by (user, jwt_org_id, jwt_team_id, http_status_code) (count_over_time({namespace=~\"$namespace\"} | logfmt | user=~\"$user\" | jwt_org_id=~\"$org_id\" | jwt_team_id=~\"$team_id\" | http_status_code=~\"401|403|429\" [24h])))",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "labelsToFields",
+          "options": {}
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 24
+      },
+      "id": 5011,
+      "panels": [],
+      "title": "LLM Guardrail Decisions",
+      "type": "row"
+    },
+    {
+      "gridPos": {
+        "h": 3,
+        "w": 24,
+        "x": 0,
+        "y": 25
+      },
+      "id": 5012,
+      "options": {
+        "content": "**Populated by any guardrail integration** - the built-in prompt-guards policy, `guardrail-webhook` (Opik), `f5-guardrail`, or a Bedrock guardrail - since they all report through the same guardrail-check instrumentation. A vendor swap never requires a new panel. This row does **not** cover MCP guardrails - see the row below.",
+        "mode": "markdown"
+      },
+      "title": "",
+      "type": "text"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Prompt or response blocked outright by a guardrail scanner. Metric name/labels unverified live - confirm against a running cluster.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 0,
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 0,
+        "y": 28
+      },
+      "id": 5013,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "title": "Guardrail Reject (24h)",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "sum(increase(agentgateway_guardrail_checks_total{namespace=~\"$namespace\", action=\"reject\"}[24h]))",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Sensitive content redacted in place rather than blocked.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 0,
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 8,
+        "y": 28
+      },
+      "id": 5014,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "title": "Guardrail Mask (24h)",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "sum(increase(agentgateway_guardrail_checks_total{namespace=~\"$namespace\", action=\"mask\"}[24h]))",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Scanner match recorded but traffic allowed through unchanged.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 0,
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 16,
+        "y": 28
+      },
+      "id": 5015,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "title": "Guardrail Audit (24h)",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "sum(increase(agentgateway_guardrail_checks_total{namespace=~\"$namespace\", action=\"audit\"}[24h]))",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Metric name/labels unverified live - confirm against a running cluster before presenting.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisPlacement": "auto",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 1,
+            "pointSize": 5,
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 32
+      },
+      "id": 5016,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "title": "Guardrail Actions Over Time",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "sum by (action) (rate(agentgateway_guardrail_checks_total{namespace=~\"$namespace\", action=~\"reject|mask|audit\"}[$__rate_interval]))",
+          "legendFormat": "{{action}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "description": "Best-effort: the guardrails field is a JSON array embedded in a logfmt line; validate this query against a live cluster before presenting.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          }
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 32
+      },
+      "id": 5017,
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true
+      },
+      "title": "Guardrail Actions by User / Org (24h)",
+      "type": "table",
+      "targets": [
+        {
+          "expr": "topk(50, sum by (user, jwt_org_id, http_status_code) (count_over_time({namespace=~\"$namespace\"} |= \"guardrails=\" | logfmt | guardrails=~\".*\\\"action\\\":\\\"(reject|mask|audit)\\\".*\" | user=~\"$user\" | jwt_org_id=~\"$org_id\" [24h])))",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "labelsToFields",
+          "options": {}
+        }
+      ]
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 40
+      },
+      "id": 5018,
+      "panels": [],
+      "title": "Budget Enforcement (cross-reference)",
+      "type": "row"
+    },
+    {
+      "gridPos": {
+        "h": 3,
+        "w": 24,
+        "x": 0,
+        "y": 41
+      },
+      "id": 5019,
+      "options": {
+        "content": "Budget/spend denials (Block vs Audit, by budget) already have their own dashboard: see the **Budget Enforcement** row of the **Agent Gateway Cost Control** dashboard. Not duplicated here to avoid two sources of truth for the same underlying data.",
+        "mode": "markdown"
+      },
+      "title": "",
+      "type": "text"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 44
+      },
+      "id": 5020,
+      "panels": [],
+      "title": "MCP Guardrails",
+      "type": "row"
+    },
+    {
+      "gridPos": {
+        "h": 4,
+        "w": 24,
+        "x": 0,
+        "y": 45
+      },
+      "id": 5021,
+      "options": {
+        "content": "**Tool deny-listing, tool-description sanitization, and PII masking on MCP tool calls are enforced today** - see the `extmcp-tool-deny`, `extmcp-tool-poisoning`, and `extmcp-pii-masking` usecases (also packaged as the `mcp-guardrails` walkthrough). Each guardrail decision is made by the ext-mcp-guardrail processor, and each processor call already appears as a trace span (method and target, but not yet the decision itself). **Per-decision audit panels will land here once the processor emits a structured decision log** alongside its existing enforcement - that is a small follow-up to the processor itself, not a gap in agentgateway.",
+        "mode": "markdown"
+      },
+      "title": "",
+      "type": "text"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": [
+    "agentgateway",
+    "security",
+    "audit"
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "label_values(agentgateway_requests_total, namespace)",
+        "includeAll": true,
+        "multi": true,
+        "name": "namespace",
+        "query": "label_values(agentgateway_requests_total, namespace)",
+        "refresh": 2,
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": ".*",
+          "value": ".*"
+        },
+        "description": "Filter by the \"user\" access-log attribute (regex). Default .* matches everything.",
+        "label": "User",
+        "name": "user",
+        "options": [],
+        "query": ".*",
+        "type": "textbox"
+      },
+      {
+        "current": {
+          "text": ".*",
+          "value": ".*"
+        },
+        "description": "Filter by jwt.org_id (regex). Default .* matches everything.",
+        "label": "Org ID",
+        "name": "org_id",
+        "options": [],
+        "query": ".*",
+        "type": "textbox"
+      },
+      {
+        "current": {
+          "text": ".*",
+          "value": ".*"
+        },
+        "description": "Filter by jwt.team_id (regex). Default .* matches everything.",
+        "label": "Team ID",
+        "name": "team_id",
+        "options": [],
+        "query": ".*",
+        "type": "textbox"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Agent Gateway Security & Access Audit",
+  "uid": "agentgateway-security-audit",
+  "version": 1
+}
