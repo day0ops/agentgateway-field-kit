@@ -267,3 +267,49 @@ describe('mcp-core-capabilities walkthrough (real file)', () => {
     ]);
   });
 });
+
+describe('mcp-guardrails walkthrough (real file)', () => {
+  test('loads successfully as an enterprise walkthrough with three screens in order', async () => {
+    const walkthrough = await WalkthroughManager.load(
+      join(WalkthroughManager.WALKTHROUGHS_DIR, 'mcp-guardrails.yaml')
+    );
+    expect(walkthrough.edition).toBe('enterprise');
+    expect(walkthrough.screens.map(s => s.name)).toEqual([
+      'tool-deny',
+      'tool-poisoning',
+      'pii-masking',
+    ]);
+  });
+
+  test('each screen targets a distinct backend/policy name, so screens never collide', async () => {
+    const walkthrough = await WalkthroughManager.load(
+      join(WalkthroughManager.WALKTHROUGHS_DIR, 'mcp-guardrails.yaml')
+    );
+    const guardrailConfigs = walkthrough.screens.map(
+      s => s.setup.find(f => f.name === 'mcp-guardrails').config
+    );
+    const backendNames = guardrailConfigs.map(c => c.backendName);
+    const policyNames = guardrailConfigs.map(c => c.policyName);
+    const serverNames = guardrailConfigs.map(c => c.serverName);
+    expect(new Set(backendNames).size).toBe(backendNames.length);
+    expect(new Set(policyNames).size).toBe(policyNames.length);
+    expect(new Set(serverNames).size).toBe(serverNames.length);
+  });
+
+  test('every HTTPRoute actually created across screens has a unique name', async () => {
+    const walkthrough = await WalkthroughManager.load(
+      join(WalkthroughManager.WALKTHROUGHS_DIR, 'mcp-guardrails.yaml')
+    );
+    // mcp-server skips its route entirely when createRoute: false (a backend reached only
+    // through another feature's own route); mcp-enterprise always creates one.
+    const routeNames = walkthrough.screens
+      .flatMap(s => s.setup)
+      .filter(
+        f =>
+          f.name === 'mcp-enterprise' || (f.name === 'mcp-server' && f.config.createRoute !== false)
+      )
+      .map(f => f.config.routeName);
+    expect(routeNames.length).toBeGreaterThan(0);
+    expect(new Set(routeNames).size).toBe(routeNames.length);
+  });
+});
