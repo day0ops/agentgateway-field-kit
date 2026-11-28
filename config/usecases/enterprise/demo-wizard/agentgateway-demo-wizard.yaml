@@ -8,6 +8,9 @@ metadata:
     - Routing pillar: pre-provisions the model-by-name, dynamic-tier, and fallback backends it displays
     - Banking auth pillar: real ADK agents and MCP infrastructure demonstrating Impersonation, MCP tool-level RBAC, Delegation (nested act chain), and Elicitation (Stripe sandbox, Interactive + Brokered)
     - Tool-modes pillar: federates Core Banking + stock + currency MCP servers under Standard/Search toolMode routes so the wizard's savings scoreboard measures a real gateway, not a mock - Code/CodeSearch are omitted since the model's generated code isn't deterministic enough for a repeatable demo
+    - Multi-tenant isolation pillar: deploys a dedicated agentgateway-tenants Gateway proving cross-tenant entitlement (deny-by-default CEL rule), header-forgery resistance, and independent per-tenant budgets across three Keycloak org realms (acme, globex, initech) on one shared model route - requires a profile with those realms seeded (eks-enterprise-agentgateway-complete, its -lts variant, or agentgateway-with-keycloak)
+
+    WARNING: this usecase's multi-tenant isolation pillar and the standalone multi-tenant-llm-isolation usecase collide on several agentgateway-system object names (the agentgateway-tenants Gateway, its openai route/backend, JWT policy, tenant-budgets, echo-backend, keycloak-jwks). Do not deploy both to the same cluster - whichever is applied last silently wins, and cleaning up either one can delete the other's Gateway.
   docs: https://docs.solo.io/agentgateway/latest/mcp/token-exchange/
 spec:
   steps:
@@ -447,4 +450,212 @@ spec:
                 kind: HTTPRoute
                 name: agentgateway-demo-wizard-secure
 
-  tests: []
+    # Appended last: the `gateway` feature below becomes the implicit target gateway for
+    # any later feature invocation without an explicit gatewayName (none of the steps
+    # above use `gateway`, so they're unaffected). The providers step right after relies
+    # on this default to land the shared tenant route on agentgateway-tenants, not the
+    # shared gateway.
+    - title: Deploy a dedicated Gateway for tenant traffic
+      description: Tenant traffic gets its own Gateway so Strict JWT validation never touches the shared one.
+      features:
+        - name: gateway
+          config:
+            name: agentgateway-tenants
+            listeners:
+              - name: http
+                port: 8080
+                protocol: HTTP
+                allowedRoutes:
+                  namespaces:
+                    from: All
+
+    - title: Configure the shared tenant model route
+      description: One /tenants/chat route in front of a single model, shared by every tenant.
+      features:
+        - name: providers
+          config:
+            providers:
+              - name: openai
+                providerName: openai
+                pathPrefix: /tenants/chat
+                model: gpt-4o-mini
+
+    - title: Validate tenant identity
+      description: Three org realms authenticate against the dedicated Gateway.
+      features:
+        - name: multi-org-jwt-auth
+          config:
+            gatewayName: agentgateway-tenants
+            keycloakHost: '{{env.domains.core.keycloak}}'
+            injectOrgHeaders: true
+            orgRealms:
+              - { realm: org-acme, orgId: acme }
+              - { realm: org-globex, orgId: globex }
+              - { realm: org-initech, orgId: initech }
+
+    - title: Gate the shared model by tenant entitlement
+      description: |
+        Deny-by-default CEL rule: only acme and globex are entitled to this model. initech authenticates successfully but is denied the route itself, not just mislabeled.
+      features:
+        - name: cel-based-rbac
+          config:
+            action: Allow
+            expressions:
+              - "jwt.org_id in ['acme', 'globex']"
+            targetRefs:
+              - {
+                  group: gateway.networking.k8s.io,
+                  kind: HTTPRoute,
+                  name: agentgateway-tenants-openai,
+                }
+
+    - title: Cap spend per tenant
+      description: |
+        Independent budgets per org_id on the same route. globex's budget is deliberately tiny so it's exhausted before the first request is forwarded, proving acme's own budget and access are unaffected.
+      features:
+        - name: budget-limits
+          config:
+            budgetsResourceName: tenant-budgets
+            policyName: tenant-budget-enforcement
+            targetRefs:
+              - {
+                  group: gateway.networking.k8s.io,
+                  kind: HTTPRoute,
+                  name: agentgateway-tenants-openai,
+                }
+            budgets:
+              - name: acme-monthly
+                subject: { org_id: acme }
+                limit: { unit: Tokens, amount: 100000 }
+                window: { unit: Month }
+                onBudgetExceeded: Block
+              - name: globex-monthly
+                subject: { org_id: globex }
+                limit: { unit: Tokens, amount: 1 }
+                window: { unit: Month }
+                onBudgetExceeded: Block
+
+  # spec.tests below defaults to the first `gateway` feature found in steps
+  # (usecase-tests.js), which is now agentgateway-tenants - any test added later for this
+  # file's other steps needs an explicit gatewayName.
+  tests:
+    - name: acme-allowed
+      description: acme is entitled to the shared tenant model and has budget - the request reaches it.
+      steps:
+        - action: get-token
+          keycloak:
+            hostname: '{{env.domains.core.keycloak}}'
+            scheme: '{{env.keycloak.scheme}}'
+            realm: org-acme
+            clientId: acme-team-eng
+            clientSecret: acme-team-eng-secret
+            grantType: client_credentials
+        - action: send-request
+          endpoint: /tenants/chat
+          auth: bearer
+          model: gpt-4o-mini
+          prompt: 'What is 2+2?'
+        - action: verify
+          expect:
+            statusCode: 200
+
+    - name: globex-budget-blocked
+      description: |
+        globex is entitled to the route, but its 1-token monthly budget is exceeded before the request is forwarded - independent of acme's budget on the same route.
+      steps:
+        - action: get-token
+          keycloak:
+            hostname: '{{env.domains.core.keycloak}}'
+            scheme: '{{env.keycloak.scheme}}'
+            realm: org-globex
+            clientId: globex-team-sales
+            clientSecret: globex-team-sales-secret
+            grantType: client_credentials
+        - action: send-request
+          endpoint: /tenants/chat
+          auth: bearer
+          model: gpt-4o-mini
+          prompt: 'Hello'
+        - action: verify
+          expect:
+            statusCode: 429
+
+    - name: initech-denied-403
+      description: |
+        initech authenticates successfully against its own org JWKS, but the deny-by-default CEL entitlement rule denies the route outright - a valid identity is not enough to reach a model the tenant isn't provisioned for.
+      steps:
+        - action: get-token
+          keycloak:
+            hostname: '{{env.domains.core.keycloak}}'
+            scheme: '{{env.keycloak.scheme}}'
+            realm: org-initech
+            clientId: initech-team-dev
+            clientSecret: initech-team-dev-secret
+            grantType: client_credentials
+        - action: send-request
+          endpoint: /tenants/chat
+          auth: bearer
+          model: gpt-4o-mini
+          prompt: 'Hello'
+        - action: verify
+          expect:
+            statusCode: 403
+
+    - name: initech-forged-header-still-403
+      description: |
+        initech forges the x-gw-org-id header the gateway injects, claiming to be acme. Still denied: the CEL entitlement rule reads the verified jwt.org_id claim, never the client-supplied header - the header is not a trust boundary for authorization.
+      steps:
+        - action: get-token
+          keycloak:
+            hostname: '{{env.domains.core.keycloak}}'
+            scheme: '{{env.keycloak.scheme}}'
+            realm: org-initech
+            clientId: initech-team-dev
+            clientSecret: initech-team-dev-secret
+            grantType: client_credentials
+        - action: send-request
+          endpoint: /tenants/chat
+          auth: bearer
+          model: gpt-4o-mini
+          prompt: 'Hello'
+          headers:
+            x-gw-org-id: acme
+        - action: verify
+          expect:
+            statusCode: 403
+
+    - name: initech-forged-header-echo-overwritten
+      description: |
+        Mechanical proof the gateway overwrites the forged header rather than trusting it: initech's JWT plus a forged x-gw-org-id: acme header reaches the echo backend showing x-gw-org-id=initech, the verified claim, not the forged value. GET is required - the echo route rewrites to httpbin's /headers, which only accepts GET, and URLRewrite doesn't change the original method.
+      steps:
+        - action: get-token
+          keycloak:
+            hostname: '{{env.domains.core.keycloak}}'
+            scheme: '{{env.keycloak.scheme}}'
+            realm: org-initech
+            clientId: initech-team-dev
+            clientSecret: initech-team-dev-secret
+            grantType: client_credentials
+        - action: send-request
+          endpoint: /org-routing/echo
+          method: GET
+          auth: bearer
+          headers:
+            x-gw-org-id: acme
+        - action: verify
+          expect:
+            statusCode: 200
+            contains: initech
+            notContains: acme
+
+    - name: invalid-jwt-401
+      description: Tampered JWT signature is rejected with 401 before reaching any entitlement or budget check.
+      steps:
+        - action: send-request
+          endpoint: /tenants/chat
+          method: POST
+          headers:
+            Authorization: Bearer eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ0YW1wZXJlZCJ9.invalidsig
+        - action: verify
+          expect:
+            statusCode: 401

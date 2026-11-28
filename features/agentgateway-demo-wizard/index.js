@@ -45,6 +45,9 @@ const DEFAULT_IMAGE =
  * Required environment variables (validated in validate()): OPENAI_API_KEY,
  * OAUTH_TOKEN_EXCHANGE_CLIENT_SECRET. AGW_DEMO_WIZARD_USER_PASSWORD defaults to
  * 'Password1!' (the literal baked into every profile's agw-dev realm config) when unset.
+ * TENANT_ACME_CLIENT_SECRET, TENANT_GLOBEX_CLIENT_SECRET, and
+ * TENANT_INITECH_CLIENT_SECRET default to 'acme-team-eng-secret',
+ * 'globex-team-sales-secret', and 'initech-team-dev-secret' respectively when unset.
  */
 export class AgentgatewayDemoWizardFeature extends Feature {
   static REQUIRES_GATEWAY = true;
@@ -116,6 +119,11 @@ export class AgentgatewayDemoWizardFeature extends Feature {
           ? '<set OAUTH_TOKEN_EXCHANGE_CLIENT_SECRET>'
           : process.env.OAUTH_TOKEN_EXCHANGE_CLIENT_SECRET,
         AGW_DEMO_WIZARD_USER_PASSWORD: process.env.AGW_DEMO_WIZARD_USER_PASSWORD || 'Password1!',
+        TENANT_ACME_CLIENT_SECRET: process.env.TENANT_ACME_CLIENT_SECRET || 'acme-team-eng-secret',
+        TENANT_GLOBEX_CLIENT_SECRET:
+          process.env.TENANT_GLOBEX_CLIENT_SECRET || 'globex-team-sales-secret',
+        TENANT_INITECH_CLIENT_SECRET:
+          process.env.TENANT_INITECH_CLIENT_SECRET || 'initech-team-dev-secret',
       },
     });
   }

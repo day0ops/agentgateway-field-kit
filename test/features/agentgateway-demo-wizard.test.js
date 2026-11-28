@@ -131,6 +131,28 @@ describe('AgentgatewayDemoWizardFeature', () => {
       }
     ));
 
+  test('tenant client secrets default to the demo profile values when unset', () =>
+    withEnv(
+      {
+        OPENAI_API_KEY: 'sk-test',
+        OAUTH_TOKEN_EXCHANGE_CLIENT_SECRET: 'secret',
+        TENANT_ACME_CLIENT_SECRET: '',
+        TENANT_GLOBEX_CLIENT_SECRET: '',
+        TENANT_INITECH_CLIENT_SECRET: '',
+      },
+      async () => {
+        const docs = await FeatureManager.deploy(
+          'agentgateway-demo-wizard',
+          { namespace: 'agentgateway-system' },
+          { dryRun: true }
+        );
+        const secret = findDoc(docs, 'Secret', 'agentgateway-demo-wizard-env');
+        expect(secret.stringData.TENANT_ACME_CLIENT_SECRET).toBe('acme-team-eng-secret');
+        expect(secret.stringData.TENANT_GLOBEX_CLIENT_SECRET).toBe('globex-team-sales-secret');
+        expect(secret.stringData.TENANT_INITECH_CLIENT_SECRET).toBe('initech-team-dev-secret');
+      }
+    ));
+
   test('validate() throws when a required secret env var is missing', async () => {
     const originalKey = process.env.OPENAI_API_KEY;
     delete process.env.OPENAI_API_KEY;
