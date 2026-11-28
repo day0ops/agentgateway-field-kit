@@ -55,7 +55,7 @@ spec:
       quota-management-ui: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/quota-management-ui:0.1.3
       quota-ratelimit-extproc: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/quota-ratelimit-extproc:0.1.3
     guardrails:
-      opik-guardrail-webhook: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/opik-guardrail-webhook:0.1.2
+      opik-guardrail-webhook: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/opik-guardrail-webhook:0.1.0
       ext-mcp-guardrail: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/ext-mcp-guardrail:latest
       f5-guardrail-webhook: australia-southeast1-docker.pkg.dev/field-engineering-apac/kasunt/f5-guardrail-webhook:0.1.0
     openfga:
